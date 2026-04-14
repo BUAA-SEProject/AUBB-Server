@@ -6,8 +6,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class AubbServerApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(AubbServerApplication.class, args);
-	}
+    public static void main(String[] args) {
+        SpringApplication.run(AubbServerApplication.class, args);
+    }
 
 }
