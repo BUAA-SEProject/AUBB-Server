@@ -1,76 +1,55 @@
 # 发现与决策
 
-## 当前任务基线
+## todo 进度盘点
 
-- 当前模块级顶层结构是健康的，热点不在“模块拆分不够”，而在少数层内部文件过于平铺。
-- 当前最拥挤的目录集中在：
-  - `modules/course/application` 15 个文件
-  - `modules/course/infrastructure` 12 个文件
-  - `modules/course/domain` 12 个文件
-  - `modules/identityaccess/domain` 11 个文件
-  - `modules/identityaccess/application/user` 11 个文件
-  - `modules/identityaccess/infrastructure` 10 个文件
+### 当前已落地的能力
 
-## 接入建模结论
+- 平台治理基线：
+  - 学校 / 学院 / 课程 / 班级四层组织
+  - JWT 登录、账号状态、多身份治理、组织作用域管理员
+  - 用户基础资料、教务画像、组织成员关系、批量导入
+  - 平台配置、基础审计、公开健康检查
+- 课程系统第一切片：
+  - 学期、课程模板、开课实例、教学班
+  - 课程成员、教师 / 助教 / 学生课程级权限
+  - 教学班功能开关
+- 作业、提交与评测当前切片：
+  - 作业创建、发布、关闭
+  - 课程公共作业 / 教学班专属作业
+  - 学生文本与附件正式提交、学生查看本人提交、教师按作业查看提交
+  - 提交附件上传、关联与下载
+  - 提交后自动创建评测作业、学生/教师查看评测作业、教师重排队
+- 基础设施：
+  - MinIO 共享对象存储服务
+  - PostgreSQL + Flyway + MyBatis-Plus
 
-- `course` 模块的拥挤主要来自三类平铺：
-  - `application` 中服务类和大量 `View/Command/Result` 记录类混放
-  - `domain` 中多个子场景的枚举全部平铺
-  - `infrastructure` 中多个聚合的 `Entity/Mapper` 对平铺
-- `identityaccess` 模块的拥挤模式类似，尤其是 `application/user`、`domain` 和 `infrastructure`。
-- 这类热点适合做“层内再分组”，例如：
-  - `application/view`、`application/command`、`application/result`
-  - `domain/account`、`domain/membership`、`domain/profile`、`domain/governance`
-  - `infrastructure/user`、`infrastructure/profile`、`infrastructure/role`
-- `config`、`common/storage`、测试目录当前文件数可接受，不需要为了凑整继续拆。
+### 当前明确未完成的主链路能力
 
-## 待特别验证的规则
+- 工程快照 / 工作区草稿
+- go-judge 执行器接入、沙箱执行、结果回写
+- 人工批改、评分反馈、成绩发布
+- 课程资源正文、公告通知、成绩统计
+- 学生自主选课 / 退课 / 分班
 
-- 拆分后仍需保持现有模块边界和职责语义清晰。
-- 目录优化不能让 import 关系更混乱，不能制造循环依赖。
-- 目录说明文档需要同步到“层内允许按职责细分子包”。
+## 本轮切片选择依据
 
-## 本轮落地结果
+- `todo.md` 第八部分要求支持代码 / 文件 / 报告提交。
+- `docs/plan.md` 明确要求先打通“提交 -> 评测作业持久化”的主链路，再扩真实执行器。
+- 仓库已经具备 MinIO 接入和测试基础设施，附件提交是当前最自然的下一步。
+- 附件提交打通后，`judge` 骨架成为最短的后续主链路缺口。
 
-- `course/application` 仅保留应用服务，记录类拆到：
-  - `application/view`
-  - `application/command`
-  - `application/result`
-- `course/domain` 按子场景拆到：
-  - `term`
-  - `catalog`
-  - `offering`
-  - `member`
-  - `teaching`
-- `course/infrastructure` 按聚合拆到：
-  - `term`
-  - `catalog`
-  - `offering`
-  - `member`
-  - `teaching`
-- `identityaccess/application/user` 仅保留应用服务，记录类拆到：
-  - `view`
-  - `command`
-  - `result`
-- `identityaccess/domain` 按子场景拆到：
-  - `account`
-  - `profile`
-  - `governance`
-  - `membership`
-- `identityaccess/infrastructure` 按聚合拆到：
-  - `user`
-  - `profile`
-  - `membership`
-  - `role`
+## 设计边界
 
-## 新的仓库约束
+- 先实现“正式提交附件”能力，再实现“评测作业自动入队”骨架。
+- 采用 `submission_artifacts` 表记录附件元数据，不把对象元数据放入共享目录。
+- 学生先上传附件，再在创建正式提交时关联附件；附件一旦关联，不允许被其他提交复用。
+- 附件下载走服务端鉴权后读取对象存储，避免在本轮先暴露独立预签名 API 契约。
+- `judge_jobs` 先只表达作业入队、状态和重排队，不在本轮直接调用 go-judge。
 
-- 对已经出现目录拥挤的模块，不再允许把大量 `View / Command / Result` 继续直接平铺回顶层 `application`。
-- 对已经拆过的 `domain` 和 `infrastructure` 层，不再允许把多个子场景或聚合的类型重新塞回层根目录。
-- 使用 `RepositoryStructureTests` 固化上述约束，避免目录退化。
+## 待验证要点
 
-## 后续建议
-
-- 新增业务模块先从四层结构起步，不要一开始就过度细分。
-- 当某层直接文件数明显升高并出现职责分化时，再增量拆出职责子目录。
-- 继续优先沿用当前 `course` 和 `identityaccess` 的细分方式，降低全仓目录风格漂移。
+- 附件上传必须受 assignment 可见性和学生身份限制。
+- 附件与正式提交绑定后，学生和有权限的教师都能查看元数据并下载内容。
+- `submissions` 现有版本留痕通过 `attempt_no` 保持不变，附件作为提交版本的一部分挂接。
+- 正式提交后必须自动生成一条 `PENDING` 评测作业，教师重排队会新增新的作业记录。
+- 迁移、测试和文档必须同步收口。

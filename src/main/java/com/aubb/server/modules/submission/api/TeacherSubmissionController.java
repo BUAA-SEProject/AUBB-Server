@@ -3,8 +3,13 @@ package com.aubb.server.modules.submission.api;
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.submission.application.SubmissionApplicationService;
+import com.aubb.server.modules.submission.application.SubmissionArtifactDownload;
 import com.aubb.server.modules.submission.application.SubmissionView;
+import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,5 +43,24 @@ public class TeacherSubmissionController {
     public SubmissionView detail(
             @PathVariable Long submissionId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return submissionApplicationService.getTeacherSubmission(submissionId, principal);
+    }
+
+    @GetMapping("/submission-artifacts/{artifactId}/download")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<byte[]> downloadArtifact(
+            @PathVariable Long artifactId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return toDownloadResponse(submissionApplicationService.downloadTeacherArtifact(artifactId, principal));
+    }
+
+    private ResponseEntity<byte[]> toDownloadResponse(SubmissionArtifactDownload artifactDownload) {
+        MediaType mediaType = MediaType.parseMediaType(artifactDownload.contentType());
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(artifactDownload.originalFilename(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header("Content-Disposition", disposition.toString())
+                .contentLength(artifactDownload.content().length)
+                .body(artifactDownload.content());
     }
 }

@@ -1,48 +1,57 @@
 # 进度日志
 
-## Session: 2026-04-15 代码目录结构优化
+## Session: 2026-04-16 todo 驱动的开发推进与提交附件切片
 
-### Phase 1：热点目录审查与拆分方案
+### Phase 1：todo 进度盘点与计划更新
 
 - **Status:** completed
-- **Started:** 2026-04-15
+- **Started:** 2026-04-16
 - Actions taken:
-  - 读取当前 planning 文件并恢复上下文
-  - 统计 `src/main/java`、`src/test/java`、`docs` 的目录文件密度
-  - 锁定 `course` 和 `identityaccess` 为当前真正的热点模块
-  - 明确采用“层内按职责细分子包”的重组方案
+  - 读取 `todo.md`、`AGENTS.md`、`README.md`、`ARCHITECTURE.md`、`docs/plan.md` 与当前产品规格
+  - 恢复 `task_plan.md`、`findings.md`、`progress.md` 工作记忆
+  - 盘点当前模块实现，确认仓库已覆盖平台治理、课程、assignment 和 submission 第一切片
+  - 锁定当前主链路缺口为“提交附件 / 代码 / 文件 / 报告上传”
 - Files created/modified:
   - `task_plan.md`
   - `findings.md`
   - `progress.md`
 
-### Phase 2：目录重组与导入修正
+### Phase 2：提交附件能力设计与实现
 
 - **Status:** completed
-- **Started:** 2026-04-15
 - Actions taken:
-  - 将 `course` 模块的 `View / Command / Result`、枚举和 `Entity / Mapper` 按职责拆到子目录
-  - 将 `identityaccess` 模块的用户视图、命令、结果、领域子场景和持久化对象按职责拆到子目录
-  - 批量修正包声明、跨模块 import 与同层服务的显式 import
-  - 通过 `./mvnw -q -DskipTests compile` 确认重排后源码重新可编译
+  - 新增 `V6__submission_artifact_slice.sql`，引入 `submission_artifacts` 表并放宽 `submissions.content_text` 为可空
+  - 在 `modules.submission` 中新增附件上传、正式提交关联、学生/教师下载能力
+  - 复用 MinIO 共享对象存储，并在业务层显式保留附件元数据与授权边界
+  - 新增 `SUBMISSION_ARTIFACT_UPLOADED` 审计动作
 - Files created/modified:
-  - `src/main/java/com/aubb/server/modules/course/**`
-  - `src/main/java/com/aubb/server/modules/identityaccess/**`
+  - `src/main/java/com/aubb/server/modules/submission/**`
+  - `src/main/resources/db/migration/V6__submission_artifact_slice.sql`
+  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
 
-### Phase 3：文档同步与收尾
+### Phase 3：测试与文档同步
 
 - **Status:** completed
-- **Started:** 2026-04-15
 - Actions taken:
-  - 更新 `ARCHITECTURE.md` 与 `docs/repository-structure.md`，明确层内允许按职责细分子目录
-  - 为目录密度约束新增 `RepositoryStructureTests` 回归，防止热点目录重新平铺
-  - 将 `GovernanceRolePolicyTests`、`PasswordPolicyTests` 同步迁到新的领域子目录
-  - 执行 `./mvnw spotless:apply`、`./mvnw -Dtest=RepositoryStructureTests test` 和 `./mvnw clean verify`，验证通过
-  - 补充本次目录优化的执行计划归档
-- Files created/modified:
-  - `ARCHITECTURE.md`
-  - `docs/repository-structure.md`
-  - `docs/exec-plans/completed/2026-04-15-directory-layout-optimization.md`
-  - `src/test/java/com/aubb/server/RepositoryStructureTests.java`
-  - `src/test/java/com/aubb/server/modules/identityaccess/domain/account/PasswordPolicyTests.java`
-  - `src/test/java/com/aubb/server/modules/identityaccess/domain/governance/GovernanceRolePolicyTests.java`
+  - 扩展 `SubmissionIntegrationTests`，覆盖附件上传、正式提交关联、教师下载和附件复用校验
+  - 已执行 `bash ./mvnw -Dtest=SubmissionIntegrationTests test` 并通过
+  - 已同步 `todo.md`、产品规格、对象存储和数据库结构文档
+
+### Phase 4：judge 第一切片
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V7__judge_first_slice.sql`，引入 `judge_jobs` 表
+  - 新建 `modules.judge`，覆盖自动入队、学生/教师查询和教师重排队
+  - 在 `SubmissionApplicationService` 中接入“提交后自动创建评测作业”
+  - 扩展 `SubmissionIntegrationTests`，覆盖自动入队与重排队，并通过专项测试
+  - 已同步 judge 产品规格、架构与数据库文档
+
+### Phase 5：验证与提交
+
+- **Status:** in_progress
+- Actions taken:
+  - 已执行 `bash ./mvnw spotless:apply`
+  - 已执行 `bash ./mvnw clean verify`
+  - 当前 `BUILD SUCCESS`，共 `48` 个测试通过
+  - 正在整理本轮 git 提交范围，排除与本任务无关的既有改动

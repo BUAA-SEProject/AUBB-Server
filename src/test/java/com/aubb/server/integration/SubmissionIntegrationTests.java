@@ -1,12 +1,17 @@
 package com.aubb.server.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -14,14 +19,36 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
+@Testcontainers
 class SubmissionIntegrationTests extends AbstractIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    private static final DockerImageName MINIO_IMAGE =
+            DockerImageName.parse("minio/minio:RELEASE.2025-09-07T16-13-09Z");
+    private static final String MINIO_ACCESS_KEY = "aubbminio";
+    private static final String MINIO_SECRET_KEY = "aubbminio-secret";
+    private static final String MINIO_BUCKET = "aubb-submission-test-assets";
+
+    @Container
+    static final GenericContainer<?> MINIO_CONTAINER = new GenericContainer<>(MINIO_IMAGE)
+            .withEnv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
+            .withEnv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
+            .withCommand("server", "/data", "--console-address", ":9001")
+            .withExposedPorts(9000, 9001)
+            .waitingFor(Wait.forHttp("/minio/health/live").forPort(9000).forStatusCode(200));
 
     @Autowired
     private MockMvc mockMvc;
@@ -29,11 +56,25 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @DynamicPropertySource
+    static void registerProperties(DynamicPropertyRegistry registry) {
+        registry.add("aubb.storage.minio.enabled", () -> "true");
+        registry.add("aubb.storage.minio.auto-create-bucket", () -> "true");
+        registry.add(
+                "aubb.storage.minio.endpoint",
+                () -> "http://" + MINIO_CONTAINER.getHost() + ":" + MINIO_CONTAINER.getMappedPort(9000));
+        registry.add("aubb.storage.minio.access-key", () -> MINIO_ACCESS_KEY);
+        registry.add("aubb.storage.minio.secret-key", () -> MINIO_SECRET_KEY);
+        registry.add("aubb.storage.minio.bucket", () -> MINIO_BUCKET);
+    }
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    judge_jobs,
+                    submission_artifacts,
                     submissions,
                     assignments,
                     course_members,
@@ -127,6 +168,150 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .isEqualTo(1);
         assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'SUBMISSION_CREATED'"))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void studentUploadsArtifactsCreatesSubmissionAndTeacherDownloadsArtifact() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "附件提交作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long artifactId = uploadArtifact(studentAToken, assignmentId, "answer.py", "text/x-python", "print('AUBB')\n");
+        Long submissionId = createSubmission(studentAToken, assignmentId, "代码见附件", artifactId);
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artifacts.length()").value(1))
+                .andExpect(jsonPath("$.artifacts[0].id").value(artifactId))
+                .andExpect(jsonPath("$.artifacts[0].originalFilename").value("answer.py"))
+                .andExpect(jsonPath("$.artifacts[0].sizeBytes").value(14));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artifacts.length()").value(1))
+                .andExpect(jsonPath("$.artifacts[0].originalFilename").value("answer.py"));
+
+        mockMvc.perform(get("/api/v1/teacher/submission-artifacts/{artifactId}/download", artifactId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", containsString("answer.py")))
+                .andExpect(content().bytes("print('AUBB')\n".getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM submission_artifacts WHERE assignment_id = 1"))
+                .isEqualTo(1);
+        assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'SUBMISSION_ARTIFACT_UPLOADED'"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void studentCannotReuseArtifactAcrossSubmissions() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "附件复用校验作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                3);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long artifactId = uploadArtifact(studentAToken, assignmentId, "report.txt", "text/plain", "第一次版本");
+        createSubmission(studentAToken, assignmentId, "第一次提交", artifactId);
+
+        mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "contentText":"第二次提交",
+                                  "artifactIds":[%s]
+                                }
+                                """.formatted(artifactId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("SUBMISSION_ARTIFACT_ALREADY_ATTACHED"));
+    }
+
+    @Test
+    void submissionAutoCreatesJudgeJobAndTeacherCanRequeue() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "自动评测骨架作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "等待自动评测");
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].submissionId").value(submissionId))
+                .andExpect(jsonPath("$[0].status").value("PENDING"))
+                .andExpect(jsonPath("$[0].triggerType").value("AUTO"))
+                .andExpect(jsonPath("$[0].engineCode").value("GO_JUDGE"));
+
+        mockMvc.perform(post("/api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue", submissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.triggerType").value("MANUAL_REJUDGE"));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].triggerType").value("MANUAL_REJUDGE"))
+                .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM judge_jobs WHERE submission_id = 1"))
+                .isEqualTo(2);
+        assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'JUDGE_JOB_ENQUEUED'"))
+                .isEqualTo(2);
     }
 
     @Test
@@ -463,17 +648,37 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
     }
 
-    private Long createSubmission(String token, Long assignmentId, String contentText) throws Exception {
+    private Long createSubmission(String token, Long assignmentId, String contentText, Long... artifactIds)
+            throws Exception {
+        String artifactIdsJson = java.util.Arrays.stream(artifactIds)
+                .map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
         MvcResult result = mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
                         .header("Authorization", "Bearer " + token)
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "contentText":"%s"
+                                  "contentText":"%s",
+                                  "artifactIds":[%s]
                                 }
-                                """.formatted(contentText)))
+                                """.formatted(contentText, artifactIdsJson)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("SUBMITTED"))
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
+    private Long uploadArtifact(String token, Long assignmentId, String filename, String contentType, String content)
+            throws Exception {
+        MockMultipartFile file =
+                new MockMultipartFile("file", filename, contentType, content.getBytes(StandardCharsets.UTF_8));
+        MvcResult result = mockMvc.perform(
+                        multipart("/api/v1/me/assignments/{assignmentId}/submission-artifacts", assignmentId)
+                                .file(file)
+                                .header("Authorization", "Bearer " + token))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.originalFilename").value(filename))
+                .andExpect(jsonPath("$.contentType").value(contentType))
                 .andReturn();
         return readLong(result, "$.id");
     }

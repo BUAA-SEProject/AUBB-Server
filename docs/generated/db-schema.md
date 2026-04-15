@@ -7,6 +7,8 @@
 - `src/main/resources/db/migration/V3__course_system_first_slice.sql`
 - `src/main/resources/db/migration/V4__assignment_first_slice.sql`
 - `src/main/resources/db/migration/V5__submission_first_slice.sql`
+- `src/main/resources/db/migration/V6__submission_artifact_slice.sql`
+- `src/main/resources/db/migration/V7__judge_first_slice.sql`
 
 ## 总览
 
@@ -26,6 +28,8 @@
 - `course_members`：课程成员
 - `assignments`：作业主数据
 - `submissions`：正式提交记录
+- `submission_artifacts`：提交附件元数据
+- `judge_jobs`：评测作业元数据
 - `audit_logs`：关键治理与认证审计日志
 
 ## 表结构
@@ -235,7 +239,7 @@
 | `submitter_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
 | `attempt_no` | `integer` | 必填，`> 0` |
 | `status` | `text` | 必填，默认 `SUBMITTED` |
-| `content_text` | `text` | 必填，最长 20000 |
+| `content_text` | `text` | 可空，最长 20000 |
 | `submitted_at` | `timestamptz` | 必填，默认 `now()` |
 | `created_at` | `timestamptz` | 必填，默认 `now()` |
 | `updated_at` | `timestamptz` | 必填，默认 `now()` |
@@ -246,6 +250,59 @@
 - `ix_submissions_assignment_id_submitted_at`
 - `ix_submissions_submitter_user_id_submitted_at`
 - `ix_submissions_offering_id_submitted_at`
+
+### `submission_artifacts`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
+| `submission_id` | `bigint` | 可空，外键到 `submissions.id`，级联删除 |
+| `uploader_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `object_key` | `text` | 必填，唯一，最长 255 |
+| `original_filename` | `text` | 必填，最长 255 |
+| `content_type` | `text` | 必填，最长 128 |
+| `size_bytes` | `bigint` | 必填，`> 0` 且当前不超过 20MB |
+| `uploaded_at` | `timestamptz` | 必填，默认 `now()` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_submission_artifacts_assignment_user_uploaded_at`
+- `ix_submission_artifacts_submission_id`
+- `ix_submission_artifacts_offering_id_uploaded_at`
+
+### `judge_jobs`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `submission_id` | `bigint` | 必填，外键到 `submissions.id`，级联删除 |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
+| `submitter_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `requested_by_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `trigger_type` | `text` | 必填，`AUTO / MANUAL_REJUDGE` |
+| `status` | `text` | 必填，默认 `PENDING`，`PENDING / RUNNING / SUCCEEDED / FAILED` |
+| `engine_code` | `text` | 必填，当前固定为 `GO_JUDGE` |
+| `engine_job_ref` | `text` | 可空，最长 128 |
+| `result_summary` | `text` | 结果摘要扩展位 |
+| `queued_at` | `timestamptz` | 必填，默认 `now()` |
+| `started_at` | `timestamptz` | 可空 |
+| `finished_at` | `timestamptz` | 可空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_judge_jobs_submission_id_queued_at`
+- `ix_judge_jobs_status_queued_at`
+- `ix_judge_jobs_assignment_submitter_queued_at`
+- `ck_judge_jobs_time_order`
 
 ### `academic_profiles`
 
@@ -338,6 +395,17 @@
 - `submissions.offering_id -> course_offerings.id`
 - `submissions.teaching_class_id -> teaching_classes.id`
 - `submissions.submitter_user_id -> users.id`
+- `submission_artifacts.assignment_id -> assignments.id`
+- `submission_artifacts.offering_id -> course_offerings.id`
+- `submission_artifacts.teaching_class_id -> teaching_classes.id`
+- `submission_artifacts.submission_id -> submissions.id`
+- `submission_artifacts.uploader_user_id -> users.id`
+- `judge_jobs.submission_id -> submissions.id`
+- `judge_jobs.assignment_id -> assignments.id`
+- `judge_jobs.offering_id -> course_offerings.id`
+- `judge_jobs.teaching_class_id -> teaching_classes.id`
+- `judge_jobs.submitter_user_id -> users.id`
+- `judge_jobs.requested_by_user_id -> users.id`
 - `audit_logs.actor_user_id -> users.id`
 
 ## 设计说明
@@ -346,8 +414,10 @@
 - `academic_profiles` 用于表达学号/工号、真实姓名和教务身份类型，不替代账号基础资料。
 - `user_org_memberships` 用于表达用户在课程/班级等组织下的业务成员关系，不替代治理身份。
 - `course_offerings` 是课程系统的业务核心，教学班、成员和后续任务/实验都应围绕它挂接。
-- `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围；提交与评测留待后续模块承接。
-- `submissions` 当前只表达正式提交受理，不包含工作区、试运行、评测态和成绩态。
+- `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围；后续 grading 等模块继续围绕它挂接。
+- `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
+- `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
+- `judge_jobs` 当前表达评测作业自动入队与重排队骨架，还没有真实执行器、结果回写和资源指标。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。

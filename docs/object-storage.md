@@ -9,6 +9,7 @@
 - 运行时提供 `aubb.storage.minio.*` 配置。
 - 默认关闭 MinIO 集成；只有显式设置 `AUBB_MINIO_ENABLED=true` 才会创建对象存储 Bean。
 - 启用后会注册共享服务 `ObjectStorageService`，当前由 `MinioObjectStorageService` 实现。
+- `submission` 模块已经开始消费该共享服务，并通过 `submission_artifacts` 显式保存业务元数据。
 - 当前共享服务支持：
   - 直接上传对象
   - 读取对象
@@ -58,7 +59,7 @@ export AUBB_MINIO_AUTO_CREATE_BUCKET=true
 
 ## 当前实现边界
 
-- 当前只提供共享基础设施，不提供“通用文件上传 API”。
-- 当前没有业务表去记录对象元数据；具体模块接入时应在自己的领域模型中显式落元数据。
+- 当前没有“通用匿名上传 API”；附件上传只通过业务模块暴露，并必须显式做授权。
+- `submission` 当前已落地附件元数据表与上传/下载接口；其他业务模块接入时仍应在自己的领域模型中显式落元数据。
 - 当前默认 bucket 是单一 bucket，后续是否拆分为 `submission-artifacts`、`judge-outputs` 等专用 bucket，再由具体业务决定。
-- 当前预签名 URL 已可直接用于客户端直传/直读，但具体鉴权和对象键命名规则仍应由后续业务模块定义。
+- 当前预签名 URL 仍保留在共享服务中，但 `submission` 下载先走服务端鉴权读取，不直接暴露预签名契约。
