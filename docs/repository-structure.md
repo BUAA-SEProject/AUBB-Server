@@ -28,7 +28,7 @@ Java 生产代码根目录。
     - `assignment`
     - `submission`
 - `common/`
-  - 跨模块共享的稳定公共能力，例如错误模型、分页响应、请求上下文。
+  - 跨模块共享的稳定公共能力，例如错误模型、分页响应、请求上下文、对象存储。
 - `config/`
   - Spring Boot、Security、MyBatis-Plus 等跨模块配置。
 - `infrastructure/persistence/`
@@ -37,7 +37,7 @@ Java 生产代码根目录。
 ### `src/main/resources`
 
 - `application.yaml`
-  - 默认运行配置。
+  - 默认运行配置，包含 JWT、OpenAPI 和 MinIO 等基础设施开关。
 - `db/migration/`
   - Flyway 迁移脚本，任何数据库结构调整都必须在这里新增版本脚本。
 
@@ -73,6 +73,8 @@ Java 生产代码根目录。
   - 当前数据库结构等可生成参考。
 - `exec-plans/`
   - 多步骤任务的执行计划与归档记录。
+- `object-storage.md`
+  - 共享对象存储与 MinIO 接入说明。
 
 ### `design/`
 
@@ -104,6 +106,11 @@ Java 生产代码根目录。
 - `common`
 - `config`
 - `infrastructure/persistence`
+
+其中共享对象存储当前放在：
+
+- `src/main/java/com/aubb/server/common/storage`
+- `src/main/java/com/aubb/server/config/MinioStorageConfiguration.java`
 
 ### 新增测试
 

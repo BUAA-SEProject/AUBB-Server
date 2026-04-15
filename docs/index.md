@@ -13,6 +13,7 @@
 - [质量评分](quality-score.md)
 - [可靠性](reliability.md)
 - [安全](security.md)
+- [对象存储](object-storage.md)
 
 ## 细分目录
 
@@ -21,4 +22,4 @@
 - [产品规格](product-specs/index.md)
 - [生成产物](generated/db-schema.md)
 
-这里只保留能够反映当前代码库真实状态的文档，不保留描述不了现状的占位内容。当前已覆盖平台治理、课程系统和 assignment 第一切片。
+这里只保留能够反映当前代码库真实状态的文档，不保留描述不了现状的占位内容。当前已覆盖平台治理、课程系统、assignment、submission 和共享对象存储接入。

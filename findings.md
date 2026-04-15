@@ -2,47 +2,29 @@
 
 ## 当前任务基线
 
-- assignment 第一切片已经具备教师创建、发布、关闭作业，以及学生按课程/教学班查看已发布作业能力。
-- 当前最自然的后续主链路是 `submission -> judge -> grading`，其中 `submission` 是评测和成绩的直接上游。
-- 现有课程权限已经具备本轮所需的三类主体：
-  - 教师 / 课程管理员：可以管理开课实例和作业
-  - 学生：可以按课程成员关系查看并参与自己有权访问的作业
-  - 助教：当前可见但不承担提交通道主体
+- 仓库已经具备 PostgreSQL、RabbitMQ、Redis 运行时依赖和 Testcontainers 验证路径，但还没有正式对象存储接入。
+- `compose.yaml` 已存在，适合把 MinIO 加入本地开发依赖。
+- 当前 submission 第一切片只存文本内容，尚未支持文件和工程快照，因此 MinIO 应优先以共享基础设施形态接入，而不是直接塞入 submission API。
 
-## 第一切片建模结论
+## 接入建模结论
 
-- 提交作为独立 `submission` 模块落地，而不是继续塞进 `assignment` 模块。
-- 提交主归属为 `assignment`，并冗余记录：
-  - `offering_id`
-  - 可选 `teaching_class_id`
-  - `submitter_user_id`
-  便于后续按课程、作业、用户维度检索。
-- 第一切片状态只保留：
-  - `SUBMITTED`
-- 第一切片只实现以下字段：
-  - 唯一提交编号
-  - 所属作业
-  - 所属开课实例
-  - 可选所属教学班
-  - 提交人
-  - 尝试次数
-  - 文本提交内容
-  - 提交时间
-
-## API 初步边界
-
-- 学生侧：
-  - `POST /api/v1/me/assignments/{assignmentId}/submissions`
-  - `GET /api/v1/me/assignments/{assignmentId}/submissions`
-  - `GET /api/v1/me/submissions/{submissionId}`
-- 教师侧：
-  - `GET /api/v1/teacher/assignments/{assignmentId}/submissions`
-  - `GET /api/v1/teacher/submissions/{submissionId}`
+- MinIO 作为共享基础设施进入 `common/storage` 和 `config`，不建立独立业务模块。
+- 对象存储提供统一服务接口，暴露最基础的：
+  - 上传对象
+  - 下载对象
+  - 删除对象
+  - 检查对象是否存在
+  - 生成预签名 GET / PUT URL
+- bucket 由配置指定，并支持可选的启动时自动创建。
+- 默认关闭 MinIO 接入；启用后才装配客户端、健康检查和初始化逻辑。
+- MinIO Java SDK 8.6.0 需要显式补充 `okhttp-jvm`，否则编译期会缺失 `okhttp3.HttpUrl`。
+- 当前仓库原有的 `@MapperScan("com.aubb.server")` 范围过大，会把共享接口误判为 Mapper；本轮已收口为只扫描 `BaseMapper` 子接口。
+- Spring Boot 4 的健康检查 API 已从旧的 `org.springframework.boot.actuate.health` 迁到 `org.springframework.boot.health.contributor`，后续新增 HealthIndicator 需要沿用新包路径。
 
 ## 待特别验证的规则
 
-- 只有学生可以正式提交。
-- 只有已发布且处于开放时间窗口内的作业允许提交。
-- 提交次数不能超过作业 `maxSubmissions`。
-- 学生只能看到自己的提交；教师可以看到课程内自己有权限的作业提交。
-- 作业关闭后仍可查看历史提交，但不能再创建新提交。
+- MinIO 不启用时，应用启动和现有测试不能受影响。
+- MinIO 启用时，健康检查应能反映对象存储连通性。
+- 本地 compose 和集成测试必须使用固定镜像版本。
+- 访问密钥和 secret 不能硬编码进生产配置，必须通过环境变量覆盖。
+- 共享基础设施接入过程中，不能顺手暴露“通用上传接口”，避免绕过现有权限建模。

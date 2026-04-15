@@ -1,55 +1,57 @@
 # 进度日志
 
-## Session: 2026-04-15 Submission 第一切片
+## Session: 2026-04-15 MinIO 对象存储接入
 
-### Phase 1：范围收敛与提交建模
+### Phase 1：范围收敛与接入设计
 
 - **Status:** completed
 - **Started:** 2026-04-15
 - Actions taken:
-  - 读取当前 `task_plan.md`、`docs/plan.md`、`docs/product-specs/assignment-system.md`
-  - 检查 assignment 权限、教师侧控制器、学生聚合查询与现有 Flyway 迁移
-  - 确认 `submission` 第一切片采用独立模块，并挂在 `assignment` 下
+  - 读取 `pom.xml`、`application.yaml`、`compose.yaml`
+  - 检查当前 Testcontainers、可靠性和安全文档约束
+  - 确认 MinIO 应先作为共享基础设施接入，而不是直接和某个业务上传接口耦合
   - 新建本轮任务计划和发现记录
 - Files created/modified:
   - `task_plan.md`
   - `findings.md`
   - `progress.md`
 
-### Phase 2：测试先行固定行为
+### Phase 2：实现与验证路径
 
 - **Status:** completed
 - Actions taken:
-  - 新增 `SubmissionIntegrationTests`
-  - 固定学生正式提交、提交次数限制、开放时间窗口、教师查看和学生越权场景
+  - 新增 MinIO SDK、`okhttp-jvm` 和共享对象存储配置
+  - 新增 `ObjectStorageService`、MinIO 实现、bucket 初始化与健康检查
+  - 新增 `MinioStorageIntegrationTests`，覆盖上传、下载、删除、预签名 URL 和公开健康检查
+  - 将 `compose.yaml` 扩展为包含 MinIO
+  - 修复 MyBatis Mapper 误扫共享接口的问题
 - Files created/modified:
-  - `src/test/java/com/aubb/server/integration/SubmissionIntegrationTests.java`
+  - `pom.xml`
+  - `compose.yaml`
+  - `src/main/resources/application.yaml`
+  - `src/main/java/com/aubb/server/common/storage/*`
+  - `src/main/java/com/aubb/server/config/MinioStorageConfiguration.java`
+  - `src/main/java/com/aubb/server/config/MinioStorageProperties.java`
+  - `src/main/java/com/aubb/server/config/PersistenceConfig.java`
+  - `src/test/java/com/aubb/server/integration/MinioStorageIntegrationTests.java`
 
-### Phase 3：数据库与模块实现
-
-- **Status:** completed
-- Actions taken:
-  - 新增 `V5__submission_first_slice.sql`
-  - 新建 `modules.submission` 模块并接入 assignment、课程授权和审计
-  - 扩展仓库结构测试，要求 `submission` 模块根目录必须存在
-- Files created/modified:
-  - `src/main/resources/db/migration/V5__submission_first_slice.sql`
-  - `src/main/java/com/aubb/server/modules/submission/*`
-  - `src/main/java/com/aubb/server/modules/course/application/CourseAuthorizationService.java`
-  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
-  - `src/test/java/com/aubb/server/RepositoryStructureTests.java`
-
-### Phase 4：文档同步与验证
+### Phase 3：文档同步与收尾
 
 - **Status:** completed
 - Actions taken:
-  - 新增 submission 产品规格
-  - 更新 assignment 规格、README、架构、数据库结构、目录说明、ADR 和质量评分
+  - 新增 `docs/object-storage.md`
+  - 更新 README、架构、可靠性、安全、仓库结构和平台基线文档
   - 执行 `./mvnw spotless:apply`
-  - 执行 `./mvnw clean verify`，确认 41 个测试全部通过
+  - 执行 `./mvnw -Dtest=MinioStorageIntegrationTests test`
+  - 执行 `./mvnw clean verify`
 - Files created/modified:
-  - `docs/product-specs/submission-system.md`
-  - `docs/product-specs/assignment-system.md`
-  - `docs/generated/db-schema.md`
   - `README.md`
   - `ARCHITECTURE.md`
+  - `docs/object-storage.md`
+  - `docs/reliability.md`
+  - `docs/security.md`
+  - `docs/repository-structure.md`
+  - `docs/index.md`
+  - `docs/product-specs/platform-baseline.md`
+  - `docs/product-specs/index.md`
+  - `docs/exec-plans/active/README.md`

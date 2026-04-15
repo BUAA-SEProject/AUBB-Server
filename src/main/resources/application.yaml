@@ -34,3 +34,11 @@ aubb:
       issuer: AUBB-Server
       ttl: PT2H
       secret: ${AUBB_JWT_SECRET:change-this-secret-key-change-this-secret-key}
+  storage:
+    minio:
+      enabled: ${AUBB_MINIO_ENABLED:false}
+      endpoint: ${AUBB_MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${AUBB_MINIO_ACCESS_KEY:}
+      secret-key: ${AUBB_MINIO_SECRET_KEY:}
+      bucket: ${AUBB_MINIO_BUCKET:aubb-assets}
+      auto-create-bucket: ${AUBB_MINIO_AUTO_CREATE_BUCKET:false}

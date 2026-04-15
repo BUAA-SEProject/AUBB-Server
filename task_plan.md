@@ -1,62 +1,58 @@
-# 任务计划：Submission 第一切片
+# 任务计划：MinIO 对象存储接入
 
 ## 目标
 
-落地 `submission` 第一切片，打通“学生查看已发布作业 -> 正式提交 -> 学生查看本人提交 -> 教师按作业查看提交”的最小闭环，并保持与当前 assignment、课程成员权限和文档体系一致。
+将 MinIO 作为正式对象存储基础设施接入当前仓库，提供可复用的对象存储服务、健康检查、本地开发依赖和自动化验证路径，为后续 submission 文件上传和工程快照能力打基础。
 
 ## 当前阶段
 
-Completed
+Phase 3 completed
 
 ## Skills 选择
 
-- `planning-with-files`：本任务跨测试、迁移、模块代码、文档与验证，需要持续记录阶段和决策。
-- `springboot-patterns`：用于保持模块优先、控制器薄、应用层承载规则、持久化边界清晰。
+- `planning-with-files`：本任务跨依赖、配置、基础设施、测试、文档与验证，需要持续记录阶段和决策。
+- `springboot-patterns`：用于保持配置类、共享服务、健康检查和条件装配边界清晰。
 - `springboot-verification`：用于约束格式化和全量验证。
-- `documentation-writer`：用于同步产品规格、数据库说明和架构文档。
+- `documentation-writer`：用于同步架构、可靠性、安全和对象存储说明。
 
 ## 阶段
 
-### Phase 1：范围收敛与提交建模
+### Phase 1：范围收敛与接入设计
 
-- [x] 对齐 assignment、课程成员与权限模型
-- [x] 定义 submission 第一切片的数据模型、状态和 API 边界
+- [x] 对齐当前 compose、测试容器和共享配置方式
+- [x] 定义 MinIO 配置模型、共享服务接口和健康检查边界
 - [x] 建立正式执行计划与工作记忆
 - **Status:** completed
 
-### Phase 2：测试先行固定行为
+### Phase 2：实现与验证路径
 
-- [x] 增加学生正式提交集成测试
-- [x] 增加提交次数限制和时间窗口边界测试
-- [x] 增加教师查看提交与学生越权测试
+- [x] 新增 MinIO 依赖与共享配置
+- [x] 新增对象存储服务和 bucket 初始化
+- [x] 新增 MinIO 集成测试
+- [x] 更新 compose 本地依赖
 - **Status:** completed
 
-### Phase 3：数据库与模块实现
+### Phase 3：文档同步与收尾
 
-- [x] 新增 Flyway 迁移与实体/Mapper
-- [x] 新增 `modules.submission` 下的 `api / application / domain / infrastructure`
-- [x] 接入 assignment 校验、课程授权、审计与必要查询模型
-- **Status:** completed
-
-### Phase 4：文档同步与验证
-
-- [x] 更新 `docs/generated/db-schema.md`
-- [x] 更新 assignment / submission 规格、架构和目录文档
+- [x] 更新 README、架构、可靠性、安全和对象存储说明
 - [x] 执行 `./mvnw spotless:apply`
 - [x] 执行 `./mvnw clean verify`
+- [ ] 在合适时机做 git 提交
 - **Status:** completed
 
 ## 已做决策
 
 | Decision | Rationale |
 |----------|-----------|
-| 提交模块独立建为 `modules.submission` | 与 `assignment / judge / grading` 保持边界清晰 |
-| 第一切片只做正式提交，不做工作区和试运行 | 先打通主链路，不提前耦合 IDE 和运行环境 |
-| 提交内容先采用文本正文承载 | 避免提前引入文件存储和工程快照复杂度 |
-| 第一切片只支持学生提交，教师侧仅查看 | 控制范围，先建立稳定受理模型 |
+| 先接共享对象存储能力，不直接绑某个业务上传接口 | 避免把 MinIO 接入和 submission 文件上传耦合成一次大改动 |
+| MinIO 默认关闭，通过显式配置启用 | 不把新基础设施变成默认启动阻塞条件 |
+| 本地开发同时提供 compose 和 Testcontainers 两条验证路径 | 满足仓库可靠性规则，避免只靠文档假设 |
+| MyBatis 扫描改为只扫描 `BaseMapper` 子接口 | 解决共享服务接口被误扫为 Mapper 的隐式风险 |
 
 ## 错误记录
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| 新增 `SubmissionIntegrationTests` 后，因 `submissions` 表尚未存在导致测试初始化阶段失败 | 先复现 Flyway 后的 TRUNCATE 失败，再回查缺失迁移和模块边界 | 新增 `V5__submission_first_slice.sql` 和 `modules.submission`，专项测试恢复通过 |
+| Spring Boot 4 Actuator 健康检查包路径与旧版本不同 | 首次编译时按旧包名实现 | 切换到 `org.springframework.boot.health.contributor.*` |
+| MinIO 8.6.0 传递依赖没有带入真正的 `okhttp-jvm` 实现 | 编译期缺失 `okhttp3.HttpUrl` | 显式补充 `okhttp-jvm:5.1.0` |
+| `@MapperScan("com.aubb.server")` 会把 `ObjectStorageService` 误扫成 Mapper | MinIO 测试上下文启动冲突 | 改为只扫描 `BaseMapper` 子接口 |
