@@ -5,6 +5,7 @@
 - [架构](../ARCHITECTURE.md)
 - [设计](design.md)
 - [计划](plans.md)
+- [开发流程](development-workflow.md)
 - [开发总计划](plan.md)
 - [产品定位](product-sense.md)
 - [项目 Skills](project-skills.md)

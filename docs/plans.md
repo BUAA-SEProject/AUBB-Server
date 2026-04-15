@@ -14,6 +14,8 @@
 2. 执行过程中，把关键决策和偏差记录进计划文件。
 3. 完成后，将计划移入 `docs/exec-plans/completed/`。
 
+过程中的临时发现、进度日志和工作记忆应保留在仓库根目录的 `task_plan.md`、`findings.md`、`progress.md`，不进入 `docs/` 根目录。
+
 ## 当前基线
 
 引入这套流程的 harness 初始化记录见 [exec-plans/completed/2026-04-14-harness-engineering-bootstrap.md](exec-plans/completed/2026-04-14-harness-engineering-bootstrap.md)。

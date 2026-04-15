@@ -1,14 +1,15 @@
 spring:
   application:
     name: AUBB-Server
+  mvc:
+    problemdetails:
+      enabled: true
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
   health:
-    db:
-      enabled: false
     rabbit:
       enabled: false
     redis:
@@ -22,3 +23,9 @@ info:
     name: AUBB-Server
     runtime: spring-boot-4-java-25
     harness: initialized
+aubb:
+  security:
+    jwt:
+      issuer: AUBB-Server
+      ttl: PT2H
+      secret: ${AUBB_JWT_SECRET:change-this-secret-key-change-this-secret-key}

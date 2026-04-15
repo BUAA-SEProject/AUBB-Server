@@ -44,3 +44,10 @@
 | 保护安全与权限治理       | `springboot-security`、`springboot-verification`                                      |
 | 进行工程规范与技术债管理 | `write-coding-standards-from-file`、`tech-debt`、`architecture-decision-records`      |
 
+## 推荐组合
+
+1. 用户、认证、组织等后端功能开发：`springboot-tdd` + `springboot-patterns` + `springboot-security`
+2. 多步骤中大型任务：`planning-with-files` + 对应领域 skill
+3. 文档或规范重构：`documentation-writer` + `architecture-decision-records`
+4. API 契约或接口评审：`api-design-principles` + `documentation-writer`
+5. 发布前收口：`springboot-verification`

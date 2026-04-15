@@ -2,16 +2,16 @@
 
 ## 仓库目的
 
-当前的 AUBB-Server 仍是后端平台骨架。它现在的价值在于提供稳定的 Spring Boot 运行时基线、可用的运维健康检查，以及一套为后续功能开发服务的工程化工作流。
+当前的 AUBB-Server 已不再只是后端平台骨架。它现在的首要目标，是把 AUBB 的“平台初始化”链路落到真实后端能力上：即时生效的平台配置、学校/学院/课程/班级组织、用户与多身份治理、账号状态、JWT 登录和基础审计。
 
 ## 当前已经具备的内容
 
 - 服务可以在 Java 25 上启动
 - `/actuator/health` 可用于 smoke 验证
 - 安全默认配置已经就位
-- 数据库和消息组件依赖已经搭好骨架，但还没有形成真实产品能力
+- 数据库和消息组件依赖已经搭好骨架，并将被用于首个治理切片
 - 仓库文档已经说明后续工作该如何规划与验证
 
 ## 下一步应该做什么
 
-下一步面向产品的工作，应当是在 [product-specs/platform-baseline.md](product-specs/platform-baseline.md) 中，或在同目录新增规格文件，定义第一个真实的后端能力。
+下一步面向产品的工作，不再是继续维持纯骨架，而是完成 [product-specs/platform-governance-and-iam.md](product-specs/platform-governance-and-iam.md) 所定义的治理重构，并将其作为后续课程、任务、提交和评测链路的基础。

@@ -1,16 +1,17 @@
 # AUBB-Server
 
-AUBB-Server is the backend baseline for the AUBB platform. It currently boots a Spring Boot 4 service with Java 25, actuator health checks, a security baseline, and infrastructure dependencies prepared for PostgreSQL, RabbitMQ, Redis, Flyway, and MyBatis-Plus.
+AUBB-Server 是 AUBB 平台的后端仓库。当前仓库已从纯平台骨架进入首个真实业务切片阶段，优先交付 Phase 2：平台配置、学校/学院/课程/班级组织、用户与多身份治理、账号状态、JWT 登录与基础审计。
 
-The infrastructure stack is intentionally scaffolded before product modules exist. Database and Flyway auto-configuration are therefore deferred until the first real persistence slice lands, keeping the platform skeleton bootable and testable.
+运行时基线为 Spring Boot 4 + Java 25，基础设施目标包括 PostgreSQL、RabbitMQ、Redis、Flyway 与 MyBatis-Plus。
 
 ## Harness Engineering Baseline
 
-This repository now includes a minimal harness-engineering system inspired by OpenAI's [Harness Engineering](https://openai.com/zh-Hans-CN/index/harness-engineering/) article.
+本仓库包含一套受 OpenAI [Harness Engineering](https://openai.com/zh-Hans-CN/index/harness-engineering/) 启发的工程化支持系统，用来让代理和开发者都能基于统一文档、计划和验证路径推进功能。
 
 - Agent workflow: [AGENTS.md](AGENTS.md)
 - Architecture map: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Docs index: [docs/index.md](docs/index.md)
+- Development workflow: [docs/development-workflow.md](docs/development-workflow.md)
 - Project skills: [docs/project-skills.md](docs/project-skills.md)
 - Design rules: [docs/design-docs/index.md](docs/design-docs/index.md)
 - Product baseline: [docs/product-specs/index.md](docs/product-specs/index.md)
@@ -19,18 +20,25 @@ This repository now includes a minimal harness-engineering system inspired by Op
 
 ## Local Validation
 
-- Windows: `.\mvnw.cmd verify`
-- Linux/macOS: `./mvnw verify`
+- 代码格式化：`./mvnw spotless:apply`
+- 快速测试：`mvnd test`
+- 全量验证：`mvnd verify`
+- 若本机尚未安装 `mvnd`，可先执行 `.\mvnw.cmd verify` 或 `./mvnw verify`；仓库 wrapper 已切换为 `maven-mvnd` 分发，会按当前平台自动引导对应的 `mvnd`
 
-The harness validates:
+仓库验证会覆盖：
 
-- Spring context startup
-- public `/actuator/health`
-- repository knowledge-base structure
-- local markdown links inside harness docs
+- 平台治理与认证相关测试
+- 公开 `/actuator/health`
+- 仓库知识库结构
+- 本地 Markdown 链接有效性
 
 ## Current Scope
 
-See [docs/product-sense.md](docs/product-sense.md), [docs/reliability.md](docs/reliability.md), and [docs/security.md](docs/security.md) for the current operating baseline and constraints.
+当前范围请阅读：
 
-The project-level skill inventory and capability coverage live in [docs/project-skills.md](docs/project-skills.md).
+- [docs/product-sense.md](docs/product-sense.md)
+- [docs/product-specs/platform-governance-and-iam.md](docs/product-specs/platform-governance-and-iam.md)
+- [docs/reliability.md](docs/reliability.md)
+- [docs/security.md](docs/security.md)
+
+项目级 skill 清单和能力覆盖见 [docs/project-skills.md](docs/project-skills.md)。

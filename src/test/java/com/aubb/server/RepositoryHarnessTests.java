@@ -21,6 +21,7 @@ class RepositoryHarnessTests {
             "AGENTS.md",
             "ARCHITECTURE.md",
             "docs/index.md",
+            "docs/development-workflow.md",
             "docs/plan.md",
             "docs/design.md",
             "docs/plans.md",
@@ -31,6 +32,7 @@ class RepositoryHarnessTests {
             "docs/security.md",
             "docs/design-docs/index.md",
             "docs/design-docs/core-beliefs.md",
+            "docs/design-docs/adr-0003-user-system-boundaries.md",
             "docs/exec-plans/active/README.md",
             "docs/exec-plans/completed/2026-04-14-harness-engineering-bootstrap.md",
             "docs/exec-plans/tech-debt-tracker.md",
@@ -40,13 +42,12 @@ class RepositoryHarnessTests {
             "docs/references/openai-harness-engineering-notes.md",
             ".github/workflows/harness.yml");
 
-    private static final List<String> ROOT_MARKDOWN_FILES = List.of(
-            "README.md",
-            "AGENTS.md",
-            "ARCHITECTURE.md");
+    private static final List<String> ROOT_MARKDOWN_FILES = List.of("README.md", "AGENTS.md", "ARCHITECTURE.md");
 
-    private static final Pattern MARKDOWN_LINK_PATTERN =
-            Pattern.compile("\\[[^\\]]+\\]\\(([^)#]+)(?:#[^)]+)?\\)");
+    private static final List<String> FORBIDDEN_PROCESS_DOCS =
+            List.of("docs/task_plan.md", "docs/findings.md", "docs/progress.md");
+
+    private static final Pattern MARKDOWN_LINK_PATTERN = Pattern.compile("\\[[^\\]]+\\]\\(([^)#]+)(?:#[^)]+)?\\)");
 
     @Test
     void requiredHarnessFilesExist() {
@@ -69,6 +70,18 @@ class RepositoryHarnessTests {
         assertTrue(architecture.contains("PostgreSQL"));
         assertTrue(architecture.contains("RabbitMQ"));
         assertTrue(architecture.contains("Redis"));
+    }
+
+    @Test
+    void globalDocsDoNotContainProcessMemoryFiles() {
+        List<String> unexpected = new ArrayList<>();
+        for (String relativePath : FORBIDDEN_PROCESS_DOCS) {
+            if (Files.exists(ROOT.resolve(relativePath))) {
+                unexpected.add(relativePath);
+            }
+        }
+
+        assertTrue(unexpected.isEmpty(), () -> "Process docs must not live in docs/: " + String.join(", ", unexpected));
     }
 
     @Test
@@ -105,5 +118,4 @@ class RepositoryHarnessTests {
 
         assertTrue(brokenLinks.isEmpty(), () -> "Broken markdown links: " + String.join(", ", brokenLinks));
     }
-
 }
