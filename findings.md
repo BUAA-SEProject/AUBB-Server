@@ -2,29 +2,75 @@
 
 ## 当前任务基线
 
-- 仓库已经具备 PostgreSQL、RabbitMQ、Redis 运行时依赖和 Testcontainers 验证路径，但还没有正式对象存储接入。
-- `compose.yaml` 已存在，适合把 MinIO 加入本地开发依赖。
-- 当前 submission 第一切片只存文本内容，尚未支持文件和工程快照，因此 MinIO 应优先以共享基础设施形态接入，而不是直接塞入 submission API。
+- 当前模块级顶层结构是健康的，热点不在“模块拆分不够”，而在少数层内部文件过于平铺。
+- 当前最拥挤的目录集中在：
+  - `modules/course/application` 15 个文件
+  - `modules/course/infrastructure` 12 个文件
+  - `modules/course/domain` 12 个文件
+  - `modules/identityaccess/domain` 11 个文件
+  - `modules/identityaccess/application/user` 11 个文件
+  - `modules/identityaccess/infrastructure` 10 个文件
 
 ## 接入建模结论
 
-- MinIO 作为共享基础设施进入 `common/storage` 和 `config`，不建立独立业务模块。
-- 对象存储提供统一服务接口，暴露最基础的：
-  - 上传对象
-  - 下载对象
-  - 删除对象
-  - 检查对象是否存在
-  - 生成预签名 GET / PUT URL
-- bucket 由配置指定，并支持可选的启动时自动创建。
-- 默认关闭 MinIO 接入；启用后才装配客户端、健康检查和初始化逻辑。
-- MinIO Java SDK 8.6.0 需要显式补充 `okhttp-jvm`，否则编译期会缺失 `okhttp3.HttpUrl`。
-- 当前仓库原有的 `@MapperScan("com.aubb.server")` 范围过大，会把共享接口误判为 Mapper；本轮已收口为只扫描 `BaseMapper` 子接口。
-- Spring Boot 4 的健康检查 API 已从旧的 `org.springframework.boot.actuate.health` 迁到 `org.springframework.boot.health.contributor`，后续新增 HealthIndicator 需要沿用新包路径。
+- `course` 模块的拥挤主要来自三类平铺：
+  - `application` 中服务类和大量 `View/Command/Result` 记录类混放
+  - `domain` 中多个子场景的枚举全部平铺
+  - `infrastructure` 中多个聚合的 `Entity/Mapper` 对平铺
+- `identityaccess` 模块的拥挤模式类似，尤其是 `application/user`、`domain` 和 `infrastructure`。
+- 这类热点适合做“层内再分组”，例如：
+  - `application/view`、`application/command`、`application/result`
+  - `domain/account`、`domain/membership`、`domain/profile`、`domain/governance`
+  - `infrastructure/user`、`infrastructure/profile`、`infrastructure/role`
+- `config`、`common/storage`、测试目录当前文件数可接受，不需要为了凑整继续拆。
 
 ## 待特别验证的规则
 
-- MinIO 不启用时，应用启动和现有测试不能受影响。
-- MinIO 启用时，健康检查应能反映对象存储连通性。
-- 本地 compose 和集成测试必须使用固定镜像版本。
-- 访问密钥和 secret 不能硬编码进生产配置，必须通过环境变量覆盖。
-- 共享基础设施接入过程中，不能顺手暴露“通用上传接口”，避免绕过现有权限建模。
+- 拆分后仍需保持现有模块边界和职责语义清晰。
+- 目录优化不能让 import 关系更混乱，不能制造循环依赖。
+- 目录说明文档需要同步到“层内允许按职责细分子包”。
+
+## 本轮落地结果
+
+- `course/application` 仅保留应用服务，记录类拆到：
+  - `application/view`
+  - `application/command`
+  - `application/result`
+- `course/domain` 按子场景拆到：
+  - `term`
+  - `catalog`
+  - `offering`
+  - `member`
+  - `teaching`
+- `course/infrastructure` 按聚合拆到：
+  - `term`
+  - `catalog`
+  - `offering`
+  - `member`
+  - `teaching`
+- `identityaccess/application/user` 仅保留应用服务，记录类拆到：
+  - `view`
+  - `command`
+  - `result`
+- `identityaccess/domain` 按子场景拆到：
+  - `account`
+  - `profile`
+  - `governance`
+  - `membership`
+- `identityaccess/infrastructure` 按聚合拆到：
+  - `user`
+  - `profile`
+  - `membership`
+  - `role`
+
+## 新的仓库约束
+
+- 对已经出现目录拥挤的模块，不再允许把大量 `View / Command / Result` 继续直接平铺回顶层 `application`。
+- 对已经拆过的 `domain` 和 `infrastructure` 层，不再允许把多个子场景或聚合的类型重新塞回层根目录。
+- 使用 `RepositoryStructureTests` 固化上述约束，避免目录退化。
+
+## 后续建议
+
+- 新增业务模块先从四层结构起步，不要一开始就过度细分。
+- 当某层直接文件数明显升高并出现职责分化时，再增量拆出职责子目录。
+- 继续优先沿用当前 `course` 和 `identityaccess` 的细分方式，降低全仓目录风格漂移。

@@ -1,7 +1,0 @@
-package com.aubb.server.modules.course.domain;
-
-public enum CourseMemberSourceType {
-    MANUAL,
-    IMPORT,
-    SYNC
-}

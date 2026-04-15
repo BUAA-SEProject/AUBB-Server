@@ -27,6 +27,11 @@ Java 生产代码根目录。
     - `course`
     - `assignment`
     - `submission`
+  - 模块内先维持 `api / application / domain / infrastructure` 四层；当某一层开始混入大量不同职责文件时，再继续按职责细分子目录。
+  - 当前已采用的细分模式包括：
+    - `application/view`、`application/command`、`application/result`
+    - `domain/<子场景>`，例如 `term`、`catalog`、`membership`
+    - `infrastructure/<聚合>`，例如 `user`、`profile`、`offering`
 - `common/`
   - 跨模块共享的稳定公共能力，例如错误模型、分页响应、请求上下文、对象存储。
 - `config/`
@@ -98,6 +103,15 @@ Java 生产代码根目录。
 - `src/main/java/com/aubb/server/modules/<module>/application`
 - `src/main/java/com/aubb/server/modules/<module>/domain`
 - `src/main/java/com/aubb/server/modules/<module>/infrastructure`
+
+如果某一层开始出现下面的信号，应继续拆到职责子目录：
+
+- 同一目录同时出现服务类和大量 `View / Command / Result`
+- 多个子场景的枚举或策略类平铺在同一 `domain` 目录
+- 多个聚合的 `Entity / Mapper` 平铺在同一 `infrastructure` 目录
+- 单一目录直接文件数明显高于同模块其他目录，阅读和跳转成本开始上升
+
+当前仓库里，`course` 和 `identityaccess` 已按这套规则收敛，后续新增模块应优先沿用，而不是重新回到平铺方式。
 
 ### 新增共享能力
 

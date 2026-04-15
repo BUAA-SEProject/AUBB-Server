@@ -2,8 +2,8 @@ package com.aubb.server.modules.identityaccess.application.iam;
 
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
-import com.aubb.server.modules.identityaccess.domain.GovernanceRole;
-import com.aubb.server.modules.identityaccess.domain.GovernanceRolePolicy;
+import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
+import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRolePolicy;
 import com.aubb.server.modules.organization.domain.OrgUnitType;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;

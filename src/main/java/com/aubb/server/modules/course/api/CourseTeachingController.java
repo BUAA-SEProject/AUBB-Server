@@ -1,14 +1,14 @@
 package com.aubb.server.modules.course.api;
 
 import com.aubb.server.common.api.PageResponse;
-import com.aubb.server.modules.course.application.CourseMemberBatchResult;
-import com.aubb.server.modules.course.application.CourseMemberCommand;
-import com.aubb.server.modules.course.application.CourseMemberImportResult;
-import com.aubb.server.modules.course.application.CourseMemberView;
 import com.aubb.server.modules.course.application.CourseTeachingApplicationService;
-import com.aubb.server.modules.course.application.TeachingClassView;
-import com.aubb.server.modules.course.domain.CourseMemberRole;
-import com.aubb.server.modules.course.domain.CourseMemberStatus;
+import com.aubb.server.modules.course.application.command.CourseMemberCommand;
+import com.aubb.server.modules.course.application.result.CourseMemberBatchResult;
+import com.aubb.server.modules.course.application.result.CourseMemberImportResult;
+import com.aubb.server.modules.course.application.view.CourseMemberView;
+import com.aubb.server.modules.course.application.view.TeachingClassView;
+import com.aubb.server.modules.course.domain.member.CourseMemberRole;
+import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;

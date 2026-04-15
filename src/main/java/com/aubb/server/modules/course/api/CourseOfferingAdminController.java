@@ -2,10 +2,10 @@ package com.aubb.server.modules.course.api;
 
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.modules.course.application.CourseAdministrationApplicationService;
-import com.aubb.server.modules.course.application.CourseOfferingView;
-import com.aubb.server.modules.course.domain.CourseDeliveryMode;
-import com.aubb.server.modules.course.domain.CourseLanguage;
-import com.aubb.server.modules.course.domain.CourseOfferingStatus;
+import com.aubb.server.modules.course.application.view.CourseOfferingView;
+import com.aubb.server.modules.course.domain.catalog.CourseDeliveryMode;
+import com.aubb.server.modules.course.domain.catalog.CourseLanguage;
+import com.aubb.server.modules.course.domain.offering.CourseOfferingStatus;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;

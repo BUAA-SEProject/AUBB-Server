@@ -1,7 +1,7 @@
 package com.aubb.server.modules.course.api;
 
 import com.aubb.server.modules.course.application.CourseTeachingApplicationService;
-import com.aubb.server.modules.course.application.MyCourseView;
+import com.aubb.server.modules.course.application.view.MyCourseView;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;

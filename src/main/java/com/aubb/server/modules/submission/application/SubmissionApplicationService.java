@@ -9,7 +9,7 @@ import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
-import com.aubb.server.modules.course.domain.CourseMemberRole;
+import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.submission.domain.SubmissionStatus;
 import com.aubb.server.modules.submission.infrastructure.SubmissionEntity;

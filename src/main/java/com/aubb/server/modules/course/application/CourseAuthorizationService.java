@@ -1,16 +1,16 @@
 package com.aubb.server.modules.course.application;
 
 import com.aubb.server.common.exception.BusinessException;
-import com.aubb.server.modules.course.domain.CourseMemberRole;
-import com.aubb.server.modules.course.domain.CourseMemberStatus;
-import com.aubb.server.modules.course.infrastructure.CourseMemberEntity;
-import com.aubb.server.modules.course.infrastructure.CourseMemberMapper;
-import com.aubb.server.modules.course.infrastructure.CourseOfferingCollegeMapEntity;
-import com.aubb.server.modules.course.infrastructure.CourseOfferingCollegeMapMapper;
-import com.aubb.server.modules.course.infrastructure.CourseOfferingEntity;
-import com.aubb.server.modules.course.infrastructure.CourseOfferingMapper;
-import com.aubb.server.modules.course.infrastructure.TeachingClassEntity;
-import com.aubb.server.modules.course.infrastructure.TeachingClassMapper;
+import com.aubb.server.modules.course.domain.member.CourseMemberRole;
+import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
+import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
+import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
+import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingCollegeMapEntity;
+import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingCollegeMapMapper;
+import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
+import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
+import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
+import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.organization.domain.OrgUnitType;

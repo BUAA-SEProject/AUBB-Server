@@ -1,8 +1,8 @@
-# 任务计划：MinIO 对象存储接入
+# 任务计划：代码目录结构优化
 
 ## 目标
 
-将 MinIO 作为正式对象存储基础设施接入当前仓库，提供可复用的对象存储服务、健康检查、本地开发依赖和自动化验证路径，为后续 submission 文件上传和工程快照能力打基础。
+检查当前仓库代码目录结构，识别文件过于密集的目录，在不破坏既有模块边界和业务语义的前提下优化目录编排，让单个目录下的文件数更均衡、更易继续开发。
 
 ## 当前阶段
 
@@ -10,49 +10,47 @@ Phase 3 completed
 
 ## Skills 选择
 
-- `planning-with-files`：本任务跨依赖、配置、基础设施、测试、文档与验证，需要持续记录阶段和决策。
-- `springboot-patterns`：用于保持配置类、共享服务、健康检查和条件装配边界清晰。
+- `planning-with-files`：本任务涉及结构审查、批量移动、导入修正、文档同步和验证，需要持续记录阶段和决策。
+- `springboot-patterns`：用于约束 Spring Boot 模块内部的服务、DTO、领域和基础设施分组，避免为了“拆目录”而破坏分层。
 - `springboot-verification`：用于约束格式化和全量验证。
 - `documentation-writer`：用于同步架构、可靠性、安全和对象存储说明。
 
 ## 阶段
 
-### Phase 1：范围收敛与接入设计
+### Phase 1：热点目录审查与拆分方案
 
-- [x] 对齐当前 compose、测试容器和共享配置方式
-- [x] 定义 MinIO 配置模型、共享服务接口和健康检查边界
-- [x] 建立正式执行计划与工作记忆
+- [x] 统计当前各目录文件数
+- [x] 确认真正需要拆分的热点目录
+- [x] 制定最小必要的目录重组方案
 - **Status:** completed
 
-### Phase 2：实现与验证路径
+### Phase 2：目录重组与导入修正
 
-- [x] 新增 MinIO 依赖与共享配置
-- [x] 新增对象存储服务和 bucket 初始化
-- [x] 新增 MinIO 集成测试
-- [x] 更新 compose 本地依赖
+- [x] 移动拥挤目录中的文件到更细职责分组
+- [x] 修正包声明与 import
+- [x] 保持现有模块边界和测试结构不变
 - **Status:** completed
 
 ### Phase 3：文档同步与收尾
 
-- [x] 更新 README、架构、可靠性、安全和对象存储说明
+- [x] 更新架构和目录结构说明
 - [x] 执行 `./mvnw spotless:apply`
 - [x] 执行 `./mvnw clean verify`
-- [ ] 在合适时机做 git 提交
+- [x] 在合适时机做 git 提交
 - **Status:** completed
 
 ## 已做决策
 
 | Decision | Rationale |
 |----------|-----------|
-| 先接共享对象存储能力，不直接绑某个业务上传接口 | 避免把 MinIO 接入和 submission 文件上传耦合成一次大改动 |
-| MinIO 默认关闭，通过显式配置启用 | 不把新基础设施变成默认启动阻塞条件 |
-| 本地开发同时提供 compose 和 Testcontainers 两条验证路径 | 满足仓库可靠性规则，避免只靠文档假设 |
-| MyBatis 扫描改为只扫描 `BaseMapper` 子接口 | 解决共享服务接口被误扫为 Mapper 的隐式风险 |
+| 只拆真正拥挤的目录 | 避免为了形式统一而制造无意义层级 |
+| 不改变 `modules.<module>.api/application/domain/infrastructure` 大边界 | 保持仓库现有模块优先结构稳定 |
+| 优先把平铺的记录类、枚举和实体/Mapper 按职责成组 | 这类文件天然成组，拆分风险最低 |
 
 ## 错误记录
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| Spring Boot 4 Actuator 健康检查包路径与旧版本不同 | 首次编译时按旧包名实现 | 切换到 `org.springframework.boot.health.contributor.*` |
-| MinIO 8.6.0 传递依赖没有带入真正的 `okhttp-jvm` 实现 | 编译期缺失 `okhttp3.HttpUrl` | 显式补充 `okhttp-jvm:5.1.0` |
-| `@MapperScan("com.aubb.server")` 会把 `ObjectStorageService` 误扫成 Mapper | MinIO 测试上下文启动冲突 | 改为只扫描 `BaseMapper` 子接口 |
+| 包重排后 `spotless` 先于编译阶段失败 | 先直接编译确认 | 改为先执行 `./mvnw spotless:apply`，再继续编译和验证 |
+| 子目录重排后同包类型丢失隐式可见性 | 用 `./mvnw -q -DskipTests compile` 找出遗漏 import | 补齐 `course` 与 `identityaccess` 的 application service 显式 import |
+| 增量编译未覆盖到全部漏项，`clean verify` 才暴露剩余符号错误 | 改为使用 `clean verify` 做最终收口 | 补齐 `CourseTeachingApplicationService`、`UserAdministrationApplicationService` 和两个领域测试的剩余导入/包路径 |
