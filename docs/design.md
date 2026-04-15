@@ -14,11 +14,13 @@
 - 将组织树固定为学校 / 学院 / 课程 / 班级四层
 - 将平台配置简化为单份实时配置
 - 将授权规则集中到应用层和领域层，而不是散落在 Controller
+- 让仓库目录、测试目录和文档索引都服务于后续任务、实验、成绩等模块继续挂接
 
 ## 关联阅读
 
 - 架构细节：[../ARCHITECTURE.md](../ARCHITECTURE.md)
 - 开发流程：[development-workflow.md](development-workflow.md)
+- 仓库结构：[repository-structure.md](repository-structure.md)
 - 设计决策：[design-docs/index.md](design-docs/index.md)
 - 安全规则：[security.md](security.md)
 - 当前执行记录：[exec-plans/completed/2026-04-14-jwt-scope-governance-refactor.md](exec-plans/completed/2026-04-14-jwt-scope-governance-refactor.md)

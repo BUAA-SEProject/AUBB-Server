@@ -1,4 +1,4 @@
-package com.aubb.server.api;
+package com.aubb.server.integration;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;

@@ -31,7 +31,7 @@ public class UserDirectoryApplicationService {
         if (userIds == null || userIds.isEmpty()) {
             return Map.of();
         }
-        List<UserEntity> users = userMapper.selectBatchIds(userIds);
+        List<UserEntity> users = userMapper.selectByIds(userIds);
         Map<Long, AcademicProfileView> profiles =
                 loadProfiles(users.stream().map(UserEntity::getId).toList());
         return users.stream()

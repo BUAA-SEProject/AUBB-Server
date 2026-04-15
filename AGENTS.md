@@ -2,7 +2,7 @@
 
 ## 使命
 
-将此仓库作为一个对代理友好的 Java 后端来维护，并围绕 AUBB 的教学主链路持续交付真实业务能力。在进行非简单改动前，先阅读 [ARCHITECTURE.md](ARCHITECTURE.md)、[docs/development-workflow.md](docs/development-workflow.md)、[docs/plans.md](docs/plans.md)、[docs/project-skills.md](docs/project-skills.md)、[docs/product-specs/index.md](docs/product-specs/index.md) 以及与当前任务直接相关的 `../docs` 系统级文档。
+此仓库是一个 AUBB（Academic Unified Builder Bench）的一体化在线教学与实验平台后端。平台目标包括课程管理、在线实验、自动评测、作业布置与批改、成绩统计等能力，同时强调教学场景真实性、评测准确性与系统稳定性。仓库应继续作为一个对代理友好的 Java 后端维护，并围绕 AUBB 的教学主链路持续交付真实业务能力。
 
 ## 语言要求
 
@@ -14,7 +14,7 @@
 - 运行时：Spring Boot 4 + Java 25
 - 基础设施目标：PostgreSQL、RabbitMQ、Redis
 - 持久化基线：Flyway + MyBatis-Plus
-- 当前首个真实业务切片：Phase 2 平台配置、组织与 IAM
+- 当前真实业务进度：Phase 2 平台治理已完成，并已进入课程系统第一切片
 - 公共健康检查端点：`/actuator/health`
 - 默认验证入口：`mvnd verify`
 - 未预装 `mvnd` 时，可使用 `.\mvnw.cmd verify` 或 `./mvnw verify` 通过仓库 wrapper 自动引导对应平台的 `mvnd`
@@ -90,11 +90,3 @@
 - 保持 `/actuator/health` 可被公开读取
 - 保持文档链接有效、结构清晰
 - 将非显而易见的决策记录到仓库中
-
-## Phase 2 附加要求
-
-- 平台配置必须支持草稿、发布、回退和历史查询，且同一时刻只允许一个生效版本。
-- 组织树必须限制最大 5 级层级。
-- 用户导入必须返回逐行校验结果和失败原因。
-- 登录失败锁定规则、账号状态规则、会话超时规则必须有测试。
-- 审计至少覆盖：登录成功/失败、配置发布/回退、用户导入、角色变更、账号状态变更。

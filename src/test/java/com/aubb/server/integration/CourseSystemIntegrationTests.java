@@ -1,4 +1,4 @@
-package com.aubb.server.api;
+package com.aubb.server.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;

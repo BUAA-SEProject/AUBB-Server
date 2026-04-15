@@ -102,7 +102,7 @@ public class ScopeIdentityService {
             return Map.of();
         }
         Map<Long, OrgUnitEntity> index = new LinkedHashMap<>();
-        orgUnitMapper.selectBatchIds(orgUnitIds).forEach(entity -> index.put(entity.getId(), entity));
+        orgUnitMapper.selectByIds(orgUnitIds).forEach(entity -> index.put(entity.getId(), entity));
         return index;
     }
 

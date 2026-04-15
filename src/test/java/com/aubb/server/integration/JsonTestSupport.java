@@ -1,4 +1,4 @@
-package com.aubb.server.api;
+package com.aubb.server.integration;
 
 import com.jayway.jsonpath.JsonPath;
 

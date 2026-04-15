@@ -2,16 +2,21 @@
 
 ## 仓库目的
 
-当前的 AUBB-Server 已不再只是后端平台骨架。它现在的首要目标，是把 AUBB 的“平台初始化”链路落到真实后端能力上：即时生效的平台配置、学校/学院/课程/班级组织、用户与多身份治理、账号状态、JWT 登录和基础审计。
+当前的 AUBB-Server 已不再只是后端平台骨架。它现在的首要目标，是围绕 AUBB 教学主链路逐步落地真实业务能力。当前已完成平台治理基线，并进入课程系统第一切片：即时生效的平台配置、学校/学院/课程/班级组织、用户与多身份治理、账号状态、JWT 登录、基础审计，以及课程模板、开课实例、教学班、课程成员与班级功能开关。
 
 ## 当前已经具备的内容
 
 - 服务可以在 Java 25 上启动
 - `/actuator/health` 可用于 smoke 验证
-- 安全默认配置已经就位
-- 数据库和消息组件依赖已经搭好骨架，并将被用于首个治理切片
-- 仓库文档已经说明后续工作该如何规划与验证
+- 平台治理与课程第一切片的核心 API、数据库迁移和自动化测试已经就位
+- 安全默认配置、JWT 鉴权、作用域授权与课程成员权限已落地
+- 数据库和消息组件依赖已经完成第一批真实持久化接入，并为后续实验、作业、评测保留扩展位
+- 仓库文档已经能够说明当前实现、开发入口和后续扩展方式
 
 ## 下一步应该做什么
 
-下一步面向产品的工作，不再是继续维持纯骨架，而是完成 [product-specs/platform-governance-and-iam.md](product-specs/platform-governance-and-iam.md) 所定义的治理重构，并将其作为后续课程、任务、提交和评测链路的基础。
+下一步面向产品的工作，不再是继续维持骨架，而是沿着课程主链路继续补齐任务、实验、作业、提交、评测和成绩等后续模块，并保持当前治理与课程边界稳定。当前可直接参考：
+
+- [product-specs/platform-governance-and-iam.md](product-specs/platform-governance-and-iam.md)
+- [product-specs/course-system.md](product-specs/course-system.md)
+- [repository-structure.md](repository-structure.md)

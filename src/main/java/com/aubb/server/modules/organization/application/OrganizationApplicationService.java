@@ -194,7 +194,7 @@ public class OrganizationApplicationService {
         if (orgUnitIds == null || orgUnitIds.isEmpty()) {
             return Map.of();
         }
-        return orgUnitMapper.selectBatchIds(orgUnitIds).stream()
+        return orgUnitMapper.selectByIds(orgUnitIds).stream()
                 .collect(Collectors.toMap(
                         OrgUnitEntity::getId, this::toSummary, (left, right) -> left, LinkedHashMap::new));
     }

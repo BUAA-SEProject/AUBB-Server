@@ -304,7 +304,7 @@ public class CourseTeachingApplicationService {
         Map<Long, UserDirectoryEntryView> users = userDirectoryApplicationService.loadByIds(
                 matched.stream().map(CourseMemberEntity::getUserId).toList());
         Map<Long, TeachingClassEntity> classes = teachingClassMapper
-                .selectBatchIds(matched.stream()
+                .selectByIds(matched.stream()
                         .map(CourseMemberEntity::getTeachingClassId)
                         .filter(Objects::nonNull)
                         .toList())
@@ -338,7 +338,7 @@ public class CourseTeachingApplicationService {
         }
         Map<Long, CourseOfferingEntity> offerings =
                 courseOfferingMapper
-                        .selectBatchIds(memberships.stream()
+                        .selectByIds(memberships.stream()
                                 .map(CourseMemberEntity::getOfferingId)
                                 .toList())
                         .stream()
@@ -348,7 +348,7 @@ public class CourseTeachingApplicationService {
                                 (left, right) -> left,
                                 LinkedHashMap::new));
         Map<Long, TeachingClassEntity> classes = teachingClassMapper
-                .selectBatchIds(memberships.stream()
+                .selectByIds(memberships.stream()
                         .map(CourseMemberEntity::getTeachingClassId)
                         .filter(Objects::nonNull)
                         .toList())

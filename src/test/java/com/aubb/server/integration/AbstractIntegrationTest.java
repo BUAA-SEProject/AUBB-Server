@@ -1,4 +1,4 @@
-package com.aubb.server.api;
+package com.aubb.server.integration;
 
 import com.aubb.server.TestcontainersConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;

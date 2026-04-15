@@ -23,6 +23,11 @@ info:
     name: AUBB-Server
     runtime: spring-boot-4-java-25
     harness: initialized
+springdoc:
+  api-docs:
+    enabled: ${AUBB_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${AUBB_SWAGGER_UI_ENABLED:true}
 aubb:
   security:
     jwt:

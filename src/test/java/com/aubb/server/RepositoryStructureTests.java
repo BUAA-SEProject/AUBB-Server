@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 class RepositoryStructureTests {
 
     private static final Path ROOT = Path.of("").toAbsolutePath().normalize();
+    private static final Path INTEGRATION_TEST_ROOT = ROOT.resolve("src/test/java/com/aubb/server/integration");
 
     private static final List<String> REQUIRED_MODULE_ROOTS = List.of(
             "src/main/java/com/aubb/server/modules/identityaccess",
@@ -56,5 +57,15 @@ class RepositoryStructureTests {
                 unexpectedLegacyPackages.isEmpty(),
                 () -> "Legacy layer-first business packages still present: "
                         + String.join(", ", unexpectedLegacyPackages));
+    }
+
+    @Test
+    void integrationTestsUseDedicatedPackage() {
+        assertTrue(
+                Files.exists(INTEGRATION_TEST_ROOT),
+                () -> "Missing integration test root: " + ROOT.relativize(INTEGRATION_TEST_ROOT));
+        assertTrue(
+                Files.notExists(ROOT.resolve("src/test/java/com/aubb/server/api")),
+                "Legacy test package src/test/java/com/aubb/server/api should not exist");
     }
 }

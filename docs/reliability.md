@@ -3,7 +3,7 @@
 ## 基线保证
 
 - `/actuator/health` 必须保持可公开访问，用于部署检查和服务活性验证。
-- PostgreSQL 已成为首个真实业务切片的必需依赖，数据库迁移由 Flyway 管理。
+- PostgreSQL 已成为当前真实业务切片的必需依赖，数据库迁移由 Flyway 管理。
 - RabbitMQ、Redis 仍是目标集成组件，但当前 Phase 2 不以它们作为默认启动阻塞条件。
 - 本地开发优先通过 Docker Compose 提供可重复依赖，测试通过 Testcontainers 保证独立验证。
 

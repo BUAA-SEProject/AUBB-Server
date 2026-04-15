@@ -5,7 +5,7 @@
 - Spring Security 默认启用。
 - Phase 2 当前使用 JWT Bearer Token 认证，不再使用服务端 Session。
 - `/actuator/health` 和 `/actuator/info` 保持公开，用于部署检查与 smoke 验证。
-- OpenAPI 发现端点当前保持公开，以支持后端开发阶段联调。
+- OpenAPI 发现端点当前默认保持公开，以支持后端开发阶段联调；生产环境可通过 `AUBB_API_DOCS_ENABLED=false` 和 `AUBB_SWAGGER_UI_ENABLED=false` 关闭。
 - 除登录、健康检查和文档发现端点外，其他业务路由默认要求认证。
 
 ## 规则
