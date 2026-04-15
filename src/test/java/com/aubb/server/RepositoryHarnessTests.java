@@ -33,6 +33,7 @@ class RepositoryHarnessTests {
             "docs/design-docs/index.md",
             "docs/design-docs/core-beliefs.md",
             "docs/design-docs/adr-0003-user-system-boundaries.md",
+            "docs/design-docs/adr-0004-module-first-modular-monolith.md",
             "docs/exec-plans/active/README.md",
             "docs/exec-plans/completed/2026-04-14-harness-engineering-bootstrap.md",
             "docs/exec-plans/tech-debt-tracker.md",
@@ -46,6 +47,12 @@ class RepositoryHarnessTests {
 
     private static final List<String> FORBIDDEN_PROCESS_DOCS =
             List.of("docs/task_plan.md", "docs/findings.md", "docs/progress.md");
+
+    private static final List<String> REQUIRED_MODULE_ROOTS = List.of(
+            "src/main/java/com/aubb/server/modules/identityaccess",
+            "src/main/java/com/aubb/server/modules/organization",
+            "src/main/java/com/aubb/server/modules/platformconfig",
+            "src/main/java/com/aubb/server/modules/audit");
 
     private static final Pattern MARKDOWN_LINK_PATTERN = Pattern.compile("\\[[^\\]]+\\]\\(([^)#]+)(?:#[^)]+)?\\)");
 
@@ -82,6 +89,43 @@ class RepositoryHarnessTests {
         }
 
         assertTrue(unexpected.isEmpty(), () -> "Process docs must not live in docs/: " + String.join(", ", unexpected));
+    }
+
+    @Test
+    void businessCodeUsesModuleFirstLayout() throws IOException {
+        List<String> missingModuleRoots = new ArrayList<>();
+        for (String relativePath : REQUIRED_MODULE_ROOTS) {
+            if (Files.notExists(ROOT.resolve(relativePath))) {
+                missingModuleRoots.add(relativePath);
+            }
+        }
+
+        List<String> unexpectedLegacyPackages = new ArrayList<>();
+        for (String relativePath : List.of(
+                "src/main/java/com/aubb/server/api",
+                "src/main/java/com/aubb/server/application",
+                "src/main/java/com/aubb/server/domain")) {
+            if (Files.exists(ROOT.resolve(relativePath))) {
+                unexpectedLegacyPackages.add(relativePath);
+            }
+        }
+
+        Path infrastructureRoot = ROOT.resolve("src/main/java/com/aubb/server/infrastructure");
+        if (Files.exists(infrastructureRoot)) {
+            try (Stream<Path> paths = Files.walk(infrastructureRoot)) {
+                paths.filter(Files::isRegularFile)
+                        .map(path -> ROOT.relativize(path).toString().replace('\\', '/'))
+                        .filter(path -> !path.startsWith("src/main/java/com/aubb/server/infrastructure/persistence/"))
+                        .forEach(unexpectedLegacyPackages::add);
+            }
+        }
+
+        assertTrue(
+                missingModuleRoots.isEmpty(), () -> "Missing module roots: " + String.join(", ", missingModuleRoots));
+        assertTrue(
+                unexpectedLegacyPackages.isEmpty(),
+                () -> "Legacy layer-first business packages still present: "
+                        + String.join(", ", unexpectedLegacyPackages));
     }
 
     @Test

@@ -1,8 +1,8 @@
 package com.aubb.server.config;
 
-import com.aubb.server.application.auth.AuthenticatedUserPrincipal;
-import com.aubb.server.application.iam.ScopeIdentityView;
-import com.aubb.server.domain.iam.AccountStatus;
+import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
+import com.aubb.server.modules.identityaccess.domain.AccountStatus;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;

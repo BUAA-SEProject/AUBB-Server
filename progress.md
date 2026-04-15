@@ -106,3 +106,88 @@
 | 用户系统针对性测试 | `AuthApiIntegrationTests`、`PlatformGovernanceApiIntegrationTests` | 用户状态/会话时长/详情查询回归通过 | 14 个测试通过 | ✓ |
 | 全量验证 | `./mvnw verify` | fmt、编译、测试、打包全部通过 | 29 个测试通过，`BUILD SUCCESS` | ✓ |
 | Harness 归档校验 | `./mvnw -Dtest=RepositoryHarnessTests test` | 执行计划归档后文档约束仍通过 | 4 个测试通过 | ✓ |
+| 模块结构约束测试 | `./mvnw -Dtest=RepositoryHarnessTests test` | 模块优先目录约束生效 | 5 个测试通过 | ✓ |
+| 模块化治理链路回归 | `./mvnw -Dtest=AuthApiIntegrationTests,PlatformGovernanceApiIntegrationTests test` | 迁包后核心治理链路稳定 | 14 个测试通过 | ✓ |
+| 领域规则迁移回归 | `./mvnw -Dtest=GovernanceRolePolicyTests,PasswordPolicyTests,OrganizationPolicyTests test` | 迁包后领域规则稳定 | 9 个测试通过 | ✓ |
+| 模块化全量验证 | `./mvnw verify` | fmt、编译、测试、打包全部通过 | 30 个测试通过，`BUILD SUCCESS` | ✓ |
+
+## Session: 2026-04-15 模块化单体重构
+
+### Phase 1：范围确认与模块映射
+
+- **Status:** complete
+- **Started:** 2026-04-15 00:45
+- Actions taken:
+  - 读取 `planning-with-files`、`springboot-tdd`、`springboot-patterns`、`documentation-writer`、`architecture-decision-records`
+  - 复核 `AGENTS.md`、`ARCHITECTURE.md`、`docs/development-workflow.md`、系统级概要/详细设计与工程规范
+  - 盘点当前 Java 包结构、控制器、应用服务、领域规则、持久化实体与测试分布
+  - 确认采用四个首批模块：`identityaccess`、`organization`、`platformconfig`、`audit`
+- Files created/modified:
+  - `task_plan.md`（updated）
+  - `findings.md`（updated）
+  - `progress.md`（updated）
+  - `docs/exec-plans/completed/2026-04-15-module-first-modular-monolith-refactor.md`（created then archived）
+
+### Phase 2：测试先行固化模块化约束
+
+- **Status:** complete
+- **Started:** 2026-04-15 01:15
+- Actions taken:
+  - 先修改 `RepositoryHarnessTests`，把模块优先目录和 ADR 文档纳入仓库级约束
+  - 明确只有 `common`、`config` 与 `infrastructure.persistence` 可以留在顶层共享目录
+  - 增加对旧的顶层业务目录存在性的拒绝校验，防止后续回退
+- Files created/modified:
+  - `src/test/java/com/aubb/server/RepositoryHarnessTests.java`
+
+### Phase 3：代码迁包与依赖修复
+
+- **Status:** complete
+- **Started:** 2026-04-15 01:50
+- Actions taken:
+  - 将认证、用户、IAM、组织、平台配置、审计代码迁移到 `src/main/java/com/aubb/server/modules/<module>/...`
+  - 更新包声明、导入引用与 `PersistenceConfig` 的扫描范围
+  - 清理旧的空业务目录，并把领域测试同步迁移到新的模块目录
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/identityaccess/`
+  - `src/main/java/com/aubb/server/modules/organization/`
+  - `src/main/java/com/aubb/server/modules/platformconfig/`
+  - `src/main/java/com/aubb/server/modules/audit/`
+  - `src/main/java/com/aubb/server/config/PersistenceConfig.java`
+  - `src/test/java/com/aubb/server/modules/identityaccess/domain/GovernanceRolePolicyTests.java`
+  - `src/test/java/com/aubb/server/modules/identityaccess/domain/PasswordPolicyTests.java`
+  - `src/test/java/com/aubb/server/modules/organization/domain/OrganizationPolicyTests.java`
+
+### Phase 4：架构文档与 ADR 同步
+
+- **Status:** complete
+- **Started:** 2026-04-15 03:20
+- Actions taken:
+  - 更新仓库内架构、设计、开发流程和质量文档，统一采用“模块优先、模块内分层”的表达
+  - 新增 ADR 记录首批模块边界、共享顶层包和后续扩展规则
+  - 同步更新 `../docs` 中与包结构和工程规范直接相关的系统级文档
+- Files created/modified:
+  - `AGENTS.md`
+  - `ARCHITECTURE.md`
+  - `docs/design.md`
+  - `docs/development-workflow.md`
+  - `docs/plan.md`
+  - `docs/quality-score.md`
+  - `docs/design-docs/index.md`
+  - `docs/design-docs/adr-0004-module-first-modular-monolith.md`
+  - `../docs/02-process-docs/detailed-design.md`
+  - `../docs/04-development/backend.md`
+  - `../docs/04-development/engineering-standards.md`
+
+### Phase 5：格式化、验证与归档
+
+- **Status:** complete
+- **Started:** 2026-04-15 04:15
+- Actions taken:
+  - 执行 `./mvnw spotless:apply`，统一当前重构后的代码格式
+  - 执行模块结构测试、治理链路集成测试、领域规则回归测试与全量 `verify`
+  - 回写 `task_plan.md`、`findings.md`、`progress.md`，并将执行计划归档到 `docs/exec-plans/completed/`
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `docs/exec-plans/completed/2026-04-15-module-first-modular-monolith-refactor.md`

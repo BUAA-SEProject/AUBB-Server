@@ -38,3 +38,22 @@
   - 代码格式化和验证命令
   - 新增或修改代码时只加必要的中文注释
   - 架构/API/数据库/安全变更的文档同步要求
+
+## 模块化单体重构观察
+
+- 当前仓库已经具备较清晰的层次划分，但业务代码仍主要分散在顶层 `api / application / domain / infrastructure` 目录中，模块边界主要依赖子包命名约定，而不是目录本身。
+- 当前已落地治理能力可以自然收敛为四个首批模块：
+  - `identityaccess`：认证、JWT、用户、账号状态、平台治理身份、作用域授权
+  - `organization`：组织树与组织摘要
+  - `platformconfig`：平台配置
+  - `audit`：审计写入与查询
+- 若把 `auth`、`iam`、`user` 强行拆成三个独立模块，会在当前阶段引入较多跨模块直接依赖；先合并为 `identityaccess` 更符合当前业务内聚性。
+- 模块化单体重构的首要目标应是“模块边界可见、共享包最小化、后续课程域可继续挂接”，而不是一次性引入 Maven 多模块或远程服务拆分。
+
+## 模块化单体重构结论
+
+- 当前业务代码已经迁移到 `com.aubb.server.modules.<module>.<layer>`，首批模块为 `identityaccess`、`organization`、`platformconfig`、`audit`。
+- 共享代码当前只保留在顶层 `common`、`config` 与 `infrastructure.persistence`，避免把跨模块基础设施误塞回业务模块。
+- `RepositoryHarnessTests` 已新增模块优先目录约束，能够拒绝旧的顶层业务目录继续承载新增实现。
+- 针对性回归测试与全量 `./mvnw verify` 已通过，说明这次重构属于结构重整而非行为变更。
+- 后续新增业务域应直接以 `com.aubb.server.modules.<new-module>` 形式挂接，避免回退到“按层堆目录”的方式。

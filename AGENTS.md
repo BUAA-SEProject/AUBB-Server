@@ -58,20 +58,30 @@
 
 ## 包结构方向
 
-随着业务模块落地，优先采用以下包结构：
+随着业务模块落地，优先采用“模块优先、模块内分层”的包结构：
 
-- `com.aubb.server.api`
-- `com.aubb.server.application`
-- `com.aubb.server.domain`
-- `com.aubb.server.infrastructure`
+- `com.aubb.server.modules.identityaccess`
+- `com.aubb.server.modules.organization`
+- `com.aubb.server.modules.platformconfig`
+- `com.aubb.server.modules.audit`
+- `com.aubb.server.common`
 - `com.aubb.server.config`
+- `com.aubb.server.infrastructure.persistence`
 
-随着模块增多，优先按业务域在这些顶层包下组织子包，例如：
+每个业务模块内部再组织以下层次：
 
-- `platformconfig`
-- `iam`
-- `organization`
-- `audit`
+- `api`
+- `application`
+- `domain`
+- `infrastructure`
+
+后续新增业务模块时，优先继续挂到 `com.aubb.server.modules.<module>` 下，例如：
+
+- `course`
+- `coursemember`
+- `lab`
+- `assignment`
+- `submission`
 
 ## 验证清单
 

@@ -10,7 +10,7 @@
 2. 判断任务规模：小改动直接执行；多步骤任务必须创建或更新 `docs/exec-plans/active/` 中的执行计划。
 3. 选择合适 Skills：至少明确当前任务为何使用 `springboot-tdd`、`springboot-patterns`、`documentation-writer` 等项目级技能。
 4. 先写失败测试：优先覆盖领域规则、接口契约、权限边界、审计行为和回归风险。
-5. 做最小实现：按 `api -> application -> domain -> infrastructure` 分层补齐实现，不把复杂逻辑堆进 Controller。
+5. 做最小实现：优先在 `modules.<module>.{api,application,domain,infrastructure}` 中补齐实现，不把复杂逻辑堆进 Controller。
 6. 只补必要注释：仅在业务规则、授权边界、事务选择或不直观实现处添加简洁中文注释。
 7. 同步文档：涉及架构、API、数据库、安全、产品规格或上级系统文档的改动，必须在同一轮提交中同步更新。
 8. 统一格式化与验证：先执行 `./mvnw spotless:apply`，再执行 `./mvnw test` 与 `./mvnw verify`。
@@ -38,7 +38,8 @@
    - 权限粗拦截放在接口层，数据作用域校验放在应用层
    - 审计要求明确时，同步补齐审计写入
 4. 所有数据库变更必须通过 Flyway。
-5. 任何会影响上级系统口径的实现，都要在仓库文档中写清“当前实现”和“后续扩展位”。
+5. 业务代码默认进入 `com.aubb.server.modules.<module>`；只有跨模块共享能力才允许留在顶层 `common`、`config` 和 `infrastructure.persistence`。
+6. 任何会影响上级系统口径的实现，都要在仓库文档中写清“当前实现”和“后续扩展位”。
 
 ## 文档治理规则
 
