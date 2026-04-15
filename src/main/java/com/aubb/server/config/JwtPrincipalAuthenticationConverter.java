@@ -2,6 +2,9 @@ package com.aubb.server.config;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
+import com.aubb.server.modules.identityaccess.application.user.AcademicProfileView;
+import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
+import com.aubb.server.modules.identityaccess.domain.AcademicProfileStatus;
 import com.aubb.server.modules.identityaccess.domain.AccountStatus;
 import java.util.Collection;
 import java.util.List;
@@ -34,6 +37,7 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 jwt.getClaimAsString("displayName"),
                 readLong(jwt.getClaim("primaryOrgUnitId")),
                 AccountStatus.valueOf(jwt.getClaimAsString("accountStatus")),
+                readAcademicProfile(jwt),
                 identities);
         return new UsernamePasswordAuthenticationToken(principal, jwt.getTokenValue(), authorities);
     }
@@ -55,6 +59,22 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 .toList();
     }
 
+    @SuppressWarnings("unchecked")
+    private AcademicProfileView readAcademicProfile(Jwt jwt) {
+        Object academicProfileClaim = jwt.getClaim("academicProfile");
+        if (!(academicProfileClaim instanceof Map<?, ?> rawProfile)) {
+            return null;
+        }
+        return new AcademicProfileView(
+                readLong(rawProfile.get("id")),
+                readLong(rawProfile.get("userId")),
+                readString(rawProfile.get("academicId")),
+                readString(rawProfile.get("realName")),
+                readEnum(rawProfile.get("identityType"), AcademicIdentityType.class),
+                readEnum(rawProfile.get("profileStatus"), AcademicProfileStatus.class),
+                readString(rawProfile.get("phone")));
+    }
+
     private Long readLong(Object value) {
         if (value == null) {
             return null;
@@ -63,5 +83,16 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
             return number.longValue();
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private String readString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private <E extends Enum<E>> E readEnum(Object value, Class<E> enumType) {
+        if (value == null) {
+            return null;
+        }
+        return Enum.valueOf(enumType, String.valueOf(value));
     }
 }

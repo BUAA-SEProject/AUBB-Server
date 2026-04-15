@@ -74,6 +74,10 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 1L, "SCHOOL_ADMIN", "school-admin");
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status)
+                SELECT id, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "AUBB-ADMIN-001", "学校管理员", "ADMIN", "ACTIVE", "school-admin");
 
         jdbcTemplate.update(
                 """
@@ -112,6 +116,8 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("school-admin"))
+                .andExpect(jsonPath("$.academicProfile.academicId").value("AUBB-ADMIN-001"))
+                .andExpect(jsonPath("$.academicProfile.realName").value("学校管理员"))
                 .andExpect(jsonPath("$.identities[0].roleCode").value("SCHOOL_ADMIN"))
                 .andExpect(jsonPath("$.accountStatus").value("ACTIVE"));
     }

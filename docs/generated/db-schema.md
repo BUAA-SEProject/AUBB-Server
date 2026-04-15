@@ -3,7 +3,8 @@
 基线迁移：
 
 - `src/main/resources/db/migration/V1__phase2_platform_governance_and_iam.sql`
-- `src/main/resources/db/migration/V2__jwt_scope_governance_refactor.sql`
+- `src/main/resources/db/migration/V2__user_profile_and_membership_extension.sql`
+- `src/main/resources/db/migration/V3__course_system_first_slice.sql`
 
 ## 总览
 
@@ -12,7 +13,15 @@
 - `platform_configs`：单份即时生效的平台配置
 - `org_units`：学校 / 学院 / 课程 / 班级组织树
 - `users`：平台用户账号
+- `academic_profiles`：用户教务画像
+- `user_org_memberships`：用户组织成员关系
 - `user_scope_roles`：用户作用域身份分配
+- `academic_terms`：学期主数据
+- `course_catalogs`：课程模板
+- `course_offerings`：开课实例
+- `course_offering_college_maps`：课程跨学院共同管理映射
+- `teaching_classes`：教学班
+- `course_members`：课程成员
 - `audit_logs`：关键治理与认证审计日志
 
 ## 表结构
@@ -100,6 +109,132 @@
 - `ix_user_scope_roles_user_id`
 - `ix_user_scope_roles_scope_org_unit_id`
 
+### `academic_terms`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `term_code` | `text` | 必填，最长 32，大小写不敏感唯一 |
+| `term_name` | `text` | 必填，最长 64 |
+| `school_year` | `text` | 必填，最长 16 |
+| `semester` | `text` | 必填，`SPRING / SUMMER / AUTUMN / WINTER` |
+| `start_date` | `date` | 必填 |
+| `end_date` | `date` | 必填，且不早于开始日期 |
+| `status` | `text` | 必填，默认 `PLANNING` |
+
+### `course_catalogs`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `course_code` | `text` | 必填，最长 64，大小写不敏感唯一 |
+| `course_name` | `text` | 必填，最长 128 |
+| `course_type` | `text` | 必填，`REQUIRED / ELECTIVE / GENERAL / PRACTICE` |
+| `credit` | `numeric(4,1)` | 必填，`>= 0` |
+| `total_hours` | `integer` | 必填，`>= 0` |
+| `department_unit_id` | `bigint` | 必填，外键到 `org_units.id` |
+| `description` | `text` | 课程描述 |
+| `status` | `text` | 必填，默认 `ACTIVE` |
+
+### `course_offerings`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `catalog_id` | `bigint` | 必填，外键到 `course_catalogs.id` |
+| `term_id` | `bigint` | 必填，外键到 `academic_terms.id` |
+| `offering_code` | `text` | 必填，最长 64，大小写不敏感唯一 |
+| `offering_name` | `text` | 必填，最长 128 |
+| `primary_college_unit_id` | `bigint` | 必填，主学院 |
+| `org_course_unit_id` | `bigint` | 必填，对应组织树 COURSE 节点 |
+| `delivery_mode` | `text` | 必填，`ONLINE / OFFLINE / HYBRID` |
+| `language` | `text` | 必填，`ZH / EN / BILINGUAL` |
+| `capacity` | `integer` | 必填，`> 0` |
+| `selected_count` | `integer` | 必填，默认 `0` |
+| `status` | `text` | 必填，默认 `DRAFT` |
+| `start_at` / `end_at` | `timestamptz` | 开课起止时间 |
+
+### `course_offering_college_maps`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `college_unit_id` | `bigint` | 必填，外键到 `org_units.id` |
+| `relation_type` | `text` | 必填，`PRIMARY / SECONDARY / CROSS_LISTED` |
+
+### `teaching_classes`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `class_code` | `text` | 必填，课程内大小写不敏感唯一 |
+| `class_name` | `text` | 必填，最长 128 |
+| `entry_year` | `integer` | 必填，用于表达 2024 级、2025 级等教学班 |
+| `org_class_unit_id` | `bigint` | 必填，对应组织树 CLASS 节点 |
+| `capacity` | `integer` | 必填，`> 0` |
+| `announcement_enabled` | `boolean` | 班级公告开关 |
+| `discussion_enabled` | `boolean` | 班级讨论区开关 |
+| `resource_enabled` | `boolean` | 资源功能开关 |
+| `lab_enabled` | `boolean` | 实验功能开关 |
+| `assignment_enabled` | `boolean` | 作业功能开关 |
+
+### `course_members`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `teaching_class_id` | `bigint` | 可空，绑定教学班 |
+| `user_id` | `bigint` | 必填，外键到 `users.id` |
+| `member_role` | `text` | 必填，`INSTRUCTOR / TA / STUDENT / OBSERVER` |
+| `member_status` | `text` | 必填，默认 `ACTIVE` |
+| `source_type` | `text` | 必填，`MANUAL / IMPORT / SYNC` |
+| `remark` | `text` | 备注 |
+| `joined_at` / `left_at` | `timestamptz` | 加入与离开时间 |
+
+### `academic_profiles`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `academic_id` | `text` | 必填，最长 64，大小写不敏感唯一 |
+| `real_name` | `text` | 必填，最长 64 |
+| `identity_type` | `text` | 必填，`TEACHER / STUDENT / ADMIN` |
+| `profile_status` | `text` | 必填，默认 `ACTIVE`，`ACTIVE / SUSPENDED / GRADUATED / LEFT` |
+| `phone` | `text` | 画像手机号，可空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_academic_profiles_user_id`
+- `ux_academic_profiles_academic_id_lower`
+- `ix_academic_profiles_identity_type_status`
+
+### `user_org_memberships`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `org_unit_id` | `bigint` | 必填，外键到 `org_units.id`，级联删除 |
+| `membership_type` | `text` | 必填，`ENROLLED / TEACHES / ASSISTS / MANAGES / BELONGS_TO_GROUP` |
+| `membership_status` | `text` | 必填，默认 `ACTIVE`，`ACTIVE / INACTIVE / COMPLETED / REMOVED` |
+| `source_type` | `text` | 必填，默认 `MANUAL`，`MANUAL / IMPORT / SYNC / SSO_BIND` |
+| `start_at` | `timestamptz` | 生效开始时间 |
+| `end_at` | `timestamptz` | 生效结束时间 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_user_org_memberships_unique_binding`
+- `ix_user_org_memberships_user_id`
+- `ix_user_org_memberships_org_unit_id`
+
 ### `audit_logs`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -126,12 +261,31 @@
 - `platform_configs.updated_by_user_id -> users.id`
 - `org_units.parent_id -> org_units.id`
 - `users.primary_org_unit_id -> org_units.id`
+- `academic_profiles.user_id -> users.id`
+- `user_org_memberships.user_id -> users.id`
+- `user_org_memberships.org_unit_id -> org_units.id`
 - `user_scope_roles.user_id -> users.id`
 - `user_scope_roles.scope_org_unit_id -> org_units.id`
+- `course_catalogs.department_unit_id -> org_units.id`
+- `course_offerings.catalog_id -> course_catalogs.id`
+- `course_offerings.term_id -> academic_terms.id`
+- `course_offerings.primary_college_unit_id -> org_units.id`
+- `course_offerings.org_course_unit_id -> org_units.id`
+- `course_offering_college_maps.offering_id -> course_offerings.id`
+- `course_offering_college_maps.college_unit_id -> org_units.id`
+- `teaching_classes.offering_id -> course_offerings.id`
+- `teaching_classes.org_class_unit_id -> org_units.id`
+- `course_members.offering_id -> course_offerings.id`
+- `course_members.teaching_class_id -> teaching_classes.id`
+- `course_members.user_id -> users.id`
 - `audit_logs.actor_user_id -> users.id`
 
 ## 设计说明
 
 - `user_scope_roles` 用于表达“一个用户在多个组织节点上承担不同治理身份”的场景。
+- `academic_profiles` 用于表达学号/工号、真实姓名和教务身份类型，不替代账号基础资料。
+- `user_org_memberships` 用于表达用户在课程/班级等组织下的业务成员关系，不替代治理身份。
+- `course_offerings` 是课程系统的业务核心，教学班、成员和后续任务/实验都应围绕它挂接。
+- `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。

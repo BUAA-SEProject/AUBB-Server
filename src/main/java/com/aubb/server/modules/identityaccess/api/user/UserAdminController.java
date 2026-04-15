@@ -4,10 +4,14 @@ import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.IdentityAssignmentCommand;
+import com.aubb.server.modules.identityaccess.application.user.AcademicProfileCommand;
 import com.aubb.server.modules.identityaccess.application.user.BulkUserImportResult;
 import com.aubb.server.modules.identityaccess.application.user.UserAdministrationApplicationService;
+import com.aubb.server.modules.identityaccess.application.user.UserOrgMembershipCommand;
 import com.aubb.server.modules.identityaccess.application.user.UserView;
+import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
 import com.aubb.server.modules.identityaccess.domain.AccountStatus;
+import com.aubb.server.modules.identityaccess.domain.GovernanceRole;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -43,13 +47,16 @@ public class UserAdminController {
     @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN', 'COURSE_ADMIN', 'CLASS_ADMIN')")
     public PageResponse<UserView> list(
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String academicId,
+            @RequestParam(required = false) AcademicIdentityType identityType,
             @RequestParam(required = false) AccountStatus accountStatus,
+            @RequestParam(required = false) GovernanceRole roleCode,
             @RequestParam(required = false) Long orgUnitId,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return userAdministrationApplicationService.listUsers(
-                principal, keyword, accountStatus, orgUnitId, page, pageSize);
+                principal, keyword, academicId, identityType, accountStatus, roleCode, orgUnitId, page, pageSize);
     }
 
     @GetMapping("/{userId}")
@@ -69,6 +76,9 @@ public class UserAdminController {
                 request.displayName(),
                 request.email(),
                 request.password(),
+                request.phone(),
+                request.academicProfile(),
+                request.memberships(),
                 request.primaryOrgUnitId(),
                 request.identityAssignments(),
                 request.accountStatus(),
@@ -102,7 +112,26 @@ public class UserAdminController {
             @PathVariable Long userId,
             @Valid @RequestBody UpdateStatusRequest request,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
-        return userAdministrationApplicationService.updateStatus(userId, request.accountStatus(), principal);
+        return userAdministrationApplicationService.updateStatus(
+                userId, request.accountStatus(), request.reason(), principal);
+    }
+
+    @PutMapping("/{userId}/profile")
+    @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN', 'COURSE_ADMIN', 'CLASS_ADMIN')")
+    public UserView upsertProfile(
+            @PathVariable Long userId,
+            @Valid @RequestBody AcademicProfileCommand request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return userAdministrationApplicationService.upsertAcademicProfile(userId, request, principal);
+    }
+
+    @PutMapping("/{userId}/memberships")
+    @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN', 'COURSE_ADMIN', 'CLASS_ADMIN')")
+    public UserView replaceMemberships(
+            @PathVariable Long userId,
+            @Valid @RequestBody UpdateMembershipsRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return userAdministrationApplicationService.replaceMemberships(userId, request.memberships(), principal);
     }
 
     public record CreateUserRequest(
@@ -110,11 +139,16 @@ public class UserAdminController {
             @NotBlank String displayName,
             @Email @NotBlank String email,
             @NotBlank String password,
+            String phone,
+            @Valid AcademicProfileCommand academicProfile,
+            List<@Valid UserOrgMembershipCommand> memberships,
             Long primaryOrgUnitId,
             List<IdentityAssignmentCommand> identityAssignments,
             AccountStatus accountStatus) {}
 
     public record UpdateIdentitiesRequest(List<IdentityAssignmentCommand> identityAssignments) {}
 
-    public record UpdateStatusRequest(@NotNull AccountStatus accountStatus) {}
+    public record UpdateMembershipsRequest(List<@Valid UserOrgMembershipCommand> memberships) {}
+
+    public record UpdateStatusRequest(@NotNull AccountStatus accountStatus, String reason) {}
 }

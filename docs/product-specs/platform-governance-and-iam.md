@@ -13,8 +13,10 @@
 - 单份平台配置即时更新并立刻生效
 - 四层组织维护：学校、学院、课程、班级
 - 用户创建与导入：单个创建、批量导入、逐行校验结果
-- 用户查询：分页列表、详情查看、归属组织摘要、最近登录与生命周期信息
+- 用户查询：分页列表、详情查看、归属组织摘要、教务画像、成员关系、最近登录与生命周期信息
 - 多身份治理：为同一用户分配多个组织作用域身份
+- 教务画像维护：学号/工号、真实姓名、身份类型、画像状态
+- 组织成员关系维护：课程/班级等业务成员归属
 - 账号状态管理：启用、停用、锁定、失效
 - JWT 身份认证：登录、退出、当前登录用户
 - 服务端授权：基于身份与作用域的资源保护
@@ -25,7 +27,6 @@
 - 平台配置版本化、发布、回退、历史查询
 - 刷新令牌与服务端令牌撤销
 - OAuth2 / OIDC / SAML 正式接入
-- 课程业务权限模型的完整实现
 - 平台运营概览与异常事件中心
 
 ## 核心业务规则
@@ -89,6 +90,8 @@
 - `POST /api/v1/admin/users/import`
 - `PATCH /api/v1/admin/users/{userId}/status`
 - `PUT /api/v1/admin/users/{userId}/identities`
+- `PUT /api/v1/admin/users/{userId}/profile`
+- `PUT /api/v1/admin/users/{userId}/memberships`
 
 ### 审计
 
@@ -99,6 +102,8 @@
 - `platform_configs`
 - `org_units`
 - `users`
+- `academic_profiles`
+- `user_org_memberships`
 - `user_scope_roles`
 - `audit_logs`
 
@@ -107,15 +112,17 @@
 ## 用户返回模型摘要
 
 - 基础资料：`id`、`username`、`displayName`、`email`、`phone`
+- 教务画像：`academicProfile.academicId`、`realName`、`identityType`、`profileStatus`
 - 默认归属：`primaryOrgUnitId` 与 `primaryOrgUnit`
 - 生命周期：`accountStatus`、`lastLoginAt`、`lockedUntil`、`expiresAt`
 - 治理身份：`identities`
+- 组织成员关系：`memberships`
 
 ## 当前实现边界
 
 - 平台配置和审计查询暂由学校管理员独占。
 - 首次学校与学校管理员的自举依赖部署初始化或种子数据。
-- 当前只实现平台治理身份，不直接承载课程成员角色。
+- 当前已实现教务画像和组织成员关系；教师 / 助教 / 学员课程角色已进入 `course_members`，但任务、实验、成绩等后续课程子域仍未实现。
 - 用户查询按管理员作用域过滤，课程域成员查询留待后续课程模块实现。
 
 ## 验收标准

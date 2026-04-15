@@ -2,6 +2,7 @@ package com.aubb.server.modules.identityaccess.application.auth;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -28,7 +29,7 @@ public class JwtTokenService {
     public LoginResultView issueToken(AuthenticatedUserPrincipal principal) {
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plus(ttl);
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
                 .issuer(issuer)
                 .subject(principal.getUsername())
                 .issuedAt(issuedAt)
@@ -46,8 +47,12 @@ public class JwtTokenService {
                                         "scopeOrgUnitId", identity.scopeOrgUnitId(),
                                         "scopeOrgType", identity.scopeOrgType(),
                                         "scopeOrgName", identity.scopeOrgName()))
-                                .toList())
-                .build();
+                                .toList());
+        Map<String, Object> academicProfileClaim = academicProfileClaim(principal);
+        if (academicProfileClaim != null) {
+            claimsBuilder.claim("academicProfile", academicProfileClaim);
+        }
+        JwtClaimsSet claims = claimsBuilder.build();
 
         String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
         return new LoginResultView(token, "Bearer", ttl.toSeconds(), AuthenticatedUserView.from(principal));
@@ -55,5 +60,21 @@ public class JwtTokenService {
 
     public Duration ttl() {
         return ttl;
+    }
+
+    private Map<String, Object> academicProfileClaim(AuthenticatedUserPrincipal principal) {
+        if (principal.getAcademicProfile() == null) {
+            return null;
+        }
+        Map<String, Object> claim = new LinkedHashMap<>();
+        claim.put("id", principal.getAcademicProfile().id());
+        claim.put("userId", principal.getAcademicProfile().userId());
+        claim.put("academicId", principal.getAcademicProfile().academicId());
+        claim.put("realName", principal.getAcademicProfile().realName());
+        claim.put("identityType", principal.getAcademicProfile().identityType().name());
+        claim.put(
+                "profileStatus", principal.getAcademicProfile().profileStatus().name());
+        claim.put("phone", principal.getAcademicProfile().phone());
+        return claim;
     }
 }

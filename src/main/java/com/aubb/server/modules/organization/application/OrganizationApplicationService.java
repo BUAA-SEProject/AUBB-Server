@@ -91,6 +91,55 @@ public class OrganizationApplicationService {
         return toNode(entity);
     }
 
+    @Transactional
+    public OrgUnitSummaryView createCourseManagedClassUnit(
+            String name, String code, Long courseOrgUnitId, int sortOrder, Long actorUserId) {
+        String normalizedCode = normalizeCode(code);
+        if (orgUnitMapper.selectOne(Wrappers.<OrgUnitEntity>lambdaQuery()
+                        .eq(OrgUnitEntity::getCode, normalizedCode)
+                        .last("LIMIT 1"))
+                != null) {
+            throw new BusinessException(HttpStatus.CONFLICT, "ORG_CODE_DUPLICATED", "组织编码已存在");
+        }
+
+        OrgUnitEntity parent = orgUnitMapper.selectById(courseOrgUnitId);
+        if (parent == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "ORG_PARENT_NOT_FOUND", "上级课程组织不存在");
+        }
+        OrganizationValidationResult validationResult = organizationPolicy.validateChild(
+                OrgUnitType.valueOf(parent.getType()), OrgUnitType.CLASS, parent.getLevel());
+        if (!validationResult.valid()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ORG_HIERARCHY_INVALID", validationResult.reason());
+        }
+
+        OrgUnitEntity entity = new OrgUnitEntity();
+        entity.setParentId(courseOrgUnitId);
+        entity.setCode(normalizedCode);
+        entity.setName(name);
+        entity.setType(OrgUnitType.CLASS.name());
+        entity.setLevel(validationResult.childLevel());
+        entity.setSortOrder(sortOrder);
+        entity.setStatus("ACTIVE");
+        orgUnitMapper.insert(entity);
+
+        auditLogApplicationService.record(
+                actorUserId,
+                AuditAction.ORG_UNIT_CREATED,
+                "ORG_UNIT",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                Map.of(
+                        "code",
+                        normalizedCode,
+                        "name",
+                        name,
+                        "type",
+                        OrgUnitType.CLASS.name(),
+                        "source",
+                        "COURSE_MODULE"));
+        return toSummary(entity);
+    }
+
     @Transactional(readOnly = true)
     public List<OrgUnitTreeNode> getTree(AuthenticatedUserPrincipal principal) {
         List<OrgUnitEntity> entities = orgUnitMapper.selectList(Wrappers.<OrgUnitEntity>lambdaQuery()

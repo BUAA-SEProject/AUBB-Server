@@ -1,6 +1,7 @@
 package com.aubb.server.modules.identityaccess.application.auth;
 
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
+import com.aubb.server.modules.identityaccess.application.user.AcademicProfileView;
 import com.aubb.server.modules.identityaccess.domain.AccountStatus;
 import java.io.Serial;
 import java.io.Serializable;
@@ -23,6 +24,7 @@ public class AuthenticatedUserPrincipal implements Serializable {
     private final String displayName;
     private final Long primaryOrgUnitId;
     private final AccountStatus accountStatus;
+    private final AcademicProfileView academicProfile;
     private final List<ScopeIdentityView> identities;
     private final Set<String> authorityCodes;
 
@@ -32,12 +34,14 @@ public class AuthenticatedUserPrincipal implements Serializable {
             String displayName,
             Long primaryOrgUnitId,
             AccountStatus accountStatus,
+            AcademicProfileView academicProfile,
             List<ScopeIdentityView> identities) {
         this.userId = userId;
         this.username = username;
         this.displayName = displayName;
         this.primaryOrgUnitId = primaryOrgUnitId;
         this.accountStatus = accountStatus;
+        this.academicProfile = academicProfile;
         this.identities = identities;
         this.authorityCodes = identities.stream()
                 .map(ScopeIdentityView::roleCode)

@@ -110,6 +110,11 @@
 | 模块化治理链路回归 | `./mvnw -Dtest=AuthApiIntegrationTests,PlatformGovernanceApiIntegrationTests test` | 迁包后核心治理链路稳定 | 14 个测试通过 | ✓ |
 | 领域规则迁移回归 | `./mvnw -Dtest=GovernanceRolePolicyTests,PasswordPolicyTests,OrganizationPolicyTests test` | 迁包后领域规则稳定 | 9 个测试通过 | ✓ |
 | 模块化全量验证 | `./mvnw verify` | fmt、编译、测试、打包全部通过 | 30 个测试通过，`BUILD SUCCESS` | ✓ |
+| 用户系统深化认证回归 | `./mvnw -Dtest=AuthApiIntegrationTests test` | 登录、画像快照与当前用户接口稳定 | 7 个测试通过 | ✓ |
+| 用户系统深化治理回归 | `./mvnw -Dtest=PlatformGovernanceApiIntegrationTests test` | 画像、成员关系、筛选与治理接口稳定 | 10 个测试通过 | ✓ |
+| 用户系统深化全量验证 | `./mvnw verify` | 全量格式化、编译、测试和打包通过 | 33 个测试通过，`BUILD SUCCESS` | ✓ |
+| 课程系统第一切片回归 | `./mvnw -Dtest=CourseSystemIntegrationTests test` | 课程模板、开课实例、教学班、成员与权限闭环稳定 | 4 个测试通过 | ✓ |
+| 课程系统叠加全量验证 | `./mvnw verify` | 平台治理、用户系统、课程系统与 harness 一起通过 | 37 个测试通过，`BUILD SUCCESS` | ✓ |
 
 ## Session: 2026-04-15 模块化单体重构
 
@@ -191,3 +196,166 @@
   - `findings.md`
   - `progress.md`
   - `docs/exec-plans/completed/2026-04-15-module-first-modular-monolith-refactor.md`
+
+## Session: 2026-04-15 基于 user_system.md 深化用户系统
+
+### Phase 1：范围收敛与缺口盘点
+
+- **Status:** complete
+- **Started:** 2026-04-15 12:40
+- Actions taken:
+  - 读取 `user_system.md`、当前 `identityaccess` 代码、数据库迁移、产品规格与 API 文档
+  - 划分“本轮可落地”和“后续扩展位”：当前优先落地教务画像与组织成员关系，不引入 refresh token、PAT、ABAC 引擎
+  - 新建执行计划并明确验证路径
+- Files created/modified:
+  - `task_plan.md`（updated）
+  - `docs/exec-plans/completed/2026-04-15-user-system-deepening-from-user-system-md.md`（created then archived）
+
+### Phase 2：测试先行定义增量能力
+
+- **Status:** complete
+- **Started:** 2026-04-15 12:45
+- Actions taken:
+  - 在 `PlatformGovernanceApiIntegrationTests` 中增加画像、成员关系、筛选、创建和更新接口的失败测试
+  - 在 `AuthApiIntegrationTests` 中增加登录返回与 `/auth/me` 的画像快照断言
+  - 用失败测试锁定接口字段和数据模型最小边界
+- Files created/modified:
+  - `src/test/java/com/aubb/server/api/AuthApiIntegrationTests.java`
+  - `src/test/java/com/aubb/server/api/PlatformGovernanceApiIntegrationTests.java`
+
+### Phase 3：数据库与应用层实现
+
+- **Status:** complete
+- **Started:** 2026-04-15 12:50
+- Actions taken:
+  - 新增 `V2__user_profile_and_membership_extension.sql`
+  - 增加画像/成员关系实体、Mapper、领域枚举、命令与视图模型
+  - 扩展用户创建、列表、详情、画像更新、成员关系更新和 JWT 画像快照能力
+- Files created/modified:
+  - `src/main/resources/db/migration/V2__user_profile_and_membership_extension.sql`
+  - `src/main/java/com/aubb/server/modules/identityaccess/domain/AcademicIdentityType.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/domain/AcademicProfileStatus.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/domain/MembershipType.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/domain/MembershipStatus.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/domain/MembershipSourceType.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/infrastructure/AcademicProfileEntity.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/infrastructure/AcademicProfileMapper.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/infrastructure/UserOrgMembershipEntity.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/infrastructure/UserOrgMembershipMapper.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/auth/AuthenticatedUserPrincipal.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/auth/AuthenticatedUserView.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/auth/AuthenticationApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/auth/JwtTokenService.java`
+  - `src/main/java/com/aubb/server/config/JwtPrincipalAuthenticationConverter.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/user/UserAdministrationApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/user/UserView.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/api/user/UserAdminController.java`
+  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
+
+### Phase 4：文档与设计同步
+
+- **Status:** complete
+- **Started:** 2026-04-15 13:03
+- Actions taken:
+  - 更新数据库结构、架构说明、产品规格和系统级 API 文档
+  - 修正旧的迁移编号引用，补充画像/成员关系和新增接口口径
+  - 在 `user_system.md` 中补充当前仓库实现映射说明
+- Files created/modified:
+  - `docs/generated/db-schema.md`
+  - `ARCHITECTURE.md`
+  - `docs/product-specs/platform-governance-and-iam.md`
+  - `user_system.md`
+  - `../docs/05-api/auth-api.md`
+  - `../docs/05-api/platform-admin-api.md`
+  - `../docs/04-development/database.md`
+
+### Phase 5：格式化、验证与归档
+
+- **Status:** complete
+- **Started:** 2026-04-15 13:05
+- Actions taken:
+  - 执行 `./mvnw spotless:apply`
+  - 执行 `./mvnw -Dtest=AuthApiIntegrationTests test`
+  - 执行 `./mvnw -Dtest=PlatformGovernanceApiIntegrationTests test`
+  - 执行 `./mvnw verify`，33 个测试全部通过并成功打包
+  - 回写工作记忆并归档执行计划
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `docs/exec-plans/completed/2026-04-15-user-system-deepening-from-user-system-md.md`
+
+## Session: 2026-04-15 课程系统第一切片
+
+### Phase 1：范围收敛与设计映射
+
+- **Status:** complete
+- **Started:** 2026-04-15 13:15
+- Actions taken:
+  - 读取 `design/courses.md`、当前组织/IAM/用户系统实现和系统级课程文档
+  - 将理想化的多子模块课程设计收敛为当前 `modules.course` 聚合模块
+  - 明确学生禁止自主选课，课程成员只允许教师批量添加/导入
+- Files created/modified:
+  - `task_plan.md`（updated）
+  - `docs/exec-plans/completed/2026-04-15-course-system-first-slice.md`（created then archived）
+
+### Phase 2：测试先行定义课程闭环
+
+- **Status:** complete
+- **Started:** 2026-04-15 13:30
+- Actions taken:
+  - 新增 `CourseSystemIntegrationTests`
+  - 用失败测试锁定跨学院管理、不同年份班级、批量加人/导入、助教多角色和权限边界
+- Files created/modified:
+  - `src/test/java/com/aubb/server/api/CourseSystemIntegrationTests.java`
+
+### Phase 3：课程模块实现
+
+- **Status:** complete
+- **Started:** 2026-04-15 13:38
+- Actions taken:
+  - 新增 `V3__course_system_first_slice.sql`
+  - 新增 `modules.course` 下的领域枚举、实体、Mapper、应用服务与控制器
+  - 扩展组织应用服务、用户目录查询与组织成员关系同步，打通课程与组织/用户/审计联动
+- Files created/modified:
+  - `src/main/resources/db/migration/V3__course_system_first_slice.sql`
+  - `src/main/java/com/aubb/server/modules/course/`
+  - `src/main/java/com/aubb/server/modules/organization/application/OrganizationApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/user/UserDirectoryApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/identityaccess/application/user/UserOrgMembershipApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
+
+### Phase 4：文档与架构同步
+
+- **Status:** complete
+- **Started:** 2026-04-15 13:56
+- Actions taken:
+  - 新增课程系统产品规格和课程模块 ADR
+  - 更新架构、数据库、课程 API、后端文档和质量评分
+  - 将 `course` 模块与课程文档纳入 harness 约束
+- Files created/modified:
+  - `docs/product-specs/course-system.md`
+  - `docs/design-docs/adr-0005-course-module-first-slice.md`
+  - `ARCHITECTURE.md`
+  - `docs/generated/db-schema.md`
+  - `docs/quality-score.md`
+  - `src/test/java/com/aubb/server/RepositoryHarnessTests.java`
+  - `../docs/05-api/courses-api.md`
+  - `../docs/04-development/backend.md`
+  - `../docs/04-development/database.md`
+  - `../docs/02-process-docs/detailed-design.md`
+
+### Phase 5：格式化、验证与归档
+
+- **Status:** complete
+- **Started:** 2026-04-15 14:00
+- Actions taken:
+  - 执行 `./mvnw spotless:apply`
+  - 执行 `./mvnw -Dtest=CourseSystemIntegrationTests test`
+  - 执行 `./mvnw verify`，37 个测试全部通过并成功打包
+  - 回写工作记忆并归档执行计划
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `docs/exec-plans/completed/2026-04-15-course-system-first-slice.md`

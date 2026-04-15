@@ -32,7 +32,7 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE audit_logs, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
+                "TRUNCATE TABLE audit_logs, user_org_memberships, academic_profiles, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
 
         jdbcTemplate.update("""
                 INSERT INTO org_units (code, name, type, level, sort_order, status)
@@ -379,6 +379,36 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 5L, "CLASS_ADMIN", "detail-user");
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (
+                    user_id,
+                    academic_id,
+                    real_name,
+                    identity_type,
+                    profile_status
+                )
+                SELECT id, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "20260001", "详情用户", "TEACHER", "ACTIVE", "detail-user");
+        jdbcTemplate.update("""
+                INSERT INTO user_org_memberships (
+                    user_id,
+                    org_unit_id,
+                    membership_type,
+                    membership_status,
+                    source_type
+                )
+                SELECT id, ?, ?, ?, ? FROM users WHERE username = ?
+                """, 4L, "TEACHES", "ACTIVE", "MANUAL", "detail-user");
+        jdbcTemplate.update("""
+                INSERT INTO user_org_memberships (
+                    user_id,
+                    org_unit_id,
+                    membership_type,
+                    membership_status,
+                    source_type
+                )
+                SELECT id, ?, ?, ?, ? FROM users WHERE username = ?
+                """, 5L, "MANAGES", "ACTIVE", "MANUAL", "detail-user");
 
         String schoolAdminToken = login("school-admin", "Password123");
 
@@ -390,10 +420,246 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.primaryOrgUnit.code").value("CLS-ENG-1"))
                 .andExpect(jsonPath("$.primaryOrgUnit.name").value("Engineering Class 1"))
                 .andExpect(jsonPath("$.primaryOrgUnit.type").value("CLASS"))
+                .andExpect(jsonPath("$.academicProfile.academicId").value("20260001"))
+                .andExpect(jsonPath("$.academicProfile.realName").value("详情用户"))
+                .andExpect(jsonPath("$.academicProfile.identityType").value("TEACHER"))
                 .andExpect(jsonPath("$.identities[0].roleCode").value("CLASS_ADMIN"))
+                .andExpect(jsonPath("$.memberships.length()").value(2))
+                .andExpect(jsonPath("$.memberships[0].membershipType").value("TEACHES"))
                 .andExpect(jsonPath("$.lastLoginAt").exists())
                 .andExpect(jsonPath("$.lockedUntil").exists())
                 .andExpect(jsonPath("$.expiresAt").exists());
+    }
+
+    @Test
+    void listsUsersByAcademicProfileAndRoleFilters() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (2, 'CRS-ENG-1', 'Engineering Course', 'COURSE', 3, 1, 'ACTIVE')
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (4, 'CLS-ENG-1', 'Engineering Class 1', 'CLASS', 4, 1, 'ACTIVE')
+                """);
+        jdbcTemplate.update(
+                """
+                INSERT INTO users (
+                    primary_org_unit_id,
+                    username,
+                    display_name,
+                    email,
+                    password_hash,
+                    account_status,
+                    failed_login_attempts,
+                    phone
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                5L,
+                "teacher-one",
+                "Teacher One",
+                "teacher-one@example.com",
+                PASSWORD_ENCODER.encode("Password123"),
+                "ACTIVE",
+                0,
+                "13800000001");
+        jdbcTemplate.update(
+                """
+                INSERT INTO users (
+                    primary_org_unit_id,
+                    username,
+                    display_name,
+                    email,
+                    password_hash,
+                    account_status,
+                    failed_login_attempts,
+                    phone
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                5L,
+                "student-one",
+                "Student One",
+                "student-one@example.com",
+                PASSWORD_ENCODER.encode("Password123"),
+                "ACTIVE",
+                0,
+                "13800000002");
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status, phone)
+                SELECT id, ?, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "T2026001", "张老师", "TEACHER", "ACTIVE", "13800000001", "teacher-one");
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status, phone)
+                SELECT id, ?, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "S2026001", "李同学", "STUDENT", "ACTIVE", "13800000002", "student-one");
+        jdbcTemplate.update("""
+                INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
+                SELECT id, ?, ? FROM users WHERE username = ?
+                """, 5L, "CLASS_ADMIN", "teacher-one");
+
+        String schoolAdminToken = login("school-admin", "Password123");
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .param("academicId", "T2026001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].username").value("teacher-one"))
+                .andExpect(jsonPath("$.items[0].academicProfile.realName").value("张老师"));
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .param("identityType", "STUDENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].username").value("student-one"));
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .param("roleCode", "CLASS_ADMIN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].username").value("teacher-one"));
+    }
+
+    @Test
+    void createsUserWithAcademicProfileAndMemberships() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (2, 'CRS-SE', 'Software Engineering', 'COURSE', 3, 1, 'ACTIVE')
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (4, 'CLS-SE-1', 'SE Class 1', 'CLASS', 4, 1, 'ACTIVE')
+                """);
+
+        String schoolAdminToken = login("school-admin", "Password123");
+
+        mockMvc.perform(post("/api/v1/admin/users")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "username":"student-created",
+                                  "displayName":"Student Created",
+                                  "email":"student-created@example.com",
+                                  "password":"Password123",
+                                  "primaryOrgUnitId":5,
+                                  "identityAssignments":[
+                                    {"roleCode":"CLASS_ADMIN","scopeOrgUnitId":5}
+                                  ],
+                                  "accountStatus":"ACTIVE",
+                                  "phone":"13800000003",
+                                  "academicProfile":{
+                                    "academicId":"S2026999",
+                                    "realName":"王同学",
+                                    "identityType":"STUDENT",
+                                    "profileStatus":"ACTIVE",
+                                    "phone":"13800000003"
+                                  },
+                                  "memberships":[
+                                    {
+                                      "orgUnitId":4,
+                                      "membershipType":"ENROLLED",
+                                      "membershipStatus":"ACTIVE",
+                                      "sourceType":"IMPORT"
+                                    },
+                                    {
+                                      "orgUnitId":5,
+                                      "membershipType":"ENROLLED",
+                                      "membershipStatus":"ACTIVE",
+                                      "sourceType":"IMPORT"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.phone").value("13800000003"))
+                .andExpect(jsonPath("$.academicProfile.academicId").value("S2026999"))
+                .andExpect(jsonPath("$.memberships.length()").value(2));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM academic_profiles WHERE academic_id = 'S2026999'"))
+                .isEqualTo(1);
+        assertThat(queryForCount("SELECT COUNT(*) FROM user_org_memberships WHERE membership_type = 'ENROLLED'"))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void updatesAcademicProfileAndMemberships() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (2, 'CRS-ENG-1', 'Engineering Course', 'COURSE', 3, 1, 'ACTIVE')
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (4, 'CLS-ENG-1', 'Engineering Class 1', 'CLASS', 4, 1, 'ACTIVE')
+                """);
+        jdbcTemplate.update(
+                """
+                INSERT INTO users (
+                    primary_org_unit_id,
+                    username,
+                    display_name,
+                    email,
+                    password_hash,
+                    account_status,
+                    failed_login_attempts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                5L,
+                "update-user",
+                "Update User",
+                "update-user@example.com",
+                PASSWORD_ENCODER.encode("Password123"),
+                "ACTIVE",
+                0);
+
+        String schoolAdminToken = login("school-admin", "Password123");
+
+        mockMvc.perform(put("/api/v1/admin/users/3/profile")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "academicId":"T2026888",
+                                  "realName":"赵老师",
+                                  "identityType":"TEACHER",
+                                  "profileStatus":"ACTIVE",
+                                  "phone":"13800000008"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.academicProfile.academicId").value("T2026888"))
+                .andExpect(jsonPath("$.academicProfile.realName").value("赵老师"));
+
+        mockMvc.perform(put("/api/v1/admin/users/3/memberships")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "memberships":[
+                                    {
+                                      "orgUnitId":4,
+                                      "membershipType":"TEACHES",
+                                      "membershipStatus":"ACTIVE",
+                                      "sourceType":"MANUAL"
+                                    },
+                                    {
+                                      "orgUnitId":5,
+                                      "membershipType":"MANAGES",
+                                      "membershipStatus":"ACTIVE",
+                                      "sourceType":"MANUAL"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.memberships.length()").value(2))
+                .andExpect(jsonPath("$.memberships[0].membershipType").value("TEACHES"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM academic_profiles WHERE academic_id = 'T2026888'"))
+                .isEqualTo(1);
+        assertThat(queryForCount("SELECT COUNT(*) FROM user_org_memberships WHERE user_id = 3"))
+                .isEqualTo(2);
     }
 
     @Test

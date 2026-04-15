@@ -53,6 +53,9 @@
 8. **integration-module**
    面向课程、实验、自动评测、作业模块的领域事件集成
 
+> 当前仓库实现说明：
+> 为控制当前阶段复杂度，代码层暂未按 8 个独立模块完全展开，而是采用 `modules.identityaccess` 聚合承接 `auth + user + iam`，并保留 `organization / platformconfig / audit` 三个独立模块。`policy` 与 `integration` 仍作为后续扩展位。
+
 ### 2.3 代码结构建议
 
 ```text

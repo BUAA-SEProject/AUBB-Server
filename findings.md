@@ -57,3 +57,30 @@
 - `RepositoryHarnessTests` 已新增模块优先目录约束，能够拒绝旧的顶层业务目录继续承载新增实现。
 - 针对性回归测试与全量 `./mvnw verify` 已通过，说明这次重构属于结构重整而非行为变更。
 - 后续新增业务域应直接以 `com.aubb.server.modules.<new-module>` 形式挂接，避免回退到“按层堆目录”的方式。
+
+## 用户系统深化结论
+
+- `user_system.md` 中与当前平台治理边界高度匹配的两类模型已经落地：
+  - `academic_profiles`：承接学号/工号、真实姓名、身份类型、画像状态
+  - `user_org_memberships`：承接课程/班级等业务成员关系
+- 当前用户系统已经从“账号 + 治理身份”扩展为“账号 + 教务画像 + 业务成员关系 + 治理身份”四层组合。
+- 登录返回与 `/api/v1/auth/me` 已携带画像快照，但仍保持 JWT 无状态模型，没有引入 refresh token 或服务端会话。
+- 平台治理权限与业务成员关系继续分离：`user_scope_roles` 负责治理授权，`user_org_memberships` 只负责业务归属，不互相替代。
+- `user_system.md` 中的 `policy-module`、PAT、OAuth2/SSO、integration/outbox 仍处于后续扩展位，本轮未混入当前切片。
+
+## 课程系统第一切片结论
+
+- 课程域当前已作为独立 `modules.course` 聚合模块落地，首轮不再继续细拆为多个 `course-*` 模块。
+- 已实现的课程主链路为：
+  - `academic_terms`
+  - `course_catalogs`
+  - `course_offerings`
+  - `course_offering_college_maps`
+  - `teaching_classes`
+  - `course_members`
+- 当前课程权限采用双轨：
+  - 平台治理侧仍由学校/学院/课程/班级管理员控制平台级治理入口
+  - 课程教学侧由 `course_members` 控制教师、助教、学生权限
+- 学生自主选课在本轮被显式禁用，课程成员仅允许教师批量添加或导入既有系统用户。
+- 助教权限当前已收敛为“可查看授权教学班成员，但不可修改成员和班级功能开关”；更细粒度 staff scope 仍留作后续扩展。
+- 同一用户可在同一开课实例下同时承担不同班级的不同课程角色，例如在一个班级是学生、在另一个班级是助教。

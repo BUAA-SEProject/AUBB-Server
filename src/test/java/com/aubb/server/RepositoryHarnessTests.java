@@ -34,12 +34,14 @@ class RepositoryHarnessTests {
             "docs/design-docs/core-beliefs.md",
             "docs/design-docs/adr-0003-user-system-boundaries.md",
             "docs/design-docs/adr-0004-module-first-modular-monolith.md",
+            "docs/design-docs/adr-0005-course-module-first-slice.md",
             "docs/exec-plans/active/README.md",
             "docs/exec-plans/completed/2026-04-14-harness-engineering-bootstrap.md",
             "docs/exec-plans/tech-debt-tracker.md",
             "docs/generated/db-schema.md",
             "docs/product-specs/index.md",
             "docs/product-specs/platform-baseline.md",
+            "docs/product-specs/course-system.md",
             "docs/references/openai-harness-engineering-notes.md",
             ".github/workflows/harness.yml");
 
@@ -51,6 +53,7 @@ class RepositoryHarnessTests {
     private static final List<String> REQUIRED_MODULE_ROOTS = List.of(
             "src/main/java/com/aubb/server/modules/identityaccess",
             "src/main/java/com/aubb/server/modules/organization",
+            "src/main/java/com/aubb/server/modules/course",
             "src/main/java/com/aubb/server/modules/platformconfig",
             "src/main/java/com/aubb/server/modules/audit");
 
