@@ -70,6 +70,11 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanManageAssignments(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertCanManageOffering(principal, offeringId);
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanManageClassFeatures(AuthenticatedUserPrincipal principal, Long teachingClassId) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         assertCanManageOffering(principal, teachingClass.getOfferingId());
@@ -118,6 +123,38 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isActiveCourseMember(Long userId, Long offeringId) {
+        return courseMemberMapper.selectOne(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getUserId, userId)
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
+                        .last("LIMIT 1"))
+                != null;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isActiveClassMember(Long userId, Long offeringId, Long teachingClassId) {
+        return courseMemberMapper.selectOne(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getUserId, userId)
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getTeachingClassId, teachingClassId)
+                        .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
+                        .last("LIMIT 1"))
+                != null;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canViewAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        if (canManageOfferingAsAdmin(principal, offeringId) || isInstructor(principal.getUserId(), offeringId)) {
+            return true;
+        }
+        if (teachingClassId == null) {
+            return isActiveCourseMember(principal.getUserId(), offeringId);
+        }
+        return isActiveClassMember(principal.getUserId(), offeringId, teachingClassId);
+    }
+
+    @Transactional(readOnly = true)
     public void assertSecondaryCollegesCompatible(Long primaryCollegeUnitId, List<Long> secondaryCollegeUnitIds) {
         if (secondaryCollegeUnitIds == null || secondaryCollegeUnitIds.isEmpty()) {
             return;
@@ -158,7 +195,8 @@ public class CourseAuthorizationService {
         return teachingClass;
     }
 
-    private boolean hasActiveMemberRole(Long userId, Long offeringId, Long teachingClassId, CourseMemberRole role) {
+    @Transactional(readOnly = true)
+    public boolean hasActiveMemberRole(Long userId, Long offeringId, Long teachingClassId, CourseMemberRole role) {
         return courseMemberMapper.selectOne(Wrappers.<CourseMemberEntity>lambdaQuery()
                         .eq(CourseMemberEntity::getUserId, userId)
                         .eq(CourseMemberEntity::getOfferingId, offeringId)

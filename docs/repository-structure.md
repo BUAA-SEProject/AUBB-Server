@@ -25,6 +25,8 @@ Java 生产代码根目录。
     - `platformconfig`
     - `audit`
     - `course`
+    - `assignment`
+    - `submission`
 - `common/`
   - 跨模块共享的稳定公共能力，例如错误模型、分页响应、请求上下文。
 - `config/`
@@ -45,7 +47,7 @@ Java 生产代码根目录。
 
 - `integration/`
   - 面向 HTTP API 和跨模块链路的集成测试。
-  - 这里承载登录、平台治理、课程系统等真实业务回归。
+  - 这里承载登录、平台治理、课程系统、assignment、submission 等真实业务回归。
 - `modules/<module>/domain/`
   - 模块内部的领域规则测试。
 - 根目录测试

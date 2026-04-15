@@ -16,9 +16,11 @@ class RepositoryStructureTests {
     private static final Path INTEGRATION_TEST_ROOT = ROOT.resolve("src/test/java/com/aubb/server/integration");
 
     private static final List<String> REQUIRED_MODULE_ROOTS = List.of(
+            "src/main/java/com/aubb/server/modules/assignment",
             "src/main/java/com/aubb/server/modules/identityaccess",
             "src/main/java/com/aubb/server/modules/organization",
             "src/main/java/com/aubb/server/modules/course",
+            "src/main/java/com/aubb/server/modules/submission",
             "src/main/java/com/aubb/server/modules/platformconfig",
             "src/main/java/com/aubb/server/modules/audit");
 

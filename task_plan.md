@@ -1,8 +1,8 @@
-# 任务计划：仓库整仓审查、修复与文档治理
+# 任务计划：Submission 第一切片
 
 ## 目标
 
-对当前仓库进行完整审查，明确当前项目架构、已完成能力与现存问题；修复确认的问题；优化目录结构与文档体系；新增目录结构说明文档，使后续开发者可以低成本接手并继续开发。
+落地 `submission` 第一切片，打通“学生查看已发布作业 -> 正式提交 -> 学生查看本人提交 -> 教师按作业查看提交”的最小闭环，并保持与当前 assignment、课程成员权限和文档体系一致。
 
 ## 当前阶段
 
@@ -10,53 +10,53 @@ Completed
 
 ## Skills 选择
 
-- `planning-with-files`：本任务跨代码、文档、验证与结构治理，需要持续记录阶段、发现和验证结果。
-- `springboot-patterns`：用于按模块优先、分层清晰的方式审查并修正 Spring Boot 后端结构。
-- `springboot-verification`：用于约束格式化、测试和全量验证路径。
-- `documentation-writer`：用于重整仓库文档，使其用途明确且与当前实现同步。
+- `planning-with-files`：本任务跨测试、迁移、模块代码、文档与验证，需要持续记录阶段和决策。
+- `springboot-patterns`：用于保持模块优先、控制器薄、应用层承载规则、持久化边界清晰。
+- `springboot-verification`：用于约束格式化和全量验证。
+- `documentation-writer`：用于同步产品规格、数据库说明和架构文档。
 
 ## 阶段
 
-### Phase 1：基线审查与问题清单
+### Phase 1：范围收敛与提交建模
 
-- [x] 盘点代码结构、模块边界、数据库迁移、测试覆盖与现有功能
-- [x] 盘点仓库内文档的用途、重叠与失效内容
-- [x] 执行基线验证，确认现有错误、失败或结构问题
-- [x] 汇总问题清单并按“代码 / 结构 / 文档”分类
-- **Status:** complete
+- [x] 对齐 assignment、课程成员与权限模型
+- [x] 定义 submission 第一切片的数据模型、状态和 API 边界
+- [x] 建立正式执行计划与工作记忆
+- **Status:** completed
 
-### Phase 2：代码与结构修复
+### Phase 2：测试先行固定行为
 
-- [x] 修复 Phase 1 中确认的代码问题和错误
-- [x] 优化目录结构与包内组织，降低后续扩展成本
-- [x] 如有必要，补充或调整测试以固定行为
-- **Status:** complete
+- [x] 增加学生正式提交集成测试
+- [x] 增加提交次数限制和时间窗口边界测试
+- [x] 增加教师查看提交与学生越权测试
+- **Status:** completed
 
-### Phase 3：文档治理与新增目录说明
+### Phase 3：数据库与模块实现
 
-- [x] 清理无效、重复或失真的文档
-- [x] 更新架构、开发流程、产品规格和索引，使其与当前仓库一致
-- [x] 新增目录结构说明文档，并纳入文档索引
-- **Status:** complete
+- [x] 新增 Flyway 迁移与实体/Mapper
+- [x] 新增 `modules.submission` 下的 `api / application / domain / infrastructure`
+- [x] 接入 assignment 校验、课程授权、审计与必要查询模型
+- **Status:** completed
 
-### Phase 4：格式化、验证与收尾
+### Phase 4：文档同步与验证
 
+- [x] 更新 `docs/generated/db-schema.md`
+- [x] 更新 assignment / submission 规格、架构和目录文档
 - [x] 执行 `./mvnw spotless:apply`
 - [x] 执行 `./mvnw clean verify`
-- [x] 回写最终审查结论、风险与后续建议
-- **Status:** complete
+- **Status:** completed
 
 ## 已做决策
 
 | Decision | Rationale |
 |----------|-----------|
-| 先审查再修复，再做文档治理 | 避免边修边改导致结论和文档失真 |
-| 只修复已确认的问题，不人为扩展业务范围 | 保持与 AGENTS.md 中 “V1 仅做 MUST” 一致 |
-| 将集成测试目录从 `api` 改为 `integration` | 测试分类不应伪装成生产分层 |
-| 删除重复或弱价值文档入口 | 降低后续开发的阅读和维护成本 |
+| 提交模块独立建为 `modules.submission` | 与 `assignment / judge / grading` 保持边界清晰 |
+| 第一切片只做正式提交，不做工作区和试运行 | 先打通主链路，不提前耦合 IDE 和运行环境 |
+| 提交内容先采用文本正文承载 | 避免提前引入文件存储和工程快照复杂度 |
+| 第一切片只支持学生提交，教师侧仅查看 | 控制范围，先建立稳定受理模型 |
 
 ## 错误记录
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| `verify` 执行到旧测试包与新测试包重复运行 | 1 | 改为移除遗留空目录，并使用 `clean verify` 进行最终验证 |
+| 新增 `SubmissionIntegrationTests` 后，因 `submissions` 表尚未存在导致测试初始化阶段失败 | 先复现 Flyway 后的 TRUNCATE 失败，再回查缺失迁移和模块边界 | 新增 `V5__submission_first_slice.sql` 和 `modules.submission`，专项测试恢复通过 |

@@ -5,6 +5,8 @@
 - `src/main/resources/db/migration/V1__phase2_platform_governance_and_iam.sql`
 - `src/main/resources/db/migration/V2__user_profile_and_membership_extension.sql`
 - `src/main/resources/db/migration/V3__course_system_first_slice.sql`
+- `src/main/resources/db/migration/V4__assignment_first_slice.sql`
+- `src/main/resources/db/migration/V5__submission_first_slice.sql`
 
 ## 总览
 
@@ -22,6 +24,8 @@
 - `course_offering_college_maps`：课程跨学院共同管理映射
 - `teaching_classes`：教学班
 - `course_members`：课程成员
+- `assignments`：作业主数据
+- `submissions`：正式提交记录
 - `audit_logs`：关键治理与认证审计日志
 
 ## 表结构
@@ -194,6 +198,55 @@
 | `remark` | `text` | 备注 |
 | `joined_at` / `left_at` | `timestamptz` | 加入与离开时间 |
 
+### `assignments`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，级联删除 |
+| `title` | `text` | 必填，最长 128 |
+| `description` | `text` | 作业说明 |
+| `status` | `text` | 必填，默认 `DRAFT`，`DRAFT / PUBLISHED / CLOSED` |
+| `open_at` | `timestamptz` | 必填，开放时间 |
+| `due_at` | `timestamptz` | 必填，截止时间，且不早于 `open_at` |
+| `max_submissions` | `integer` | 必填，`> 0` |
+| `published_at` | `timestamptz` | 发布时间 |
+| `closed_at` | `timestamptz` | 关闭时间，若存在则不早于 `published_at` |
+| `created_by_user_id` | `bigint` | 创建人，外键到 `users.id`，删除置空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_assignments_offering_id_status`
+- `ix_assignments_teaching_class_id_status`
+- `ix_assignments_open_at_due_at`
+
+### `submissions`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `submission_no` | `text` | 必填，唯一，最长 64 |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
+| `submitter_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `attempt_no` | `integer` | 必填，`> 0` |
+| `status` | `text` | 必填，默认 `SUBMITTED` |
+| `content_text` | `text` | 必填，最长 20000 |
+| `submitted_at` | `timestamptz` | 必填，默认 `now()` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_submissions_assignment_submitter_attempt`
+- `ix_submissions_assignment_id_submitted_at`
+- `ix_submissions_submitter_user_id_submitted_at`
+- `ix_submissions_offering_id_submitted_at`
+
 ### `academic_profiles`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -278,6 +331,13 @@
 - `course_members.offering_id -> course_offerings.id`
 - `course_members.teaching_class_id -> teaching_classes.id`
 - `course_members.user_id -> users.id`
+- `assignments.offering_id -> course_offerings.id`
+- `assignments.teaching_class_id -> teaching_classes.id`
+- `assignments.created_by_user_id -> users.id`
+- `submissions.assignment_id -> assignments.id`
+- `submissions.offering_id -> course_offerings.id`
+- `submissions.teaching_class_id -> teaching_classes.id`
+- `submissions.submitter_user_id -> users.id`
 - `audit_logs.actor_user_id -> users.id`
 
 ## 设计说明
@@ -286,6 +346,8 @@
 - `academic_profiles` 用于表达学号/工号、真实姓名和教务身份类型，不替代账号基础资料。
 - `user_org_memberships` 用于表达用户在课程/班级等组织下的业务成员关系，不替代治理身份。
 - `course_offerings` 是课程系统的业务核心，教学班、成员和后续任务/实验都应围绕它挂接。
+- `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围；提交与评测留待后续模块承接。
+- `submissions` 当前只表达正式提交受理，不包含工作区、试运行、评测态和成绩态。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。

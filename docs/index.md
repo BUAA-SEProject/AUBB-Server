@@ -8,6 +8,7 @@
 - [开发总计划](plan.md)
 - [仓库结构说明](repository-structure.md)
 - [产品定位](product-sense.md)
+- [目录结构说明](repository-structure.md)
 - [项目 Skills](project-skills.md)
 - [质量评分](quality-score.md)
 - [可靠性](reliability.md)
@@ -20,4 +21,4 @@
 - [产品规格](product-specs/index.md)
 - [生成产物](generated/db-schema.md)
 
-这里只保留能够反映当前代码库真实状态的文档，不保留描述不了现状的占位内容。
+这里只保留能够反映当前代码库真实状态的文档，不保留描述不了现状的占位内容。当前已覆盖平台治理、课程系统和 assignment 第一切片。
