@@ -115,6 +115,7 @@
 | 用户系统深化全量验证 | `./mvnw verify` | 全量格式化、编译、测试和打包通过 | 33 个测试通过，`BUILD SUCCESS` | ✓ |
 | 课程系统第一切片回归 | `./mvnw -Dtest=CourseSystemIntegrationTests test` | 课程模板、开课实例、教学班、成员与权限闭环稳定 | 4 个测试通过 | ✓ |
 | 课程系统叠加全量验证 | `./mvnw verify` | 平台治理、用户系统、课程系统与 harness 一起通过 | 37 个测试通过，`BUILD SUCCESS` | ✓ |
+| Harness 校验移除验证 | `./mvnw -Dtest=RepositoryStructureTests test` | 删除自动文档校验后仓库结构测试仍通过 | 1 个测试通过 | ✓ |
 
 ## Session: 2026-04-15 模块化单体重构
 
@@ -359,3 +360,50 @@
   - `findings.md`
   - `progress.md`
   - `docs/exec-plans/completed/2026-04-15-course-system-first-slice.md`
+
+## Session: 2026-04-15 取消 Harness Verify 设计
+
+### Phase 1：定位自动校验入口
+
+- **Status:** complete
+- **Started:** 2026-04-15 14:50
+- Actions taken:
+  - 检查 `.github/workflows/harness.yml`
+  - 检查 `RepositoryHarnessTests` 和 README/可靠性文档中的相关说明
+
+### Phase 2：移除自动校验设计
+
+- **Status:** complete
+- **Started:** 2026-04-15 14:55
+- Actions taken:
+  - 删除 `.github/workflows/harness.yml`
+  - 删除 `RepositoryHarnessTests`
+  - 新增 `RepositoryStructureTests`，仅保留代码结构约束
+- Files created/modified:
+  - `.github/workflows/harness.yml`（deleted）
+  - `src/test/java/com/aubb/server/RepositoryHarnessTests.java`（deleted）
+  - `src/test/java/com/aubb/server/RepositoryStructureTests.java`（new）
+
+### Phase 3：同步文档说明
+
+- **Status:** complete
+- **Started:** 2026-04-15 15:00
+- Actions taken:
+  - 更新 README、可靠性和计划文档中的自动校验口径
+  - 明确文档同步改为人工维护，不再走自动工作流检查
+- Files created/modified:
+  - `README.md`
+  - `docs/reliability.md`
+  - `docs/plan.md`
+
+### Phase 4：验证与收尾
+
+- **Status:** complete
+- **Started:** 2026-04-15 15:02
+- Actions taken:
+  - 执行 `./mvnw -Dtest=RepositoryStructureTests test`
+  - 确认变更后仓库结构测试通过
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`

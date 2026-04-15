@@ -2,17 +2,17 @@
 
 ## 基线保证
 
-- `/actuator/health` 必须保持可公开访问，用于部署检查和 harness 验证。
+- `/actuator/health` 必须保持可公开访问，用于部署检查和服务活性验证。
 - PostgreSQL 已成为首个真实业务切片的必需依赖，数据库迁移由 Flyway 管理。
 - RabbitMQ、Redis 仍是目标集成组件，但当前 Phase 2 不以它们作为默认启动阻塞条件。
 - 本地开发优先通过 Docker Compose 提供可重复依赖，测试通过 Testcontainers 保证独立验证。
 
 ## 验证策略
 
-- 快速路径：仓库测试验证配置、领域规则、平台治理接口、公开健康检查、必需文档和 Markdown 链接。
+- 快速路径：仓库测试验证配置、领域规则、平台治理接口、课程系统、公开健康检查和代码结构约束。
 - 集成路径：通过 PostgreSQL Testcontainers 验证 Flyway 迁移、持久化与登录/治理链路。
 - 本地运行路径：使用 `compose.yaml` 提供 PostgreSQL、RabbitMQ、Redis 开发依赖。
-- CI 路径：[../.github/workflows/harness.yml](../.github/workflows/harness.yml) 会在每次 push 和 pull request 时执行 harness 验证。
+- 文档同步由开发流程约束和人工评审负责，不再放入自动工作流校验。
 
 ## 可靠性规则
 
