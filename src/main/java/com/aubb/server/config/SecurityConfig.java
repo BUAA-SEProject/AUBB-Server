@@ -4,11 +4,9 @@ import com.aubb.server.common.api.ApiErrorResponse;
 import com.aubb.server.common.web.RequestIdFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -30,6 +28,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
+@EnableConfigurationProperties(JwtSecurityProperties.class)
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -65,9 +64,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecretKey jwtSecretKey(
-            @Value("${aubb.security.jwt.secret:change-this-secret-key-change-this-secret-key}") String secret) {
-        return new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+    SecretKey jwtSecretKey(JwtSecurityProperties properties) {
+        return properties.secretKey();
     }
 
     @Bean

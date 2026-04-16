@@ -1,5 +1,21 @@
 # 发现与决策
 
+## 2026-04-17 JWT 默认密钥治理发现
+
+- 当前 JWT 弱点不是“默认值太弱”，而是 `application.yaml` 和 `SecurityConfig` 仍允许在缺失密钥时使用默认回退启动；这会让部署遗漏环境变量时仍带着可预测签名密钥上线。
+- `SecurityConfig` 当前通过 `@Value("${aubb.security.jwt.secret:...}")` 直接创建 `SecretKey`，`JwtTokenService` 也独立通过 `@Value` 读取 `issuer/ttl`；配置分散在多个 bean 创建点，容易再次产生漂移。
+- 启动期校验最稳的放置点是独立 `@ConfigurationProperties` 绑定层，而不是继续散落在 `@Value` 或运行期调用里：
+  - 单一配置源，`SecurityConfig` 与 `JwtTokenService` 共用同一份已校验配置
+  - 缺失或非法时会在上下文创建早期直接 fail-fast
+  - 对现有测试和部署的影响面清晰，只需要为测试提供显式 test secret，并在 README / 安全文档中要求外部注入 `AUBB_JWT_SECRET`
+- 这次改动应顺手建立最小密钥治理基线：除了去掉默认值，还应至少校验 `secret` 非空且长度不低于 HS256 的最低实用门槛。
+- 已实现的最小闭环是：
+  - 新增 `JwtSecurityProperties`，集中校验 `issuer / ttl / secret`
+  - `SecurityConfig` 和 `JwtTokenService` 不再各自维护 JWT 默认值
+  - 主配置改为 `${AUBB_JWT_SECRET}` 无默认回退，测试作用域通过 `src/test/resources/application.properties` 集中注入 `AUBB_JWT_SECRET`
+  - 新增 `JwtSecurityPropertiesValidationTests` 覆盖“未配置密钥时启动失败”，并用 `AuthApiIntegrationTests` 回归“已配置密钥时登录与鉴权正常”
+- 当前 `compose.yaml` 仍只负责基础设施，不包含应用容器；因此这次变更不会破坏 `docker compose up` 的基础设施用途，但真实启动应用时必须额外注入 `AUBB_JWT_SECRET`。
+
 ## 2026-04-17 judge 死锁与终态超时修复发现
 
 - `StructuredProgrammingJudgeIntegrationTests`、`JudgeIntegrationTests` 和 `ProgrammingWorkspaceIntegrationTests` 都在 `@BeforeEach` 中直接执行大范围 `TRUNCATE ... RESTART IDENTITY CASCADE`，但真实评测执行走 RabbitMQ consumer + 独立事务，不受测试线程生命周期约束。

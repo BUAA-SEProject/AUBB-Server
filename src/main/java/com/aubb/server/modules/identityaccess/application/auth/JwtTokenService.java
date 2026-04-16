@@ -1,10 +1,10 @@
 package com.aubb.server.modules.identityaccess.application.auth;
 
+import com.aubb.server.config.JwtSecurityProperties;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
@@ -14,23 +14,19 @@ import org.springframework.stereotype.Service;
 public class JwtTokenService {
 
     private final JwtEncoder jwtEncoder;
-    private final String issuer;
-    private final Duration ttl;
+    private final JwtSecurityProperties jwtSecurityProperties;
 
-    public JwtTokenService(
-            JwtEncoder jwtEncoder,
-            @Value("${aubb.security.jwt.issuer:aubb-server}") String issuer,
-            @Value("${aubb.security.jwt.ttl:PT2H}") Duration ttl) {
+    public JwtTokenService(JwtEncoder jwtEncoder, JwtSecurityProperties jwtSecurityProperties) {
         this.jwtEncoder = jwtEncoder;
-        this.issuer = issuer;
-        this.ttl = ttl;
+        this.jwtSecurityProperties = jwtSecurityProperties;
     }
 
     public LoginResultView issueToken(AuthenticatedUserPrincipal principal) {
         Instant issuedAt = Instant.now();
+        Duration ttl = jwtSecurityProperties.getTtl();
         Instant expiresAt = issuedAt.plus(ttl);
         JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
-                .issuer(issuer)
+                .issuer(jwtSecurityProperties.getIssuer())
                 .subject(principal.getUsername())
                 .issuedAt(issuedAt)
                 .expiresAt(expiresAt)
@@ -59,7 +55,7 @@ public class JwtTokenService {
     }
 
     public Duration ttl() {
-        return ttl;
+        return jwtSecurityProperties.getTtl();
     }
 
     private Map<String, Object> academicProfileClaim(AuthenticatedUserPrincipal principal) {

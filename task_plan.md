@@ -2,11 +2,22 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 1“修复 `StructuredProgrammingJudgeIntegrationTests` 暴露的 `TRUNCATE` 死锁与 answer 级 judge job 终态超时”已完成，下一步进入优先级 2：去掉 JWT 默认密钥并建立密钥治理基线。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。当前优先收口优先级 2：去掉 JWT 默认密钥并建立密钥治理基线，要求服务在缺失密钥时 fail-fast，并保持现有登录/鉴权链路和测试基线可验证。完成后再进入优先级 3：refresh token / revoke / 强制失效机制。
 
 ## 当前阶段
 
-Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 39：JWT 默认密钥移除与密钥治理基线
+
+- [x] 复核 `application.yaml`、`SecurityConfig`、`JwtTokenService`、认证 API 与 `docs/security.md`
+- [x] 确认启动期校验放在独立 `@ConfigurationProperties` 绑定层的最稳路径
+- [x] 移除 JWT secret 默认回退，并在缺失或过弱时 fail-fast
+- [x] 为测试入口显式注入 test secret，避免继续隐式依赖主配置弱默认值
+- [x] 补齐启动失败测试，以及“已配置密钥时登录与鉴权正常”的回归验证
+- [x] 同步更新 README、安全文档、执行计划与工作记忆
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要认证/启动测试
+- **Status:** completed
 
 ### Phase 38：judge 死锁与终态超时修复
 

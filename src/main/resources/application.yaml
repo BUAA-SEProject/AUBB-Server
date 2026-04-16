@@ -33,7 +33,7 @@ aubb:
     jwt:
       issuer: AUBB-Server
       ttl: PT2H
-      secret: ${AUBB_JWT_SECRET:change-this-secret-key-change-this-secret-key}
+      secret: ${AUBB_JWT_SECRET}
   storage:
     minio:
       enabled: ${AUBB_MINIO_ENABLED:false}

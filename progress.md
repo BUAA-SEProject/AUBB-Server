@@ -1,5 +1,25 @@
 # 进度日志
 
+## Session: 2026-04-17 JWT 默认密钥治理
+
+### Phase 39：优先级 2 认证密钥基线收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `application.yaml`、`SecurityConfig`、`JwtTokenService`、`AuthController`、`AuthApiIntegrationTests`、`AbstractIntegrationTest`、`AbstractRealJudgeIntegrationTest`、`AubbServerApplicationTests`、`HarnessHealthSmokeTests`、`MinioStorageIntegrationTests`、`docs/security.md`
+  - 确认当前 JWT secret 仍通过 `${AUBB_JWT_SECRET:change-this-secret-key-change-this-secret-key}` 和 `@Value(...:default)` 提供弱默认值
+  - 确认现有登录与鉴权链路本身已经稳定，真正需要收口的是“配置来源统一 + 缺失时 fail-fast + 测试显式注入”
+  - 新增 `JwtSecurityProperties`，在配置绑定阶段校验 `issuer / ttl / secret`，并复用到 `SecurityConfig` 与 `JwtTokenService`
+  - 将主配置中的 JWT secret 改为 `${AUBB_JWT_SECRET}` 无默认回退，建立缺失即失败的启动基线
+  - 新增 `src/test/resources/application.properties`，集中为全部 `SpringBootTest` 注入测试专用 `AUBB_JWT_SECRET`
+  - 新增 `JwtSecurityPropertiesValidationTests` 覆盖“未配置密钥时启动失败”，并执行 `AuthApiIntegrationTests`、`AubbServerApplicationTests`、`HarnessHealthSmokeTests`、`MinioStorageIntegrationTests`
+  - 更新 `README.md`、`docs/security.md`、`docs/reliability.md` 与执行计划，补齐本地运行示例和部署说明
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=JwtSecurityPropertiesValidationTests,AuthApiIntegrationTests,AubbServerApplicationTests,HarnessHealthSmokeTests,MinioStorageIntegrationTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `13` 个测试通过
+
 ## Session: 2026-04-17 judge 死锁与终态超时修复
 
 ### Phase 38：优先级 1 judge 稳定性收口
