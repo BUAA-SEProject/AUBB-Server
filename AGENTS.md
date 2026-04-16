@@ -14,7 +14,7 @@
 - 运行时：Spring Boot 4 + Java 25
 - 基础设施目标：PostgreSQL、RabbitMQ、Redis
 - 持久化基线：Flyway + MyBatis-Plus
-- 当前真实业务进度：平台治理、课程、assignment、submission、grading、judge 第一阶段已打通；当前优先级是在线 IDE 前端、多语言运行时稳定化、题库与组卷第二阶段、成绩导出与评测可复现性
+- 当前真实业务进度：平台治理、课程、assignment、submission、grading、judge 第一阶段已打通，并已补齐开课实例级评测环境模板、题目级运行环境快照与 `GO122` 真实评测链路；当前优先级是在线 IDE 前端、多语言运行时稳定化、题库与组卷第二阶段、成绩导出与评测可复现性
 - 公共健康检查端点：`/actuator/health`
 - 默认验证入口：`mvnd verify`
 - 未预装 `mvnd` 时，可使用 `.\mvnw.cmd verify`；当前仓库在 Unix 环境中若 wrapper 无执行位，统一使用 `bash ./mvnw verify` 通过仓库 wrapper 自动引导对应平台的 `mvnd`

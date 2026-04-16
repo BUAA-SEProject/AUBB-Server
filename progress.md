@@ -23,6 +23,37 @@
   - `findings.md`
   - `progress.md`
 
+## Session: 2026-04-16 接手入口文档五次收口
+
+### Phase 30：评测运行环境切片后的入口同步
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 复核 `README.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/product-sense.md`、`docs/product-specs/index.md`、`docs/quality-score.md` 和 `AGENTS.md`
+  - 把最近一次验证基线从 `BUILD SUCCESS / 78` 项测试通过修正为 `BUILD SUCCESS / 82` 项测试通过
+  - 把“多语言运行时稳定化”入口口径从三语言更新为 `PYTHON3 / JAVA21 / CPP17 / GO122`
+  - 把开课实例级评测环境模板、题目级运行环境快照和 `GO122` 真实评测链路同步到接手入口与数据库参考文档
+  - 同步更新 `task_plan.md`、`findings.md`、`progress.md` 和 `todo.md`，方便下一轮直接继续开发
+- Files created/modified:
+  - `README.md`
+  - `docs/index.md`
+  - `docs/repository-structure.md`
+  - `docs/product-sense.md`
+  - `docs/product-specs/index.md`
+  - `docs/product-specs/judge-system.md`
+  - `docs/generated/db-schema.md`
+  - `docs/quality-score.md`
+  - `AGENTS.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - 对本轮改动文件执行定向 `git diff --check`
+  - 本轮仅整理文档与工作记忆，沿用最近一次代码基线：`bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `82` 个测试通过
+
 ## Session: 2026-04-16 仓库状态复核与入口文档三次收口
 
 ### Phase 26：接手入口与仓库口径再次校准

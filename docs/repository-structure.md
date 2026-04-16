@@ -126,11 +126,11 @@ Java 生产代码根目录。
 当前编程题在线 IDE 后端能力的代码入口主要在：
 
 - `src/main/java/com/aubb/server/modules/assignment`
-  - 编程题模板工作区与题目配置快照
+  - 编程题模板工作区、题目配置快照与题目级运行环境快照
 - `src/main/java/com/aubb/server/modules/submission`
   - 工作区目录树、目录操作、修订历史和模板重置
 - `src/main/java/com/aubb/server/modules/judge`
-  - 样例试运行、自定义标准输入试运行、详细评测报告与真实 go-judge 执行
+  - 样例试运行、自定义标准输入试运行、详细评测报告、开课实例级评测环境模板与真实 go-judge 执行
 
 ### 新增共享能力
 

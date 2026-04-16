@@ -5,6 +5,12 @@
 - 当前主入口文档整体已基本同步，但活动计划 `2026-04-16-assignment-module-replan.md` 仍保留“题库仍缺分类”的旧表述，需要纠正为“分类第一阶段已完成，剩余缺口是更强的组卷编辑体验”。
 - `README.md`、`docs/index.md`、`docs/product-sense.md` 和 `docs/quality-score.md` 需要显式提到“题库标签与分类”“结构化作业草稿编辑”以及最近一次 `BUILD SUCCESS / 78` 项测试通过的验证基线，避免下一位开发者先读到落后状态。
 
+## 2026-04-16 入口文档五次收口补充发现
+
+- `docs/product-sense.md` 和 `docs/quality-score.md` 仍停留在 `BUILD SUCCESS / 78` 项测试通过的旧基线，需要更新到最近一次 `82` 项测试通过。
+- `README.md`、`todo.md` 和 `docs/product-sense.md` 的“多语言运行时稳定化”优先级表述仍写成 `PYTHON3 / JAVA21 / CPP17`，需要同步到当前四语言矩阵 `PYTHON3 / JAVA21 / CPP17 / GO122`。
+- `docs/index.md`、`docs/repository-structure.md`、`docs/product-specs/index.md` 和 `AGENTS.md` 需要把“开课实例级评测环境模板 + 题目级运行环境快照”纳入接手入口，否则开发者很容易只看到 go-judge 执行链路，看不到课程内环境复用边界。
+
 ## 2026-04-16 重规划结论
 
 ### 需求覆盖矩阵
@@ -36,7 +42,7 @@
 #### 当前缺口
 
 - 浏览器侧目录树 IDE、语法高亮 / 自动补全 / 格式化，以及更实时的自动保存协议
-- `PYTHON3 / JAVA21 / CPP17` 三语言完整验证矩阵
+- `PYTHON3 / JAVA21 / CPP17 / GO122` 四语言完整验证矩阵
 - 更稳定的组卷编辑能力与题库选题体验
 - 成绩导出和后续多作业总评
 - 更可回放的评测日志、执行元数据与产物对象

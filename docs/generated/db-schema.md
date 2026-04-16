@@ -554,7 +554,7 @@
 | `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
 | `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
 | `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
-| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17`（兼容接受 `JAVA17`） |
+| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17 / GO122`（兼容接受 `JAVA17`） |
 | `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
 | `entry_file_path` | `text` | 可空，当前入口文件路径 |
 | `source_files_json` | `text` | 必填，默认 `[]`，保存目录树源码快照 |
@@ -581,7 +581,7 @@
 | `revision_no` | `bigint` | 必填，工作区内递增版本号 |
 | `revision_kind` | `text` | 必填，`MANUAL_SAVE / AUTO_SAVE / FILE_OPERATION / RESET_TO_TEMPLATE / RESTORE_REVISION` |
 | `revision_message` | `text` | 可空，最长 255 |
-| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17`（兼容接受 `JAVA17`） |
+| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17 / GO122`（兼容接受 `JAVA17`） |
 | `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
 | `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
 | `entry_file_path` | `text` | 可空，当前入口文件路径 |
@@ -651,7 +651,7 @@
 | `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
 | `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
 | `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
-| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17`（兼容接受 `JAVA17`） |
+| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17 / GO122`（兼容接受 `JAVA17`） |
 | `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
 | `entry_file_path` | `text` | 可空，本次样例运行入口文件路径 |
 | `source_files_json` | `text` | 必填，默认 `[]`，保存本次样例运行的目录树源码快照 |
