@@ -341,6 +341,107 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void teacherUpdatesDraftStructuredAssignmentButCannotEditPublishedAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-2026", "2026级一班", 2026);
+
+        Long bankQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"初始题库单选",
+                  "prompt":"栈的特点是什么？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":10,
+                  "options":[
+                    {"optionKey":"A","content":"先进先出","correct":false},
+                    {"optionKey":"B","content":"后进先出","correct":true}
+                  ]
+                }
+                """);
+
+        Long assignmentId = createStructuredAssignment(teacherToken, offeringId, classId, bankQuestionId);
+
+        mockMvc.perform(put("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"结构化作业一（修订）",
+                                  "description":"改成课程公共作业",
+                                  "openAt":"2026-04-02T08:00:00+08:00",
+                                  "dueAt":"2026-05-05T23:59:59+08:00",
+                                  "maxSubmissions":5,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"修订后的客观题",
+                                        "questions":[
+                                          {"bankQuestionId":%s,"score":12}
+                                        ]
+                                      },
+                                      {
+                                        "title":"新增文件题",
+                                        "questions":[
+                                          {
+                                            "title":"上传实验报告",
+                                            "prompt":"提交 zip 报告。",
+                                            "questionType":"FILE_UPLOAD",
+                                            "score":18,
+                                            "config":{
+                                              "maxFileCount":2,
+                                              "maxFileSizeMb":50,
+                                              "acceptedExtensions":["zip","pdf"]
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(bankQuestionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("结构化作业一（修订）"))
+                .andExpect(jsonPath("$.description").value("改成课程公共作业"))
+                .andExpect(jsonPath("$.teachingClass").doesNotExist())
+                .andExpect(jsonPath("$.maxSubmissions").value(5))
+                .andExpect(jsonPath("$.paper.sectionCount").value(2))
+                .andExpect(jsonPath("$.paper.questionCount").value(2))
+                .andExpect(jsonPath("$.paper.totalScore").value(30))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].score").value(12))
+                .andExpect(jsonPath("$.paper.sections[1].questions[0].questionType")
+                        .value("FILE_UPLOAD"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM assignment_sections WHERE assignment_id = 1"))
+                .isEqualTo(2);
+        assertThat(queryForCount("SELECT COUNT(*) FROM assignment_questions WHERE assignment_id = 1"))
+                .isEqualTo(2);
+        assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'ASSIGNMENT_UPDATED'"))
+                .isEqualTo(1);
+
+        publishAssignment(teacherToken, assignmentId);
+
+        mockMvc.perform(put("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"发布后不允许编辑",
+                                  "description":"应被拒绝",
+                                  "openAt":"2026-04-02T08:00:00+08:00",
+                                  "dueAt":"2026-05-05T23:59:59+08:00",
+                                  "maxSubmissions":5
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ASSIGNMENT_STATUS_INVALID"));
+    }
+
+    @Test
     void teacherTagsQuestionBankQuestionsAndFiltersByTags() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

@@ -73,6 +73,13 @@ public class AssignmentPaperApplicationService {
         }
     }
 
+    @Transactional
+    public void replacePaper(Long assignmentId, Long offeringId, AssignmentPaperInput paper) {
+        assignmentSectionMapper.delete(Wrappers.<AssignmentSectionEntity>lambdaQuery()
+                .eq(AssignmentSectionEntity::getAssignmentId, assignmentId));
+        persistPaper(assignmentId, offeringId, paper);
+    }
+
     @Transactional(readOnly = true)
     public boolean hasStructuredPaper(Long assignmentId) {
         return assignmentSectionMapper.selectCount(Wrappers.<AssignmentSectionEntity>lambdaQuery()

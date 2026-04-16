@@ -110,6 +110,61 @@ public class AssignmentApplicationService {
                 loadJudgeConfigView(entity.getId()));
     }
 
+    @Transactional
+    public AssignmentView updateAssignment(
+            Long assignmentId,
+            String title,
+            String description,
+            Long teachingClassId,
+            OffsetDateTime openAt,
+            OffsetDateTime dueAt,
+            Integer maxSubmissions,
+            AssignmentPaperInput paper,
+            AssignmentJudgeConfigInput judgeConfig,
+            AuthenticatedUserPrincipal principal) {
+        AssignmentEntity entity = requireAssignment(assignmentId);
+        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以编辑");
+        }
+        TeachingClassEntity teachingClass =
+                validateTeachingClassBelongsToOffering(entity.getOfferingId(), teachingClassId);
+        validateSchedule(openAt, dueAt);
+        validateMaxSubmissions(maxSubmissions);
+        validateAssignmentMode(paper, judgeConfig);
+
+        entity.setTeachingClassId(teachingClassId);
+        entity.setTitle(normalizeTitle(title));
+        entity.setDescription(normalizeDescription(description));
+        entity.setOpenAt(openAt);
+        entity.setDueAt(dueAt);
+        entity.setMaxSubmissions(maxSubmissions);
+        assignmentMapper.updateById(entity);
+        assignmentPaperApplicationService.replacePaper(entity.getId(), entity.getOfferingId(), paper);
+        replaceJudgeConfig(entity.getId(), judgeConfig);
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("offeringId", entity.getOfferingId());
+        metadata.put("teachingClassId", teachingClassId);
+        metadata.put("title", entity.getTitle());
+        metadata.put("judgeEnabled", judgeConfig != null);
+        metadata.put("structuredPaperEnabled", paper != null);
+
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.ASSIGNMENT_UPDATED,
+                "ASSIGNMENT",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                metadata);
+        return toView(
+                entity,
+                requireOffering(entity.getOfferingId()),
+                teachingClass,
+                assignmentPaperApplicationService.loadPaper(entity.getId(), true),
+                loadJudgeConfigView(entity.getId()));
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<AssignmentView> listTeacherAssignments(
             Long offeringId,
@@ -396,6 +451,11 @@ public class AssignmentApplicationService {
             entity.setScore(testCase.score());
             assignmentJudgeCaseMapper.insert(entity);
         }
+    }
+
+    private void replaceJudgeConfig(Long assignmentId, AssignmentJudgeConfigInput judgeConfig) {
+        assignmentJudgeProfileMapper.deleteById(assignmentId);
+        persistJudgeConfig(assignmentId, judgeConfig);
     }
 
     private void validateJudgeConfig(AssignmentJudgeConfigInput judgeConfig) {

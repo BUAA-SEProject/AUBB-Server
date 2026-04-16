@@ -51,6 +51,31 @@
   - `progress.md`
   - `todo.md`
 
+## Session: 2026-04-16 草稿作业编辑第一阶段
+
+### Phase 28：教师侧草稿作业更新
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 为教师侧作业管理新增 `PUT /api/v1/teacher/assignments/{assignmentId}`，允许仅在 `DRAFT` 状态下更新作业头
+  - 在 `AssignmentApplicationService` 中补齐草稿编辑校验、试卷整体替换和 legacy judge 配置替换
+  - 为结构化作业补充集成测试，固定“草稿可改、发布后不可改”的边界
+  - 同步更新 README、assignment 产品规格、任务计划与工作记忆
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/assignment/api/AssignmentTeacherController.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/AssignmentApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/AssignmentPaperApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `README.md`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/product-specs/index.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+
 ### Phase 25：模板工作区、修订历史与自定义试运行
 
 - **Status:** completed
