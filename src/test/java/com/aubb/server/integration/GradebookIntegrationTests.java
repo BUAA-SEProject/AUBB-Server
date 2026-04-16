@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -165,6 +166,99 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.assignments[0].grade.finalScore").value(10))
                 .andExpect(jsonPath("$.assignments[1].grade.finalScore").value(28))
                 .andExpect(jsonPath("$.assignments[1].grade.gradePublished").value(true));
+    }
+
+    @Test
+    void teacherExportsOfferingGradebookAsCsv() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+
+        MvcResult result = mockMvc.perform(
+                        get("/api/v1/teacher/course-offerings/{offeringId}/gradebook/export", scenario.offeringId())
+                                .header("Authorization", "Bearer " + scenario.teacherToken()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String csv = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(result.getResponse().getContentType()).startsWith("text/csv");
+        assertThat(result.getResponse().getHeader("Content-Disposition"))
+                .contains("attachment;")
+                .contains("gradebook-offering-%d".formatted(scenario.offeringId()));
+        assertThat(csv)
+                .contains(
+                        "username,displayName,teachingClassCode,teachingClassName,totalFinalScore,totalMaxScore,submittedAssignmentCount,gradedAssignmentCount");
+        assertThat(csv).contains("课程公共客观题-finalScore");
+        assertThat(csv).contains("结构化批改作业 [A班]-applicable");
+        assertThat(csv).contains("student-a,Student A,CLS-A,A班,38,40,2,2");
+        assertThat(csv).contains("student-b,Student B,CLS-B,B班,10,10,1,1");
+    }
+
+    @Test
+    void taExportsOwnedClassGradebookAsCsvButCannotExportOtherClass() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+
+        MvcResult result = mockMvc.perform(
+                        get("/api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/export", scenario.classAId())
+                                .header("Authorization", "Bearer " + scenario.taAToken()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String csv = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(csv).contains("student-a,Student A,CLS-A,A班,38,40,2,2");
+        assertThat(csv).doesNotContain("student-b,Student B");
+
+        mockMvc.perform(get("/api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/export", scenario.classAId())
+                        .header("Authorization", "Bearer " + scenario.taBToken()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void teacherReadsOfferingGradebookReportWithAssignmentAndClassStats() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/gradebook/report", scenario.offeringId())
+                        .header("Authorization", "Bearer " + scenario.teacherToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.overview.assignmentCount").value(2))
+                .andExpect(jsonPath("$.overview.studentCount").value(2))
+                .andExpect(jsonPath("$.overview.applicableGradeCount").value(3))
+                .andExpect(jsonPath("$.overview.submittedCount").value(3))
+                .andExpect(jsonPath("$.overview.submissionRate").value(1.0))
+                .andExpect(jsonPath("$.overview.averageTotalFinalScore").value(24.0))
+                .andExpect(jsonPath("$.overview.averageTotalScoreRate").value(0.96))
+                .andExpect(jsonPath("$.assignments.length()").value(2))
+                .andExpect(jsonPath("$.assignments[0].title").value("课程公共客观题"))
+                .andExpect(jsonPath("$.assignments[0].submittedStudentCount").value(2))
+                .andExpect(
+                        jsonPath("$.assignments[0].averageSubmittedFinalScore").value(10.0))
+                .andExpect(jsonPath("$.assignments[1].title").value("结构化批改作业"))
+                .andExpect(jsonPath("$.assignments[1].submittedStudentCount").value(1))
+                .andExpect(
+                        jsonPath("$.assignments[1].averageSubmittedScoreRate").value(0.9333))
+                .andExpect(jsonPath("$.teachingClasses.length()").value(2))
+                .andExpect(jsonPath("$.teachingClasses[0].teachingClassCode").value("CLS-A"))
+                .andExpect(
+                        jsonPath("$.teachingClasses[0].averageTotalFinalScore").value(38.0))
+                .andExpect(jsonPath("$.teachingClasses[1].teachingClassCode").value("CLS-B"))
+                .andExpect(
+                        jsonPath("$.teachingClasses[1].averageTotalScoreRate").value(1.0));
+    }
+
+    @Test
+    void taCanReadOwnedClassGradebookReportButCannotReadOtherClassReport() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+
+        mockMvc.perform(get("/api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/report", scenario.classAId())
+                        .header("Authorization", "Bearer " + scenario.taAToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.overview.studentCount").value(1))
+                .andExpect(jsonPath("$.overview.submittedCount").value(2))
+                .andExpect(jsonPath("$.teachingClasses.length()").value(0))
+                .andExpect(jsonPath("$.assignments[0].submittedStudentCount").value(1))
+                .andExpect(jsonPath("$.assignments[1].submittedStudentCount").value(1));
+
+        mockMvc.perform(get("/api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/report", scenario.classAId())
+                        .header("Authorization", "Bearer " + scenario.taBToken()))
+                .andExpect(status().isForbidden());
     }
 
     @Test

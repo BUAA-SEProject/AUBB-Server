@@ -54,6 +54,43 @@
   - 本轮仅整理文档与工作记忆，沿用最近一次代码基线：`bash ./mvnw clean verify`
   - 当前结果：`BUILD SUCCESS`，全量 `82` 个测试通过
 
+## Session: 2026-04-16 成绩册导出与统计报告第一阶段
+
+### Phase 31：教师侧成绩册从“可浏览”推进到“可导出 / 可统计”
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 在 `GradebookApplicationService` 中新增 offering / class 成绩册 CSV 导出能力，复用既有成绩册聚合结果，保持导出语义与页面视图一致
+  - 在 `TeacherGradebookController` 中新增课程级 / 班级级成绩册导出接口，沿用现有教师 / 管理员 / 班级助教授权边界
+  - 新增 `GradebookReportView`，为 offering / class 成绩册补齐统计报告第一阶段，覆盖总体摘要、按作业统计和按班级对比
+  - 扩展 `GradebookIntegrationTests`，覆盖 offering 导出、class 导出、offering 报告和班级 TA 读取报告边界
+  - 同步 `README.md`、`docs/product-specs/grading-system.md`、`docs/product-sense.md`、`docs/product-specs/index.md`、`todo.md` 和执行计划，统一成绩导出 / 统计报告口径
+  - 已执行 `bash ./mvnw spotless:apply`
+  - 已执行 `bash ./mvnw -Dtest=GradebookIntegrationTests test`
+  - 已执行 `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests test`
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookExportContent.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookReportView.java`
+  - `src/main/java/com/aubb/server/modules/grading/api/TeacherGradebookController.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+  - `README.md`
+  - `docs/product-specs/index.md`
+  - `docs/product-specs/grading-system.md`
+  - `docs/product-sense.md`
+  - `todo.md`
+  - `docs/exec-plans/completed/2026-04-16-gradebook-export-and-report-phase1.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests test`
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `86` 个测试通过
+
 ## Session: 2026-04-16 仓库状态复核与入口文档三次收口
 
 ### Phase 26：接手入口与仓库口径再次校准

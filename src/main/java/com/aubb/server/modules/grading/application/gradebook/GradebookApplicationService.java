@@ -23,6 +23,9 @@ import com.aubb.server.modules.submission.application.answer.SubmissionScoreSumm
 import com.aubb.server.modules.submission.infrastructure.SubmissionEntity;
 import com.aubb.server.modules.submission.infrastructure.SubmissionMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -72,6 +75,43 @@ public class GradebookApplicationService {
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
         courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
         return buildGradebook(offering, teachingClass, studentUserId, page, pageSize);
+    }
+
+    @Transactional(readOnly = true)
+    public GradebookExportContent exportOfferingGradebook(
+            Long offeringId, Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
+        CourseOfferingEntity offering = requireOffering(offeringId);
+        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
+        return toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
+    }
+
+    @Transactional(readOnly = true)
+    public GradebookExportContent exportTeachingClassGradebook(
+            Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
+        TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
+        CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
+        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        return toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
+    }
+
+    @Transactional(readOnly = true)
+    public GradebookReportView getOfferingGradebookReport(
+            Long offeringId, Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
+        CourseOfferingEntity offering = requireOffering(offeringId);
+        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
+        return buildGradebookReport(
+                buildGradebookSnapshot(offering, teachingClass, studentUserId), teachingClass == null);
+    }
+
+    @Transactional(readOnly = true)
+    public GradebookReportView getTeachingClassGradebookReport(
+            Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
+        TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
+        CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
+        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        return buildGradebookReport(buildGradebookSnapshot(offering, teachingClass, studentUserId), false);
     }
 
     @Transactional(readOnly = true)
@@ -160,6 +200,20 @@ public class GradebookApplicationService {
             Long studentUserId,
             long page,
             long pageSize) {
+        GradebookSnapshot snapshot = buildGradebookSnapshot(offering, teachingClass, studentUserId);
+        List<GradebookPageView.StudentRowView> pagedRows = paginate(snapshot.rows(), page, pageSize);
+        return new GradebookPageView(
+                snapshot.scope(),
+                snapshot.summary(),
+                snapshot.assignmentColumns(),
+                pagedRows,
+                snapshot.rows().size(),
+                page,
+                pageSize);
+    }
+
+    private GradebookSnapshot buildGradebookSnapshot(
+            CourseOfferingEntity offering, TeachingClassEntity teachingClass, Long studentUserId) {
         Long teachingClassId = teachingClass == null ? null : teachingClass.getId();
         List<AssignmentEntity> assignments = loadStructuredAssignments(offering.getId(), teachingClassId);
         List<StudentRosterEntry> roster = loadRoster(offering.getId(), teachingClassId, studentUserId);
@@ -198,17 +252,217 @@ public class GradebookApplicationService {
                 .filter(cell -> Boolean.TRUE.equals(cell.submitted()) && Boolean.TRUE.equals(cell.gradePublished()))
                 .mapToInt(ignored -> 1)
                 .sum();
-
-        List<GradebookPageView.StudentRowView> pagedRows = paginate(rows, page, pageSize);
-        return new GradebookPageView(
+        return new GradebookSnapshot(
                 toScope(offering.getId(), teachingClass),
                 new GradebookPageView.SummaryView(
                         assignments.size(), roster.size(), submittedCount, fullyGradedCount, publishedCount),
                 assignmentColumns,
-                pagedRows,
-                rows.size(),
-                page,
-                pageSize);
+                rows);
+    }
+
+    private GradebookExportContent toCsvExport(GradebookSnapshot snapshot) {
+        String filename = snapshot.scope().teachingClassId() == null
+                ? "gradebook-offering-%d.csv".formatted(snapshot.scope().offeringId())
+                : "gradebook-class-%d.csv".formatted(snapshot.scope().teachingClassId());
+        return new GradebookExportContent(
+                filename, "text/csv", renderCsv(snapshot).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private GradebookReportView buildGradebookReport(GradebookSnapshot snapshot, boolean includeTeachingClasses) {
+        return new GradebookReportView(
+                snapshot.scope(),
+                buildOverview(snapshot),
+                buildAssignmentStats(snapshot),
+                includeTeachingClasses ? buildTeachingClassStats(snapshot) : List.of());
+    }
+
+    private GradebookReportView.OverviewView buildOverview(GradebookSnapshot snapshot) {
+        int applicableGradeCount = 0;
+        int totalFinalScore = 0;
+        int totalMaxScore = 0;
+        for (GradebookPageView.StudentRowView row : snapshot.rows()) {
+            totalFinalScore += row.totalFinalScore();
+            totalMaxScore += row.totalMaxScore();
+            applicableGradeCount += (int) row.grades().stream()
+                    .filter(cell -> Boolean.TRUE.equals(cell.applicable()))
+                    .count();
+        }
+        return new GradebookReportView.OverviewView(
+                snapshot.summary().assignmentCount(),
+                snapshot.summary().studentCount(),
+                applicableGradeCount,
+                snapshot.summary().submittedCount(),
+                snapshot.summary().fullyGradedCount(),
+                snapshot.summary().publishedCount(),
+                ratio(snapshot.summary().submittedCount(), applicableGradeCount),
+                ratio(snapshot.summary().fullyGradedCount(), applicableGradeCount),
+                ratio(snapshot.summary().publishedCount(), applicableGradeCount),
+                average(totalFinalScore, snapshot.summary().studentCount()),
+                ratio(totalFinalScore, totalMaxScore));
+    }
+
+    private List<GradebookReportView.AssignmentStatView> buildAssignmentStats(GradebookSnapshot snapshot) {
+        List<GradebookReportView.AssignmentStatView> stats = new ArrayList<>();
+        for (int index = 0; index < snapshot.assignmentColumns().size(); index++) {
+            GradebookPageView.AssignmentColumnView assignmentColumn =
+                    snapshot.assignmentColumns().get(index);
+            int applicableStudentCount = 0;
+            int submittedStudentCount = 0;
+            int fullyGradedStudentCount = 0;
+            int publishedStudentCount = 0;
+            int totalSubmittedFinalScore = 0;
+            int totalSubmittedMaxScore = 0;
+            for (GradebookPageView.StudentRowView row : snapshot.rows()) {
+                GradebookPageView.GradeCellView cell = row.grades().get(index);
+                if (!Boolean.TRUE.equals(cell.applicable())) {
+                    continue;
+                }
+                applicableStudentCount++;
+                if (Boolean.TRUE.equals(cell.submitted())) {
+                    submittedStudentCount++;
+                    totalSubmittedMaxScore += defaultScore(cell.maxScore());
+                    totalSubmittedFinalScore += defaultScore(cell.finalScore());
+                }
+                if (Boolean.TRUE.equals(cell.fullyGraded())) {
+                    fullyGradedStudentCount++;
+                }
+                if (Boolean.TRUE.equals(cell.submitted()) && Boolean.TRUE.equals(cell.gradePublished())) {
+                    publishedStudentCount++;
+                }
+            }
+            stats.add(new GradebookReportView.AssignmentStatView(
+                    assignmentColumn.assignmentId(),
+                    assignmentColumn.teachingClassId(),
+                    assignmentColumn.teachingClassName(),
+                    assignmentColumn.title(),
+                    defaultScore(assignmentColumn.maxScore()),
+                    applicableStudentCount,
+                    submittedStudentCount,
+                    fullyGradedStudentCount,
+                    publishedStudentCount,
+                    ratio(submittedStudentCount, applicableStudentCount),
+                    ratio(fullyGradedStudentCount, applicableStudentCount),
+                    ratio(publishedStudentCount, applicableStudentCount),
+                    average(totalSubmittedFinalScore, submittedStudentCount),
+                    ratio(totalSubmittedFinalScore, totalSubmittedMaxScore)));
+        }
+        return List.copyOf(stats);
+    }
+
+    private List<GradebookReportView.TeachingClassStatView> buildTeachingClassStats(GradebookSnapshot snapshot) {
+        Map<Long, MutableTeachingClassStat> stats = new LinkedHashMap<>();
+        for (GradebookPageView.StudentRowView row : snapshot.rows()) {
+            long key = row.teachingClassId() == null ? -1L : row.teachingClassId();
+            MutableTeachingClassStat stat = stats.computeIfAbsent(
+                    key,
+                    ignored -> new MutableTeachingClassStat(
+                            row.teachingClassId(), row.teachingClassCode(), row.teachingClassName()));
+            stat.studentCount++;
+            stat.applicableAssignmentCount += (int) row.grades().stream()
+                    .filter(cell -> Boolean.TRUE.equals(cell.applicable()))
+                    .count();
+            stat.submittedAssignmentCount += defaultScore(row.submittedAssignmentCount());
+            stat.gradedAssignmentCount += defaultScore(row.gradedAssignmentCount());
+            stat.publishedAssignmentCount += (int) row.grades().stream()
+                    .filter(cell -> Boolean.TRUE.equals(cell.submitted()) && Boolean.TRUE.equals(cell.gradePublished()))
+                    .count();
+            stat.totalFinalScore += defaultScore(row.totalFinalScore());
+            stat.totalMaxScore += defaultScore(row.totalMaxScore());
+        }
+        return stats.values().stream()
+                .map(stat -> new GradebookReportView.TeachingClassStatView(
+                        stat.teachingClassId,
+                        stat.teachingClassCode,
+                        stat.teachingClassName,
+                        stat.studentCount,
+                        stat.applicableAssignmentCount,
+                        stat.submittedAssignmentCount,
+                        stat.gradedAssignmentCount,
+                        stat.publishedAssignmentCount,
+                        ratio(stat.submittedAssignmentCount, stat.applicableAssignmentCount),
+                        ratio(stat.gradedAssignmentCount, stat.applicableAssignmentCount),
+                        ratio(stat.publishedAssignmentCount, stat.applicableAssignmentCount),
+                        average(stat.totalFinalScore, stat.studentCount),
+                        ratio(stat.totalFinalScore, stat.totalMaxScore)))
+                .toList();
+    }
+
+    private String renderCsv(GradebookSnapshot snapshot) {
+        StringBuilder builder = new StringBuilder();
+        List<String> header = new ArrayList<>(List.of(
+                "username",
+                "displayName",
+                "teachingClassCode",
+                "teachingClassName",
+                "totalFinalScore",
+                "totalMaxScore",
+                "submittedAssignmentCount",
+                "gradedAssignmentCount"));
+        for (GradebookPageView.AssignmentColumnView assignmentColumn : snapshot.assignmentColumns()) {
+            String label = assignmentExportLabel(assignmentColumn);
+            header.add(label + "-applicable");
+            header.add(label + "-submitted");
+            header.add(label + "-latestAttemptNo");
+            header.add(label + "-submittedAt");
+            header.add(label + "-finalScore");
+            header.add(label + "-maxScore");
+            header.add(label + "-fullyGraded");
+            header.add(label + "-gradePublished");
+        }
+        appendCsvRow(builder, header);
+
+        for (GradebookPageView.StudentRowView row : snapshot.rows()) {
+            List<String> record = new ArrayList<>();
+            record.add(row.username());
+            record.add(row.displayName());
+            record.add(row.teachingClassCode());
+            record.add(row.teachingClassName());
+            record.add(String.valueOf(row.totalFinalScore()));
+            record.add(String.valueOf(row.totalMaxScore()));
+            record.add(String.valueOf(row.submittedAssignmentCount()));
+            record.add(String.valueOf(row.gradedAssignmentCount()));
+            for (GradebookPageView.GradeCellView cell : row.grades()) {
+                record.add(String.valueOf(Boolean.TRUE.equals(cell.applicable())));
+                record.add(String.valueOf(Boolean.TRUE.equals(cell.submitted())));
+                record.add(cell.latestAttemptNo() == null ? null : String.valueOf(cell.latestAttemptNo()));
+                record.add(
+                        cell.submittedAt() == null ? null : cell.submittedAt().toString());
+                record.add(cell.finalScore() == null ? null : String.valueOf(cell.finalScore()));
+                record.add(cell.maxScore() == null ? null : String.valueOf(cell.maxScore()));
+                record.add(cell.fullyGraded() == null ? null : String.valueOf(cell.fullyGraded()));
+                record.add(String.valueOf(Boolean.TRUE.equals(cell.gradePublished())));
+            }
+            appendCsvRow(builder, record);
+        }
+        return builder.toString();
+    }
+
+    private String assignmentExportLabel(GradebookPageView.AssignmentColumnView assignmentColumn) {
+        return assignmentColumn.teachingClassName() == null
+                ? assignmentColumn.title()
+                : "%s [%s]".formatted(assignmentColumn.title(), assignmentColumn.teachingClassName());
+    }
+
+    private void appendCsvRow(StringBuilder builder, List<String> values) {
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append(escapeCsv(values.get(i)));
+        }
+        builder.append('\n');
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        boolean needsQuotes =
+                value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r");
+        if (!needsQuotes) {
+            return value;
+        }
+        return "\"" + value.replace("\"", "\"\"") + "\"";
     }
 
     private GradebookPageView.StudentRowView toStudentRow(
@@ -517,6 +771,24 @@ public class GradebookApplicationService {
         return score == null ? 0 : score;
     }
 
+    private double average(int value, int count) {
+        if (count <= 0) {
+            return 0.0;
+        }
+        return BigDecimal.valueOf(value)
+                .divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private double ratio(int numerator, int denominator) {
+        if (denominator <= 0) {
+            return 0.0;
+        }
+        return BigDecimal.valueOf(numerator)
+                .divide(BigDecimal.valueOf(denominator), 4, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
     private String teachingClassSortKey(TeachingClassEntity teachingClass) {
         if (teachingClass == null) {
             return "zzz";
@@ -539,4 +811,29 @@ public class GradebookApplicationService {
     }
 
     private record StudentRosterEntry(UserEntity user, Long teachingClassId) {}
+
+    private record GradebookSnapshot(
+            GradebookPageView.ScopeView scope,
+            GradebookPageView.SummaryView summary,
+            List<GradebookPageView.AssignmentColumnView> assignmentColumns,
+            List<GradebookPageView.StudentRowView> rows) {}
+
+    private static final class MutableTeachingClassStat {
+        private final Long teachingClassId;
+        private final String teachingClassCode;
+        private final String teachingClassName;
+        private int studentCount;
+        private int applicableAssignmentCount;
+        private int submittedAssignmentCount;
+        private int gradedAssignmentCount;
+        private int publishedAssignmentCount;
+        private int totalFinalScore;
+        private int totalMaxScore;
+
+        private MutableTeachingClassStat(Long teachingClassId, String teachingClassCode, String teachingClassName) {
+            this.teachingClassId = teachingClassId;
+            this.teachingClassCode = teachingClassCode;
+            this.teachingClassName = teachingClassName;
+        }
+    }
 }
