@@ -15,6 +15,7 @@ public record QuestionBankQuestionView(
         Integer defaultScore,
         List<AssignmentQuestionOptionView> options,
         AssignmentQuestionConfigView config,
+        List<String> tags,
         Boolean archived,
         OffsetDateTime archivedAt,
         OffsetDateTime createdAt,

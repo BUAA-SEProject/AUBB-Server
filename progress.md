@@ -369,3 +369,37 @@
   - `bash ./mvnw -Dtest=StructuredAssignmentIntegrationTests test`
   - `bash ./mvnw clean verify`
   - `BUILD SUCCESS`，全量 `66` 个测试通过
+
+## Session: 2026-04-16 题库标签与标签检索第一阶段
+
+### Phase 17：题库标签最小闭环
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V15__question_bank_tags_phase1.sql`，引入 `question_bank_tags` 与 `question_bank_question_tags`
+  - 为教师侧题库创建 / 更新接口补齐 `tags`，并为题库列表补齐重复 `tag` 参数过滤
+  - 在题库服务中加入标签归一化、开课实例内标签复用与题目标签替换逻辑
+  - 扩展 `StructuredAssignmentIntegrationTests`，覆盖标签去重、标签更新替换和多标签同时命中过滤
+  - 同步 assignment 产品规格、数据库结构、路线图与工作记忆
+- Files created/modified:
+  - `src/main/resources/db/migration/V15__question_bank_tags_phase1.sql`
+  - `src/main/java/com/aubb/server/modules/assignment/api/QuestionBankTeacherController.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/bank/QuestionBankApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/bank/QuestionBankQuestionView.java`
+  - `src/main/java/com/aubb/server/modules/assignment/infrastructure/bank/QuestionBankTagEntity.java`
+  - `src/main/java/com/aubb/server/modules/assignment/infrastructure/bank/QuestionBankTagMapper.java`
+  - `src/main/java/com/aubb/server/modules/assignment/infrastructure/bank/QuestionBankQuestionTagEntity.java`
+  - `src/main/java/com/aubb/server/modules/assignment/infrastructure/bank/QuestionBankQuestionTagMapper.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/generated/db-schema.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=StructuredAssignmentIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - `BUILD SUCCESS`，全量 `67` 个测试通过

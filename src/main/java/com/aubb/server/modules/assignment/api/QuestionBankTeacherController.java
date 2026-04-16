@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -52,6 +53,7 @@ public class QuestionBankTeacherController {
                 request.questionType(),
                 request.defaultScore(),
                 request.toOptionInputs(),
+                request.tags(),
                 request.toConfigInput(),
                 principal);
     }
@@ -62,12 +64,13 @@ public class QuestionBankTeacherController {
             @PathVariable Long offeringId,
             @RequestParam(required = false) AssignmentQuestionType questionType,
             @RequestParam(required = false) String keyword,
+            @RequestParam(name = "tag", required = false) List<String> tags,
             @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return questionBankApplicationService.listQuestions(
-                offeringId, questionType, keyword, includeArchived, page, pageSize, principal);
+                offeringId, questionType, keyword, tags, includeArchived, page, pageSize, principal);
     }
 
     @GetMapping("/question-bank/questions/{questionId}")
@@ -90,6 +93,7 @@ public class QuestionBankTeacherController {
                 request.questionType(),
                 request.defaultScore(),
                 request.toOptionInputs(),
+                request.tags(),
                 request.toConfigInput(),
                 principal);
     }
@@ -107,6 +111,7 @@ public class QuestionBankTeacherController {
             @NotNull AssignmentQuestionType questionType,
             @NotNull @Positive Integer defaultScore,
             List<@Valid QuestionOptionRequest> options,
+            List<@NotBlank @Size(max = 32) String> tags,
             @Valid QuestionConfigRequest config) {
 
         List<AssignmentQuestionOptionInput> toOptionInputs() {

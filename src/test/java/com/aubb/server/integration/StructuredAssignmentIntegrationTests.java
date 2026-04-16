@@ -339,6 +339,105 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("QUESTION_BANK_QUESTION_ARCHIVED"));
     }
 
+    @Test
+    void teacherTagsQuestionBankQuestionsAndFiltersByTags() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        Long graphQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"图搜索单选",
+                  "prompt":"BFS 使用什么数据结构？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":10,
+                  "tags":[" Graph ","search","graph"],
+                  "options":[
+                    {"optionKey":"A","content":"队列","correct":true},
+                    {"optionKey":"B","content":"栈","correct":false}
+                  ]
+                }
+                """);
+
+        createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"树结构单选",
+                  "prompt":"完全二叉树适合使用哪种存储？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":10,
+                  "tags":["tree"],
+                  "options":[
+                    {"optionKey":"A","content":"顺序存储","correct":true},
+                    {"optionKey":"B","content":"链式存储","correct":false}
+                  ]
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("tag", "graph"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(graphQuestionId))
+                .andExpect(jsonPath("$.items[0].tags[0]").value("graph"))
+                .andExpect(jsonPath("$.items[0].tags[1]").value("search"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("tag", "graph", "search"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(graphQuestionId));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("tag", "graph", "tree"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+
+        updateQuestionBankQuestion(teacherToken, graphQuestionId, """
+                {
+                  "title":"图搜索单选（更新）",
+                  "prompt":"更新后的题面",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":12,
+                  "tags":["bfs","graph"],
+                  "options":[
+                    {"optionKey":"A","content":"队列","correct":true},
+                    {"optionKey":"B","content":"栈","correct":false}
+                  ]
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", graphQuestionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("图搜索单选（更新）"))
+                .andExpect(jsonPath("$.tags[0]").value("bfs"))
+                .andExpect(jsonPath("$.tags[1]").value("graph"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("tag", "search"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("tag", "bfs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(graphQuestionId));
+
+        assertThat(queryForCount(
+                        "SELECT COUNT(*) FROM question_bank_question_tags WHERE question_id = " + graphQuestionId))
+                .isEqualTo(2);
+    }
+
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
         jdbcTemplate.update(
                 """
