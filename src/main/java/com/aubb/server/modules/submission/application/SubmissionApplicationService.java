@@ -5,6 +5,7 @@ import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.common.storage.ObjectStorageException;
 import com.aubb.server.common.storage.ObjectStorageService;
 import com.aubb.server.common.storage.StoredObject;
+import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
@@ -15,6 +16,11 @@ import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.judge.application.JudgeApplicationService;
+import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
+import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService.PersistedStructuredAnswers;
+import com.aubb.server.modules.submission.application.answer.SubmissionAnswerInput;
+import com.aubb.server.modules.submission.application.answer.SubmissionAnswerView;
+import com.aubb.server.modules.submission.application.answer.SubmissionScoreSummaryView;
 import com.aubb.server.modules.submission.domain.SubmissionStatus;
 import com.aubb.server.modules.submission.infrastructure.SubmissionArtifactEntity;
 import com.aubb.server.modules.submission.infrastructure.SubmissionArtifactMapper;
@@ -52,6 +58,8 @@ public class SubmissionApplicationService {
     private final SubmissionMapper submissionMapper;
     private final SubmissionArtifactMapper submissionArtifactMapper;
     private final AssignmentMapper assignmentMapper;
+    private final AssignmentPaperApplicationService assignmentPaperApplicationService;
+    private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
@@ -112,15 +120,29 @@ public class SubmissionApplicationService {
 
     @Transactional
     public SubmissionView createSubmission(
-            Long assignmentId, String contentText, List<Long> artifactIds, AuthenticatedUserPrincipal principal) {
+            Long assignmentId,
+            String contentText,
+            List<Long> artifactIds,
+            List<SubmissionAnswerInput> answerInputs,
+            AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
         OffsetDateTime now = OffsetDateTime.now();
         assertCanPrepareSubmission(principal, assignment, now);
-
-        List<Long> normalizedArtifactIds = normalizeArtifactIds(artifactIds);
-        String normalizedContent = normalizeContentText(contentText, !normalizedArtifactIds.isEmpty());
-        List<SubmissionArtifactEntity> artifacts =
-                loadAttachableArtifacts(assignmentId, principal.getUserId(), normalizedArtifactIds);
+        boolean structuredAssignment = assignmentPaperApplicationService.hasStructuredPaper(assignmentId);
+        List<SubmissionArtifactEntity> artifacts;
+        String normalizedContent;
+        if (structuredAssignment) {
+            validateStructuredSubmissionEnvelope(contentText, artifactIds);
+            List<Long> normalizedStructuredArtifactIds =
+                    normalizeArtifactIds(extractStructuredArtifactIds(answerInputs));
+            artifacts = loadAttachableArtifacts(assignmentId, principal.getUserId(), normalizedStructuredArtifactIds);
+            normalizedContent = null;
+        } else {
+            validateLegacySubmissionEnvelope(answerInputs);
+            List<Long> normalizedArtifactIds = normalizeArtifactIds(artifactIds);
+            normalizedContent = normalizeContentText(contentText, !normalizedArtifactIds.isEmpty());
+            artifacts = loadAttachableArtifacts(assignmentId, principal.getUserId(), normalizedArtifactIds);
+        }
 
         int nextAttempt = countAttempts(assignmentId, principal.getUserId()) + 1;
         if (nextAttempt > assignment.getMaxSubmissions()) {
@@ -140,7 +162,20 @@ public class SubmissionApplicationService {
         submissionMapper.insert(entity);
 
         attachArtifacts(entity.getId(), artifacts);
-        judgeApplicationService.enqueueAutoJudge(entity, assignment);
+        if (structuredAssignment) {
+            PersistedStructuredAnswers persistedAnswers = submissionAnswerApplicationService.persistStructuredAnswers(
+                    entity,
+                    answerInputs,
+                    artifacts.stream()
+                            .collect(java.util.stream.Collectors.toMap(
+                                    SubmissionArtifactEntity::getId,
+                                    artifact -> artifact,
+                                    (left, right) -> left,
+                                    LinkedHashMap::new)));
+            judgeApplicationService.enqueueProgrammingJudges(entity, assignment, persistedAnswers);
+        } else {
+            judgeApplicationService.enqueueAutoJudge(entity, assignment);
+        }
 
         auditLogApplicationService.record(
                 principal.getUserId(),
@@ -156,8 +191,11 @@ public class SubmissionApplicationService {
                         "attemptNo",
                         nextAttempt,
                         "artifactCount",
-                        artifacts.size()));
-        return toView(entity, assignment, toArtifactViews(artifacts));
+                        artifacts.size(),
+                        "structuredAnswerCount",
+                        structuredAssignment && answerInputs != null ? answerInputs.size() : 0));
+        boolean gradePublished = assignment.getGradePublishedAt() != null;
+        return toView(entity, assignment, toArtifactViews(artifacts), gradePublished, gradePublished);
     }
 
     @Transactional(readOnly = true)
@@ -173,7 +211,8 @@ public class SubmissionApplicationService {
                 .eq(SubmissionEntity::getSubmitterUserId, principal.getUserId())
                 .orderByDesc(SubmissionEntity::getSubmittedAt)
                 .orderByDesc(SubmissionEntity::getId));
-        return toPage(matched, assignment, page, pageSize);
+        boolean gradePublished = assignment.getGradePublishedAt() != null;
+        return toPage(matched, assignment, page, pageSize, gradePublished, gradePublished);
     }
 
     @Transactional(readOnly = true)
@@ -187,7 +226,8 @@ public class SubmissionApplicationService {
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
         }
-        return toView(submission, assignment, loadArtifactViews(submissionId));
+        boolean gradePublished = assignment.getGradePublishedAt() != null;
+        return toView(submission, assignment, loadArtifactViews(submissionId), gradePublished, gradePublished);
     }
 
     @Transactional(readOnly = true)
@@ -213,7 +253,8 @@ public class SubmissionApplicationService {
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanGradeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         List<SubmissionEntity> matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
                 .eq(SubmissionEntity::getAssignmentId, assignmentId)
                 .eq(submitterUserId != null, SubmissionEntity::getSubmitterUserId, submitterUserId)
@@ -222,22 +263,29 @@ public class SubmissionApplicationService {
         if (latestOnly) {
             matched = loadLatestSubmissions(matched);
         }
-        return toPage(matched, assignment, page, pageSize);
+        return toPage(matched, assignment, page, pageSize, true, assignment.getGradePublishedAt() != null);
     }
 
     @Transactional(readOnly = true)
     public SubmissionView getTeacherSubmission(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
-        return toView(submission, assignment, loadArtifactViews(submissionId));
+        courseAuthorizationService.assertCanGradeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        return toView(
+                submission,
+                assignment,
+                loadArtifactViews(submissionId),
+                true,
+                assignment.getGradePublishedAt() != null);
     }
 
     @Transactional(readOnly = true)
     public SubmissionArtifactDownload downloadTeacherArtifact(Long artifactId, AuthenticatedUserPrincipal principal) {
         SubmissionArtifactEntity artifact = requireArtifact(artifactId);
         AssignmentEntity assignment = requireAssignment(artifact.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanGradeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         if (artifact.getSubmissionId() == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "SUBMISSION_ARTIFACT_NOT_FOUND", "提交附件不存在");
         }
@@ -245,7 +293,12 @@ public class SubmissionApplicationService {
     }
 
     private PageResponse<SubmissionView> toPage(
-            List<SubmissionEntity> entities, AssignmentEntity assignment, long page, long pageSize) {
+            List<SubmissionEntity> entities,
+            AssignmentEntity assignment,
+            long page,
+            long pageSize,
+            boolean revealNonObjectiveScores,
+            boolean gradePublished) {
         long safePage = Math.max(page, 1);
         long safePageSize = Math.max(pageSize, 1);
         long offset = (safePage - 1) * safePageSize;
@@ -254,14 +307,26 @@ public class SubmissionApplicationService {
         Map<Long, List<SubmissionArtifactView>> artifactsBySubmissionId = loadArtifactViewsBySubmissionIds(
                 pageItems.stream().map(SubmissionEntity::getId).toList());
         List<SubmissionView> items = pageItems.stream()
-                .map(entity ->
-                        toView(entity, assignment, artifactsBySubmissionId.getOrDefault(entity.getId(), List.of())))
+                .map(entity -> toView(
+                        entity,
+                        assignment,
+                        artifactsBySubmissionId.getOrDefault(entity.getId(), List.of()),
+                        revealNonObjectiveScores,
+                        gradePublished))
                 .toList();
         return new PageResponse<>(items, entities.size(), safePage, safePageSize);
     }
 
     private SubmissionView toView(
-            SubmissionEntity entity, AssignmentEntity assignment, List<SubmissionArtifactView> artifacts) {
+            SubmissionEntity entity,
+            AssignmentEntity assignment,
+            List<SubmissionArtifactView> artifacts,
+            boolean revealNonObjectiveScores,
+            boolean gradePublished) {
+        List<SubmissionAnswerView> answers = submissionAnswerApplicationService.loadAnswerViews(
+                entity.getId(), assignment.getId(), revealNonObjectiveScores);
+        SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
+                entity.getId(), assignment.getId(), revealNonObjectiveScores, gradePublished);
         return new SubmissionView(
                 entity.getId(),
                 entity.getSubmissionNo(),
@@ -274,6 +339,8 @@ public class SubmissionApplicationService {
                 SubmissionStatus.valueOf(entity.getStatus()),
                 entity.getContentText(),
                 artifacts,
+                answers,
+                scoreSummary,
                 entity.getSubmittedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());
@@ -405,6 +472,18 @@ public class SubmissionApplicationService {
         return normalizedIds.stream().toList();
     }
 
+    private List<Long> extractStructuredArtifactIds(List<SubmissionAnswerInput> answerInputs) {
+        if (answerInputs == null || answerInputs.isEmpty()) {
+            return List.of();
+        }
+        return answerInputs.stream()
+                .filter(Objects::nonNull)
+                .map(SubmissionAnswerInput::artifactIds)
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .toList();
+    }
+
     private List<SubmissionArtifactEntity> loadAttachableArtifacts(
             Long assignmentId, Long uploaderUserId, List<Long> artifactIds) {
         if (artifactIds.isEmpty()) {
@@ -452,6 +531,22 @@ public class SubmissionApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_CONTENT_TOO_LONG", "提交内容长度不能超过 20000");
         }
         return normalized;
+    }
+
+    private void validateLegacySubmissionEnvelope(List<SubmissionAnswerInput> answerInputs) {
+        if (answerInputs != null && !answerInputs.isEmpty()) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "SUBMISSION_LEGACY_PAYLOAD_INVALID", "当前非结构化作业不接受分题答案提交");
+        }
+    }
+
+    private void validateStructuredSubmissionEnvelope(String contentText, List<Long> artifactIds) {
+        if (StringUtils.hasText(contentText) || (artifactIds != null && !artifactIds.isEmpty())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "SUBMISSION_STRUCTURED_PAYLOAD_INVALID",
+                    "结构化作业必须通过 answers 提交，不能继续使用 legacy 顶层内容字段");
+        }
     }
 
     private byte[] readArtifactContent(MultipartFile file) {

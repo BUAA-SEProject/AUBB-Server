@@ -1,0 +1,153 @@
+package com.aubb.server.modules.assignment.api;
+
+import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.modules.assignment.application.bank.QuestionBankApplicationService;
+import com.aubb.server.modules.assignment.application.bank.QuestionBankQuestionView;
+import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingJudgeCaseInput;
+import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
+import com.aubb.server.modules.assignment.domain.question.ProgrammingJudgeMode;
+import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
+import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@Validated
+@RequestMapping("/api/v1/teacher")
+@RequiredArgsConstructor
+public class QuestionBankTeacherController {
+
+    private final QuestionBankApplicationService questionBankApplicationService;
+
+    @PostMapping("/course-offerings/{offeringId}/question-bank/questions")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("isAuthenticated()")
+    public QuestionBankQuestionView create(
+            @PathVariable Long offeringId,
+            @Valid @RequestBody CreateQuestionBankQuestionRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.createQuestion(
+                offeringId,
+                request.title(),
+                request.prompt(),
+                request.questionType(),
+                request.defaultScore(),
+                request.toOptionInputs(),
+                request.toConfigInput(),
+                principal);
+    }
+
+    @GetMapping("/course-offerings/{offeringId}/question-bank/questions")
+    @PreAuthorize("isAuthenticated()")
+    public PageResponse<QuestionBankQuestionView> list(
+            @PathVariable Long offeringId,
+            @RequestParam(required = false) AssignmentQuestionType questionType,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.listQuestions(
+                offeringId, questionType, keyword, page, pageSize, principal);
+    }
+
+    @GetMapping("/question-bank/questions/{questionId}")
+    @PreAuthorize("isAuthenticated()")
+    public QuestionBankQuestionView detail(
+            @PathVariable Long questionId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.getQuestion(questionId, principal);
+    }
+
+    public record CreateQuestionBankQuestionRequest(
+            @NotBlank String title,
+            @NotBlank String prompt,
+            @NotNull AssignmentQuestionType questionType,
+            @NotNull @Positive Integer defaultScore,
+            List<@Valid QuestionOptionRequest> options,
+            @Valid QuestionConfigRequest config) {
+
+        List<AssignmentQuestionOptionInput> toOptionInputs() {
+            return options == null
+                    ? List.of()
+                    : options.stream()
+                            .map(option -> new AssignmentQuestionOptionInput(
+                                    option.optionKey(), option.content(), option.correct()))
+                            .toList();
+        }
+
+        AssignmentQuestionConfigInput toConfigInput() {
+            return config == null ? null : config.toInput();
+        }
+    }
+
+    public record QuestionOptionRequest(
+            @NotBlank String optionKey, @NotBlank String content, Boolean correct) {}
+
+    public record QuestionConfigRequest(
+            List<ProgrammingLanguage> supportedLanguages,
+            Integer maxFileCount,
+            Integer maxFileSizeMb,
+            List<String> acceptedExtensions,
+            Boolean allowMultipleFiles,
+            Boolean allowSampleRun,
+            String sampleStdinText,
+            String sampleExpectedStdout,
+            Integer timeLimitMs,
+            Integer memoryLimitMb,
+            Integer outputLimitKb,
+            ProgrammingJudgeMode judgeMode,
+            String customJudgeScript,
+            String referenceAnswer,
+            List<@Valid ProgrammingJudgeCaseRequest> judgeCases) {
+
+        AssignmentQuestionConfigInput toInput() {
+            return new AssignmentQuestionConfigInput(
+                    supportedLanguages,
+                    maxFileCount,
+                    maxFileSizeMb,
+                    acceptedExtensions,
+                    allowMultipleFiles,
+                    allowSampleRun,
+                    sampleStdinText,
+                    sampleExpectedStdout,
+                    timeLimitMs,
+                    memoryLimitMb,
+                    outputLimitKb,
+                    judgeMode,
+                    customJudgeScript,
+                    referenceAnswer,
+                    judgeCases == null
+                            ? List.of()
+                            : judgeCases.stream()
+                                    .map(ProgrammingJudgeCaseRequest::toInput)
+                                    .toList());
+        }
+    }
+
+    public record ProgrammingJudgeCaseRequest(
+            @NotBlank String stdinText,
+            @NotBlank String expectedStdout,
+            @NotNull @Positive Integer score) {
+
+        ProgrammingJudgeCaseInput toInput() {
+            return new ProgrammingJudgeCaseInput(stdinText, expectedStdout, score);
+        }
+    }
+}

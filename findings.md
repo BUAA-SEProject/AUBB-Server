@@ -1,63 +1,86 @@
 # 发现与决策
 
-## todo 进度盘点
+## 当前仓库真实边界
 
-### 当前已落地的能力
+### 已落地能力
 
-- 平台治理基线：
-  - 学校 / 学院 / 课程 / 班级四层组织
-  - JWT 登录、账号状态、多身份治理、组织作用域管理员
-  - 用户基础资料、教务画像、组织成员关系、批量导入
-  - 平台配置、基础审计、公开健康检查
-- 课程系统第一切片：
-  - 学期、课程模板、开课实例、教学班
-  - 课程成员、教师 / 助教 / 学生课程级权限
-  - 教学班功能开关
-- 作业、提交与评测当前切片：
-  - 作业创建、发布、关闭
-  - 课程公共作业 / 教学班专属作业
-  - 学生文本与附件正式提交、学生查看本人提交、教师按作业查看提交
-  - 提交附件上传、关联与下载
-  - 提交后自动创建评测作业、学生/教师查看评测作业、教师重排队
-- 基础设施：
-  - MinIO 共享对象存储服务
-  - PostgreSQL + Flyway + MyBatis-Plus
+- 平台治理、课程、assignment、submission、grading、judge 以及 MinIO / go-judge 基础设施已形成最小主链路。
+- assignment 仍是“单体作业头”模型：
+  - `assignments` 只描述发布范围、状态、时间窗、最大提交次数
+  - 可选 assignment 级 `judgeConfig` 只支持 `PYTHON3 + TEXT_BODY`
+- submission 仍是“整份提交头”模型：
+  - `submissions` 表示一个学生对某作业的一次正式提交版本
+  - `submission_artifacts` 负责附件资产
+- grading 已作为独立逻辑模块落地：
+  - `assignments` 挂 assignment 级成绩发布时间
+  - `submission_answers` 挂人工评分、反馈、批改人和批改时间
+- judge 当前同时包含两条执行链：
+  - legacy assignment 级执行任务继续依赖 `assignment_judge_profiles / cases`
+  - 结构化编程题 question-level judge 通过 `judge_jobs.submission_answer_id` 下沉到答案级
 
-### 当前明确未完成的主链路能力
+### 当前最关键的缺口
 
-- 工程快照 / 工作区草稿
-- 人工批改、评分反馈、成绩发布
-- 课程资源正文、公告通知、成绩统计
-- 学生自主选课 / 退课 / 分班
+- 没有样例试运行与在线 IDE 工作区
+- 没有成绩册、统计与导出
 
-## 本轮切片选择依据
+## 子代理结论汇总
 
-- `todo.md` 第八部分要求支持代码 / 文件 / 报告提交。
-- `docs/plan.md` 明确要求先打通“提交 -> 评测作业持久化”的主链路，再扩真实执行器。
-- 仓库已经具备 MinIO 接入和测试基础设施，附件提交是当前最自然的下一步。
-- 附件提交打通后，`judge` 骨架成为最短的后续主链路缺口。
+### 最佳演进路径
 
-## 设计边界
+- `assignment` 继续负责题库、组卷和作业快照，不把这些职责提前拆到平级新模块。
+- `submission` 继续负责提交版本头和分题作答，不推翻现有 `submissionNo / attemptNo` 语义。
+- `judge` 继续只承接执行型评测，客观题自动判分不先走 go-judge。
 
-- 先实现“正式提交附件”能力，再实现“评测作业自动入队”骨架。
-- 采用 `submission_artifacts` 表记录附件元数据，不把对象元数据放入共享目录。
-- 学生先上传附件，再在创建正式提交时关联附件；附件一旦关联，不允许被其他提交复用。
-- 附件下载走服务端鉴权后读取对象存储，避免在本轮先暴露独立预签名 API 契约。
-- 自动评测当前只支持 `PYTHON3 + TEXT_BODY`，不扩到附件和多文件工程。
-- `judge` 采用 AFTER_COMMIT + 应用内异步执行，不在本轮接 RabbitMQ worker。
-- 结果当前先做作业级聚合回写，不暴露逐测试用例明细 API。
+### 需要严格保持兼容的契约
 
-## 待验证要点
+- 教师侧 assignment API：
+  - `POST /api/v1/teacher/course-offerings/{offeringId}/assignments`
+  - `GET /api/v1/teacher/course-offerings/{offeringId}/assignments`
+  - `GET /api/v1/teacher/assignments/{assignmentId}`
+- 学生侧 assignment API：
+  - `GET /api/v1/me/assignments`
+  - `GET /api/v1/me/assignments/{assignmentId}`
+- 学生侧 submission API：
+  - `POST /api/v1/me/assignments/{assignmentId}/submissions`
+  - 现有 `contentText` / `artifactIds` 语义不能被破坏，只能追加结构化字段
+- 教师侧 submission / judge 查询 API 继续按 `assignmentId` 和 `submissionId` 聚合，不打散已有查询模型
 
-- 附件上传必须受 assignment 可见性和学生身份限制。
-- 附件与正式提交绑定后，学生和有权限的教师都能查看元数据并下载内容。
-- `submissions` 现有版本留痕通过 `attempt_no` 保持不变，附件作为提交版本的一部分挂接。
-- assignment 已配置自动评测时，正式提交后必须自动生成一条评测作业，并最终进入 `SUCCEEDED/FAILED`。
-- go-judge 执行失败不能阻断提交受理，必须只影响 `judge_jobs` 的最终状态。
-- 迁移、测试和文档必须同步收口。
+## 第一阶段最合理的交付边界
 
-## 新增发现：go-judge 执行切片
+- 题库最小管理：
+  - 题目增删查列表中的“增 / 查 / 列表”先落地
+  - 题型先覆盖 `SINGLE_CHOICE / MULTIPLE_CHOICE / SHORT_ANSWER / FILE_UPLOAD / PROGRAMMING`
+- 结构化作业：
+  - assignment 继续保留头信息
+  - 新增大题和题目快照，不把整份结构塞进 `description` 或单个 assignment JSON 字段
+- 分题提交：
+  - 在保持 `submissions` 为整份提交头的前提下，新增 `submission_answers`
+  - 单选 / 多选题应用内自动判分
+  - 简答 / 文件上传 / 编程题先进入待后续处理状态
+- legacy 兼容：
+  - 旧版简单作业继续可用
+  - 结构化作业走新增字段和新子模型，不回写破坏旧数据
 
-- go-judge 官方最小可用 HTTP 契约是同步 `POST /run`，返回 `[]Result`；HTTP 没有单独的结果轮询接口。
-- 官方镜像本身不保证携带 Python 运行时，因此本仓库额外提供 `docker/go-judge/Dockerfile`，在固定版本 `criyle/go-judge:v1.11.4` 上安装 `python3`。
-- 当前 assignment / submission 事实模型还没有多文件工程和语言选择，因此本轮最合理的切片是“assignment 配置 Python3 文本评测 -> submission 正式提交 -> judge 异步执行 -> 聚合结果回写”。
+## 本轮数据模型草案
+
+- 题库：
+  - `question_bank_questions`
+  - `question_bank_question_options`
+- 结构化作业快照：
+  - `assignment_sections`
+  - `assignment_questions`
+  - `assignment_question_options`
+- 分题作答：
+  - `submission_answers`
+- 批改与发布：
+  - `assignments.grade_published_at / grade_published_by_user_id`
+  - `submission_answers.manual_score / feedback_text / graded_by_user_id / graded_at`
+
+## 风险记录
+
+- 现有 `assignment_judge_profiles` 是 legacy assignment 级配置；结构化编程题当前已通过 `assignment_questions.config_json` 挂题目级隐藏测试点。
+- `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与产物对象仍未持久化。
+- 结构化作业一旦落地，旧版“整份文本提交”不能误用于新型作业，必须在业务层显式区分。
+- 学生详情接口不能泄露题库正确答案或 assignment 快照中的 `isCorrect` 信息。
+- assignment 级成绩发布当前是全局开关，后续若需要按班级或按学生分批发布，需要单独建模。
+- Serena 目录级 symbol overview 在当前仓库环境下不稳定，继续以文件级符号查询和 `rg` 为主。

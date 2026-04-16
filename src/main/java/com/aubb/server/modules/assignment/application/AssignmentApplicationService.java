@@ -5,6 +5,9 @@ import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeCaseInput;
 import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigInput;
 import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigView;
+import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
+import com.aubb.server.modules.assignment.application.paper.AssignmentPaperInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentPaperView;
 import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import com.aubb.server.modules.assignment.domain.judge.AssignmentJudgeLanguage;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
@@ -49,6 +52,7 @@ public class AssignmentApplicationService {
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
 
     @Transactional
@@ -60,6 +64,7 @@ public class AssignmentApplicationService {
             OffsetDateTime openAt,
             OffsetDateTime dueAt,
             Integer maxSubmissions,
+            AssignmentPaperInput paper,
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
@@ -67,6 +72,7 @@ public class AssignmentApplicationService {
         TeachingClassEntity teachingClass = validateTeachingClassBelongsToOffering(offeringId, teachingClassId);
         validateSchedule(openAt, dueAt);
         validateMaxSubmissions(maxSubmissions);
+        validateAssignmentMode(paper, judgeConfig);
 
         AssignmentEntity entity = new AssignmentEntity();
         entity.setOfferingId(offeringId);
@@ -79,6 +85,7 @@ public class AssignmentApplicationService {
         entity.setMaxSubmissions(maxSubmissions);
         entity.setCreatedByUserId(principal.getUserId());
         assignmentMapper.insert(entity);
+        assignmentPaperApplicationService.persistPaper(entity.getId(), offeringId, paper);
         persistJudgeConfig(entity.getId(), judgeConfig);
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -86,6 +93,7 @@ public class AssignmentApplicationService {
         metadata.put("teachingClassId", teachingClassId);
         metadata.put("title", entity.getTitle());
         metadata.put("judgeEnabled", judgeConfig != null);
+        metadata.put("structuredPaperEnabled", paper != null);
 
         auditLogApplicationService.record(
                 principal.getUserId(),
@@ -94,7 +102,12 @@ public class AssignmentApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 metadata);
-        return toView(entity, offering, teachingClass, loadJudgeConfigView(entity.getId()));
+        return toView(
+                entity,
+                offering,
+                teachingClass,
+                assignmentPaperApplicationService.loadPaper(entity.getId(), true),
+                loadJudgeConfigView(entity.getId()));
     }
 
     @Transactional(readOnly = true)
@@ -197,7 +210,15 @@ public class AssignmentApplicationService {
                         principal, entity.getOfferingId(), entity.getTeachingClassId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
         }
-        return toView(entity);
+        CourseOfferingEntity offering = requireOffering(entity.getOfferingId());
+        TeachingClassEntity teachingClass =
+                entity.getTeachingClassId() == null ? null : requireTeachingClass(entity.getTeachingClassId());
+        return toView(
+                entity,
+                offering,
+                teachingClass,
+                assignmentPaperApplicationService.loadPaper(entity.getId(), false),
+                loadJudgeConfigView(entity.getId()));
     }
 
     private PageResponse<AssignmentView> toPage(
@@ -227,6 +248,7 @@ public class AssignmentApplicationService {
                             assignment,
                             offerings.get(assignment.getOfferingId()),
                             teachingClass,
+                            null,
                             judgeConfigIndex.get(assignment.getId()));
                 })
                 .toList();
@@ -237,13 +259,19 @@ public class AssignmentApplicationService {
         CourseOfferingEntity offering = requireOffering(entity.getOfferingId());
         TeachingClassEntity teachingClass =
                 entity.getTeachingClassId() == null ? null : requireTeachingClass(entity.getTeachingClassId());
-        return toView(entity, offering, teachingClass, loadJudgeConfigView(entity.getId()));
+        return toView(
+                entity,
+                offering,
+                teachingClass,
+                assignmentPaperApplicationService.loadPaper(entity.getId(), true),
+                loadJudgeConfigView(entity.getId()));
     }
 
     private AssignmentView toView(
             AssignmentEntity entity,
             CourseOfferingEntity offering,
             TeachingClassEntity teachingClass,
+            AssignmentPaperView paper,
             AssignmentJudgeConfigView judgeConfigView) {
         AssignmentClassView classView = teachingClass == null
                 ? null
@@ -261,6 +289,7 @@ public class AssignmentApplicationService {
                 entity.getOpenAt(),
                 entity.getDueAt(),
                 entity.getMaxSubmissions(),
+                paper,
                 judgeConfigView == null
                         ? new AssignmentJudgeConfigView(false, null, null, null, null, 0)
                         : judgeConfigView,
@@ -333,6 +362,13 @@ public class AssignmentApplicationService {
 
     private String normalizeDescription(String description) {
         return description == null || description.isBlank() ? null : description.trim();
+    }
+
+    private void validateAssignmentMode(AssignmentPaperInput paper, AssignmentJudgeConfigInput judgeConfig) {
+        if (paper != null && judgeConfig != null) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "ASSIGNMENT_MODE_CONFLICT", "结构化作业暂不支持 assignment 级自动评测配置，请二选一");
+        }
     }
 
     private void persistJudgeConfig(Long assignmentId, AssignmentJudgeConfigInput judgeConfig) {

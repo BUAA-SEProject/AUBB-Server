@@ -5,8 +5,17 @@ import com.aubb.server.modules.assignment.application.AssignmentApplicationServi
 import com.aubb.server.modules.assignment.application.AssignmentView;
 import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeCaseInput;
 import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentPaperInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
+import com.aubb.server.modules.assignment.application.paper.AssignmentSectionInput;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingJudgeCaseInput;
 import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import com.aubb.server.modules.assignment.domain.judge.AssignmentJudgeLanguage;
+import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
+import com.aubb.server.modules.assignment.domain.question.ProgrammingJudgeMode;
+import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -53,6 +62,7 @@ public class AssignmentTeacherController {
                 request.openAt(),
                 request.dueAt(),
                 request.maxSubmissions(),
+                request.toPaperInput(),
                 request.toJudgeConfigInput(),
                 principal);
     }
@@ -98,10 +108,120 @@ public class AssignmentTeacherController {
             @NotNull OffsetDateTime openAt,
             @NotNull OffsetDateTime dueAt,
             @NotNull @Positive Integer maxSubmissions,
+            @Valid PaperRequest paper,
             @Valid JudgeConfigRequest judgeConfig) {
+
+        AssignmentPaperInput toPaperInput() {
+            return paper == null ? null : paper.toInput();
+        }
 
         AssignmentJudgeConfigInput toJudgeConfigInput() {
             return judgeConfig == null ? null : judgeConfig.toInput();
+        }
+    }
+
+    public record PaperRequest(@NotEmpty List<@Valid SectionRequest> sections) {
+
+        AssignmentPaperInput toInput() {
+            return new AssignmentPaperInput(
+                    sections.stream().map(SectionRequest::toInput).toList());
+        }
+    }
+
+    public record SectionRequest(
+            @NotBlank String title,
+            String description,
+            @NotEmpty List<@Valid QuestionRequest> questions) {
+
+        AssignmentSectionInput toInput() {
+            return new AssignmentSectionInput(
+                    title,
+                    description,
+                    questions.stream().map(QuestionRequest::toInput).toList());
+        }
+    }
+
+    public record QuestionRequest(
+            Long bankQuestionId,
+            String title,
+            String prompt,
+            AssignmentQuestionType questionType,
+            Integer score,
+            List<@Valid QuestionOptionRequest> options,
+            @Valid QuestionConfigRequest config) {
+
+        AssignmentQuestionInput toInput() {
+            return new AssignmentQuestionInput(
+                    bankQuestionId,
+                    title,
+                    prompt,
+                    questionType,
+                    score,
+                    options == null
+                            ? null
+                            : options.stream()
+                                    .map(QuestionOptionRequest::toInput)
+                                    .toList(),
+                    config == null ? null : config.toQuestionInput());
+        }
+    }
+
+    public record QuestionOptionRequest(
+            @NotBlank String optionKey, @NotBlank String content, Boolean correct) {
+
+        AssignmentQuestionOptionInput toInput() {
+            return new AssignmentQuestionOptionInput(optionKey, content, correct);
+        }
+    }
+
+    public record QuestionConfigRequest(
+            List<ProgrammingLanguage> supportedLanguages,
+            Integer maxFileCount,
+            Integer maxFileSizeMb,
+            List<String> acceptedExtensions,
+            Boolean allowMultipleFiles,
+            Boolean allowSampleRun,
+            String sampleStdinText,
+            String sampleExpectedStdout,
+            Integer timeLimitMs,
+            Integer memoryLimitMb,
+            Integer outputLimitKb,
+            ProgrammingJudgeMode judgeMode,
+            String customJudgeScript,
+            String referenceAnswer,
+            List<@Valid ProgrammingJudgeCaseRequest> judgeCases) {
+
+        AssignmentQuestionConfigInput toQuestionInput() {
+            return new AssignmentQuestionConfigInput(
+                    supportedLanguages,
+                    maxFileCount,
+                    maxFileSizeMb,
+                    acceptedExtensions,
+                    allowMultipleFiles,
+                    allowSampleRun,
+                    sampleStdinText,
+                    sampleExpectedStdout,
+                    timeLimitMs,
+                    memoryLimitMb,
+                    outputLimitKb,
+                    judgeMode,
+                    customJudgeScript,
+                    referenceAnswer,
+                    judgeCases == null
+                            ? List.of()
+                            : judgeCases.stream()
+                                    .map(ProgrammingJudgeCaseRequest::toInput)
+                                    .toList());
+        }
+    }
+
+    public record ProgrammingJudgeCaseRequest(
+            @NotBlank String stdinText,
+            @NotBlank String expectedStdout,
+            @NotNull @PositiveOrZero Integer score) {
+
+        ProgrammingJudgeCaseInput toInput() {
+            return new ProgrammingJudgeCaseInput(stdinText, expectedStdout, score);
         }
     }
 

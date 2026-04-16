@@ -8,7 +8,9 @@ import java.time.OffsetDateTime;
 public record JudgeJobView(
         Long id,
         Long submissionId,
+        Long submissionAnswerId,
         Long assignmentId,
+        Long assignmentQuestionId,
         Long offeringId,
         Long teachingClassId,
         Long submitterUserId,
@@ -28,6 +30,7 @@ public record JudgeJobView(
         Long timeMillis,
         Long memoryBytes,
         String errorMessage,
+        java.util.List<JudgeJobCaseResultView> caseResults,
         OffsetDateTime queuedAt,
         OffsetDateTime startedAt,
         OffsetDateTime finishedAt,

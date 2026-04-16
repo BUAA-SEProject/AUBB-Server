@@ -1,11 +1,13 @@
 package com.aubb.server.modules.submission.api;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.submission.application.SubmissionApplicationService;
 import com.aubb.server.modules.submission.application.SubmissionArtifactDownload;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
 import com.aubb.server.modules.submission.application.SubmissionView;
+import com.aubb.server.modules.submission.application.answer.SubmissionAnswerInput;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -44,7 +46,7 @@ public class MySubmissionController {
             @Valid @RequestBody CreateSubmissionRequest request,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return submissionApplicationService.createSubmission(
-                assignmentId, request.contentText(), request.artifactIds(), principal);
+                assignmentId, request.contentText(), request.artifactIds(), request.toAnswerInputs(), principal);
     }
 
     @PostMapping("/assignments/{assignmentId}/submission-artifacts")
@@ -93,5 +95,27 @@ public class MySubmissionController {
                 .body(artifactDownload.content());
     }
 
-    public record CreateSubmissionRequest(String contentText, List<Long> artifactIds) {}
+    public record CreateSubmissionRequest(
+            String contentText, List<Long> artifactIds, List<@Valid AnswerRequest> answers) {
+
+        List<SubmissionAnswerInput> toAnswerInputs() {
+            return answers == null
+                    ? List.of()
+                    : answers.stream()
+                            .map(answer -> new SubmissionAnswerInput(
+                                    answer.assignmentQuestionId(),
+                                    answer.answerText(),
+                                    answer.selectedOptionKeys(),
+                                    answer.artifactIds(),
+                                    answer.programmingLanguage()))
+                            .toList();
+        }
+    }
+
+    public record AnswerRequest(
+            Long assignmentQuestionId,
+            String answerText,
+            List<String> selectedOptionKeys,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage) {}
 }

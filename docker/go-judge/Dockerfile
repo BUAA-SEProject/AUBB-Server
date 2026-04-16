@@ -3,7 +3,7 @@ FROM criyle/go-judge:v1.11.4 AS go-judge
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 ca-certificates \
+    && apt-get install -y --no-install-recommends python3 ca-certificates openjdk-17-jdk-headless g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt

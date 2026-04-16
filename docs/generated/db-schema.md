@@ -10,6 +10,8 @@
 - `src/main/resources/db/migration/V6__submission_artifact_slice.sql`
 - `src/main/resources/db/migration/V7__judge_first_slice.sql`
 - `src/main/resources/db/migration/V8__judge_go_judge_execution.sql`
+- `src/main/resources/db/migration/V9__structured_assignment_foundation.sql`
+- `src/main/resources/db/migration/V10__grading_first_slice.sql`
 
 ## 总览
 
@@ -28,11 +30,17 @@
 - `teaching_classes`：教学班
 - `course_members`：课程成员
 - `assignments`：作业主数据
+- `question_bank_questions`：开课实例内题库题目
+- `question_bank_question_options`：题库客观题选项
+- `assignment_sections`：结构化试卷大题快照
+- `assignment_questions`：结构化试卷题目快照
+- `assignment_question_options`：试卷题目选项快照
 - `assignment_judge_profiles`：作业自动评测配置
 - `assignment_judge_cases`：作业自动评测测试用例
 - `submissions`：正式提交记录
 - `submission_artifacts`：提交附件元数据
-- `judge_jobs`：评测作业元数据
+- `submission_answers`：分题答案、人工批改与题目级评测回写状态
+- `judge_jobs`：submission 级与 answer 级评测作业元数据
 - `audit_logs`：关键治理与认证审计日志
 
 ## 表结构
@@ -220,6 +228,8 @@
 | `max_submissions` | `integer` | 必填，`> 0` |
 | `published_at` | `timestamptz` | 发布时间 |
 | `closed_at` | `timestamptz` | 关闭时间，若存在则不早于 `published_at` |
+| `grade_published_at` | `timestamptz` | assignment 级成绩发布时间 |
+| `grade_published_by_user_id` | `bigint` | 成绩发布人，外键到 `users.id`，删除置空 |
 | `created_by_user_id` | `bigint` | 创建人，外键到 `users.id`，删除置空 |
 | `created_at` | `timestamptz` | 必填，默认 `now()` |
 | `updated_at` | `timestamptz` | 必填，默认 `now()` |
@@ -229,6 +239,105 @@
 - `ix_assignments_offering_id_status`
 - `ix_assignments_teaching_class_id_status`
 - `ix_assignments_open_at_due_at`
+- `idx_assignments_grade_published_at`
+
+### `question_bank_questions`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `created_by_user_id` | `bigint` | 创建人，外键到 `users.id`，删除置空 |
+| `title` | `text` | 必填，最长 128 |
+| `prompt_text` | `text` | 必填，题面正文 |
+| `question_type` | `text` | 必填，`SINGLE_CHOICE / MULTIPLE_CHOICE / SHORT_ANSWER / FILE_UPLOAD / PROGRAMMING` |
+| `default_score` | `integer` | 必填，`> 0` |
+| `config_json` | `text` | 必填，默认 `{}` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_question_bank_questions_offering_type`
+
+### `question_bank_question_options`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `question_id` | `bigint` | 必填，外键到 `question_bank_questions.id`，级联删除 |
+| `option_order` | `integer` | 必填，`> 0` |
+| `option_key` | `text` | 必填，最长 16 |
+| `content` | `text` | 必填，选项内容 |
+| `is_correct` | `boolean` | 必填，是否正确 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_question_bank_question_options_order`
+- `uk_question_bank_question_options_key`
+- `ix_question_bank_question_options_question_id`
+
+### `assignment_sections`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `section_order` | `integer` | 必填，`> 0` |
+| `title` | `text` | 必填，最长 128 |
+| `description` | `text` | 大题说明 |
+| `total_score` | `integer` | 必填，`> 0` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_assignment_sections_order`
+- `ix_assignment_sections_assignment_id`
+
+### `assignment_questions`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `assignment_section_id` | `bigint` | 必填，外键到 `assignment_sections.id`，级联删除 |
+| `source_question_id` | `bigint` | 可空，外键到 `question_bank_questions.id`，删除置空 |
+| `question_order` | `integer` | 必填，`> 0` |
+| `title` | `text` | 必填，最长 128 |
+| `prompt_text` | `text` | 必填，题面正文 |
+| `question_type` | `text` | 必填，`SINGLE_CHOICE / MULTIPLE_CHOICE / SHORT_ANSWER / FILE_UPLOAD / PROGRAMMING` |
+| `score` | `integer` | 必填，`> 0` |
+| `config_json` | `text` | 必填，默认 `{}` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_assignment_questions_order`
+- `ix_assignment_questions_assignment_id`
+- `ix_assignment_questions_source_question_id`
+
+### `assignment_question_options`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
+| `option_order` | `integer` | 必填，`> 0` |
+| `option_key` | `text` | 必填，最长 16 |
+| `content` | `text` | 必填，选项内容 |
+| `is_correct` | `boolean` | 必填，是否正确 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_assignment_question_options_order`
+- `uk_assignment_question_options_key`
+- `ix_assignment_question_options_question_id`
 
 ### `assignment_judge_profiles`
 
@@ -310,13 +419,42 @@
 - `ix_submission_artifacts_submission_id`
 - `ix_submission_artifacts_offering_id_uploaded_at`
 
+### `submission_answers`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `submission_id` | `bigint` | 必填，外键到 `submissions.id`，级联删除 |
+| `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
+| `answer_text` | `text` | 可空，文本答案或代码正文 |
+| `answer_payload_json` | `text` | 必填，默认 `{}`，保存选项、附件、语言等结构化载荷 |
+| `auto_score` | `integer` | 可空，`>= 0` |
+| `manual_score` | `integer` | 可空，`>= 0` |
+| `final_score` | `integer` | 可空，`>= 0` |
+| `grading_status` | `text` | 必填，`AUTO_GRADED / MANUALLY_GRADED / PROGRAMMING_JUDGED / PENDING_MANUAL / PENDING_PROGRAMMING_JUDGE` |
+| `feedback_text` | `text` | 可空，评分反馈 |
+| `graded_by_user_id` | `bigint` | 可空，最近人工批改人，外键到 `users.id`，删除置空 |
+| `graded_at` | `timestamptz` | 可空，最近人工批改时间 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_submission_answers_submission_question`
+- `ix_submission_answers_submission_id`
+- `ix_submission_answers_assignment_question_id`
+- `idx_submission_answers_graded_by_user_id`
+- `ck_submission_answers_score_consistency`
+
 ### `judge_jobs`
 
 | 列名 | 类型 | 约束 / 说明 |
 | --- | --- | --- |
 | `id` | `bigint` | 主键，identity |
 | `submission_id` | `bigint` | 必填，外键到 `submissions.id`，级联删除 |
+| `submission_answer_id` | `bigint` | 可空，题目级评测时外键到 `submission_answers.id`，级联删除 |
 | `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `assignment_question_id` | `bigint` | 可空，题目级评测时外键到 `assignment_questions.id`，级联删除 |
 | `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
 | `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
 | `submitter_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
@@ -336,6 +474,7 @@
 | `time_millis` | `bigint` | 可空，聚合运行时长，`>= 0` |
 | `memory_bytes` | `bigint` | 可空，聚合内存峰值，`>= 0` |
 | `error_message` | `text` | 可空，基础设施失败信息 |
+| `case_results_json` | `text` | 可空，逐测试点摘要 JSON |
 | `queued_at` | `timestamptz` | 必填，默认 `now()` |
 | `started_at` | `timestamptz` | 可空 |
 | `finished_at` | `timestamptz` | 可空 |
@@ -345,11 +484,14 @@
 索引与约束：
 
 - `ix_judge_jobs_submission_id_queued_at`
+- `ix_judge_jobs_submission_answer_id_queued_at`
+- `ix_judge_jobs_assignment_question_id_queued_at`
 - `ix_judge_jobs_status_queued_at`
 - `ix_judge_jobs_assignment_submitter_queued_at`
 - `ck_judge_jobs_time_order`
 - `ck_judge_jobs_case_progress`
 - `ck_judge_jobs_score_progress`
+- `ck_judge_jobs_answer_scope`
 
 ### `academic_profiles`
 
@@ -437,7 +579,16 @@
 - `course_members.user_id -> users.id`
 - `assignments.offering_id -> course_offerings.id`
 - `assignments.teaching_class_id -> teaching_classes.id`
+- `assignments.grade_published_by_user_id -> users.id`
 - `assignments.created_by_user_id -> users.id`
+- `question_bank_questions.offering_id -> course_offerings.id`
+- `question_bank_questions.created_by_user_id -> users.id`
+- `question_bank_question_options.question_id -> question_bank_questions.id`
+- `assignment_sections.assignment_id -> assignments.id`
+- `assignment_questions.assignment_id -> assignments.id`
+- `assignment_questions.assignment_section_id -> assignment_sections.id`
+- `assignment_questions.source_question_id -> question_bank_questions.id`
+- `assignment_question_options.assignment_question_id -> assignment_questions.id`
 - `assignment_judge_profiles.assignment_id -> assignments.id`
 - `assignment_judge_cases.assignment_id -> assignment_judge_profiles.assignment_id`
 - `submissions.assignment_id -> assignments.id`
@@ -449,8 +600,13 @@
 - `submission_artifacts.teaching_class_id -> teaching_classes.id`
 - `submission_artifacts.submission_id -> submissions.id`
 - `submission_artifacts.uploader_user_id -> users.id`
+- `submission_answers.submission_id -> submissions.id`
+- `submission_answers.assignment_question_id -> assignment_questions.id`
+- `submission_answers.graded_by_user_id -> users.id`
 - `judge_jobs.submission_id -> submissions.id`
+- `judge_jobs.submission_answer_id -> submission_answers.id`
 - `judge_jobs.assignment_id -> assignments.id`
+- `judge_jobs.assignment_question_id -> assignment_questions.id`
 - `judge_jobs.offering_id -> course_offerings.id`
 - `judge_jobs.teaching_class_id -> teaching_classes.id`
 - `judge_jobs.submitter_user_id -> users.id`
@@ -463,12 +619,16 @@
 - `academic_profiles` 用于表达学号/工号、真实姓名和教务身份类型，不替代账号基础资料。
 - `user_org_memberships` 用于表达用户在课程/班级等组织下的业务成员关系，不替代治理身份。
 - `course_offerings` 是课程系统的业务核心，教学班、成员和后续任务/实验都应围绕它挂接。
-- `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围；后续 grading 等模块继续围绕它挂接。
+- `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围，并承载 assignment 级成绩发布时间与发布人。
+- `question_bank_questions` 与 `assignment_questions` 分离建模，确保题库复用与已发布作业快照互不污染。
+- `assignment_sections / assignment_questions / assignment_question_options` 用于表达结构化试卷的快照，不再把题目结构塞进 assignment 单列字段。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
+- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
-- `judge_jobs` 当前已表达评测作业自动入队、AFTER_COMMIT 异步执行与聚合结果回写；仍未保存逐测试用例明细和评测产物对象。
+- `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
+- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与评测产物对象仍未持久化。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。

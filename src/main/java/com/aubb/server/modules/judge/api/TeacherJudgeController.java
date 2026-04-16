@@ -29,11 +29,26 @@ public class TeacherJudgeController {
         return judgeApplicationService.listTeacherJudgeJobs(submissionId, principal);
     }
 
+    @GetMapping("/submission-answers/{answerId}/judge-jobs")
+    @PreAuthorize("isAuthenticated()")
+    public List<JudgeJobView> listAnswerJudgeJobs(
+            @PathVariable Long answerId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return judgeApplicationService.listTeacherAnswerJudgeJobs(answerId, principal);
+    }
+
     @PostMapping("/submissions/{submissionId}/judge-jobs/requeue")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("isAuthenticated()")
     public JudgeJobView requeueJudge(
             @PathVariable Long submissionId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return judgeApplicationService.requeueJudge(submissionId, principal);
+    }
+
+    @PostMapping("/submission-answers/{answerId}/judge-jobs/requeue")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("isAuthenticated()")
+    public JudgeJobView requeueAnswerJudge(
+            @PathVariable Long answerId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return judgeApplicationService.requeueAnswerJudge(answerId, principal);
     }
 }

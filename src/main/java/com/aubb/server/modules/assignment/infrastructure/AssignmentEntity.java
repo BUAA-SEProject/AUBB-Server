@@ -37,6 +37,10 @@ public class AssignmentEntity {
 
     private OffsetDateTime closedAt;
 
+    private OffsetDateTime gradePublishedAt;
+
+    private Long gradePublishedByUserId;
+
     private Long createdByUserId;
 
     @TableField(fill = FieldFill.INSERT)

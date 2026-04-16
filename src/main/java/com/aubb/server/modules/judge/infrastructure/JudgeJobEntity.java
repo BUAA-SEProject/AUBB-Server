@@ -19,7 +19,11 @@ public class JudgeJobEntity {
 
     private Long submissionId;
 
+    private Long submissionAnswerId;
+
     private Long assignmentId;
+
+    private Long assignmentQuestionId;
 
     private Long offeringId;
 
@@ -58,6 +62,8 @@ public class JudgeJobEntity {
     private Long memoryBytes;
 
     private String errorMessage;
+
+    private String caseResultsJson;
 
     private OffsetDateTime queuedAt;
 

@@ -25,4 +25,11 @@ public class MyJudgeController {
             @PathVariable Long submissionId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return judgeApplicationService.listMyJudgeJobs(submissionId, principal);
     }
+
+    @GetMapping("/submission-answers/{answerId}/judge-jobs")
+    @PreAuthorize("isAuthenticated()")
+    public List<JudgeJobView> listAnswerJudgeJobs(
+            @PathVariable Long answerId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return judgeApplicationService.listMyAnswerJudgeJobs(answerId, principal);
+    }
 }

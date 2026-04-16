@@ -75,6 +75,18 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanGradeSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        if (canManageOfferingAsAdmin(principal, offeringId) || isInstructor(principal.getUserId(), offeringId)) {
+            return;
+        }
+        if (teachingClassId != null
+                && isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权批改该提交");
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanManageClassFeatures(AuthenticatedUserPrincipal principal, Long teachingClassId) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         assertCanManageOffering(principal, teachingClass.getOfferingId());

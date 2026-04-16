@@ -1,82 +1,80 @@
-# 任务计划：todo 驱动的开发推进（submission 附件 + judge 执行切片）
+# 任务计划：结构化编程题评测第一阶段完成，继续推进试运行与 IDE
 
-## 目标
+## 当前目标
 
-根据 `todo.md` 盘点当前平台真实开发进度，更新仓库内执行计划与工作记忆，并沿主链路继续推进开发。本轮先完成 `submission` 附件切片，再继续落地 `judge` 从“入队骨架”到“go-judge 真实执行”的切片，为后续 grading 和实验链路提供稳定输入。
+围绕 `todo.md` 的作业主链路，仓库已完成“题库 + 结构化试卷 + 分题提交 + 客观题自动评分 + 人工批改 + 成绩发布 + question-level judge”这一段。当前下一优先级切片切换为：把结构化编程题从“隐藏测试点自动评测”推进到“样例试运行 + 在线 IDE / 工作区”。
 
 ## 当前阶段
 
-Phase 6 completed
+Phase 5 in_progress
 
 ## Skills 选择
 
-- `planning-with-files`：本任务跨进度盘点、计划更新、代码实现、文档同步和验证，需要持续维护工作记忆。
-- `springboot-patterns`：用于保持模块优先、层内分层的 Spring Boot 实现风格稳定。
-- `springboot-tdd`：本轮新增提交附件能力，先补失败测试，再做最小实现。
-- `springboot-verification`：用于收口格式化、专项测试和全量验证。
-- `postgresql-table-design`：用于设计 `submission` 附件相关表结构、索引和约束。
-- `api-design-principles`：用于设计上传、提交通道和下载接口，保证路径与语义一致。
+- `planning-with-files`：持续维护多阶段工作记忆和后续切片计划。
+- `springboot-patterns`：保持 `assignment / submission / grading / judge` 的边界稳定。
+- `springboot-tdd`：继续以集成测试驱动 question-level judge 的最小闭环。
+- `springboot-verification`：收口专项测试与全量验证。
+- `postgresql-table-design`：设计题目级隐藏测试用例、评测快照和结果回写约束。
+- `api-design-principles`：保持现有 REST API 的追加式演进。
 
 ## 阶段
 
-### Phase 1：todo 进度盘点与计划更新
+### Phase 1：结构化作业与批改闭环
 
-- [x] 读取 `todo.md`、架构、产品规格和模块实现
-- [x] 输出当前已完成 / 部分完成 / 未开始的能力映射
-- [x] 新增执行计划并锁定本轮开发切片
+- [x] 题库最小管理
+- [x] 结构化试卷快照
+- [x] 分题提交与客观题自动评分
+- [x] 非客观题人工批改
+- [x] assignment 级成绩发布
 - **Status:** completed
 
-### Phase 2：提交附件能力设计与实现
+### Phase 2：当前缺口建模
 
-- [x] 为 submission 设计附件元数据表和对象键规则
-- [x] 补充上传、正式提交关联、查询与下载接口
-- [x] 保持学生 / 教师授权边界与审计链路正确
+- [x] 审查现有 `judge` 仍是 assignment 级模型的边界
+- [x] 确认结构化编程题缺少 question-level 隐藏测试用例与脚本快照模型
+- [x] 确认在线 IDE / 样例试运行应建立在 question-level judge 之上，而不是反过来
 - **Status:** completed
 
-### Phase 3：测试与文档同步
+### Phase 3：题目级评测数据模型
 
-- [x] 新增或更新 submission 集成测试
-- [x] 更新 `todo.md`、产品规格、架构、对象存储说明和数据库结构文档
-- [x] 在仓库计划中记录当前实现边界与后续扩展位
+- [x] 为结构化编程题补充题目级隐藏测试点快照
+- [x] 为 judge job 增加 `submission_answer_id` 级定位
+- [x] 保持 legacy assignment 级 judge 与 question-level judge 可并存
 - **Status:** completed
 
-### Phase 4：judge 第一切片
+### Phase 4：question-level judge 执行
 
-- [x] 新增 `judge_jobs` 数据模型与评测状态枚举
-- [x] 提交后自动创建评测作业
-- [x] 补充学生/教师评测作业查询与教师重排队接口
-- [x] 新增专项测试并通过
-- [x] 同步 judge 规格、架构和数据库文档
+- [x] 结构化提交后对编程题答案自动入队
+- [x] go-judge 执行结果回写到 `submission_answers`
+- [x] 与 grading 汇总和成绩发布衔接
+- [x] 补充答案级查询与重排队 API
 - **Status:** completed
 
-### Phase 5：验证与提交
+### Phase 5：试运行与 IDE 扩展位
 
-- [x] 执行 `./mvnw spotless:apply`
-- [x] 执行 `./mvnw clean verify`
-- [ ] 做一次范围清晰的 git 提交
+- [ ] 样例试运行 API
+- [ ] 在线 IDE / 工作区模型
+- [ ] `CUSTOM_SCRIPT` 真实执行
 - **Status:** in_progress
 
-### Phase 6：go-judge 真实执行与结果回写
+### Phase 6：成绩册与统计
 
-- [x] 为 assignment 增加脚本型自动评测配置
-- [x] 接入 go-judge `/run`，在 AFTER_COMMIT 异步执行并回写结果
-- [x] 补 judge 专项集成测试，覆盖正确、错误和基础设施失败三类路径
-- [x] 同步 `todo.md`、产品规格、架构和数据库结构文档
-- **Status:** completed
+- [ ] assignment / lab 级成绩册聚合
+- [ ] 课程 / 班级 / 学生维度统计
+- [ ] 导出与报表
+- **Status:** pending
 
 ## 已做决策
 
 | Decision | Rationale |
 |----------|-----------|
-| 本轮优先推进 `submission` 附件切片，而不是直接上 judge | 当前仓库已具备 assignment、submission 和 MinIO 基础设施，补附件是最短主链路缺口 |
-| 附件采用“先上传资产，再在正式提交时关联”的两阶段模型 | 便于支持多文件提交、版本留痕和后续工作区 / 草稿扩展 |
-| 继续保持 `submission` 模块内部闭环，不新建临时共享业务目录 | 避免把业务语义误塞进 `common` 或 `config` |
-| go-judge 当前采用 AFTER_COMMIT + 应用内异步执行，而不是先上 RabbitMQ worker | 先满足主链路闭环和结果回写，避免在 worker 基础设施未稳定前过早扩张 |
-| 自动评测当前只支持 `PYTHON3 + TEXT_BODY` | 现有 submission 事实模型还没有多文件工程和语言选择，先做最小稳定切片 |
+| `grading` 独立成逻辑模块，但第一阶段不新建成绩表 | 当前最小闭环只需要 assignment 级发布与分题人工评分，不值得提前引入成绩册复杂度 |
+| 学生成绩发布前只保留客观题即时分可见 | 兼容既有客观题即时反馈，又给非客观题评分和反馈留出正式发布入口 |
+| question-level judge 必须先补题目级隐藏测试模型 | 只有样例输入输出不足以支撑真实编程题自动评测 |
+| 题目级隐藏测试点当前先挂在 `assignment_questions.config_json` | 先复用现有题目快照链路，避免提前引入额外表拆分；后续若需要更复杂查询再拆表 |
 
 ## 错误记录
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| `./mvnw` 在当前环境中不可直接执行 | 改用 `bash ./mvnw` | 已解决 |
-| `/root/.m2` 元数据写入受限 | 改用离线执行与已缓存依赖 | 已解决 |
+| `submission_answers.grading_status` 检查约束未包含 `MANUALLY_GRADED` | 首轮 grading 测试直接触发数据库约束失败 | 在 `V10__grading_first_slice.sql` 中显式重建 check constraint |
