@@ -32,7 +32,7 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE audit_logs, user_org_memberships, academic_profiles, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
+                "TRUNCATE TABLE audit_logs, auth_sessions, user_org_memberships, academic_profiles, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
 
         jdbcTemplate.update("""
                 INSERT INTO org_units (code, name, type, level, sort_order, status)
@@ -226,6 +226,65 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountStatus").value("DISABLED"));
+    }
+
+    @Test
+    void disabledUserCannotContinueUsingExistingSessionOrRefreshToken() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        AuthTokens userTokens = loginWithRefresh("college-admin", "Password123");
+
+        mockMvc.perform(patch("/api/v1/admin/users/2/status")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"accountStatus":"DISABLED","reason":"manual disable"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountStatus").value("DISABLED"));
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + userTokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(userTokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+    }
+
+    @Test
+    void administratorCanForceInvalidateActiveUserSessionsWithoutDisablingAccount() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        AuthTokens userTokens = loginWithRefresh("college-admin", "Password123");
+
+        mockMvc.perform(post("/api/v1/admin/users/2/sessions/revoke")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"reason":"admin kickout"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + userTokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(userTokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content("""
+                                {"username":"college-admin","password":"Password123"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isString());
     }
 
     @Test
@@ -717,6 +776,22 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
 
         return JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken");
     }
+
+    private AuthTokens loginWithRefresh(String username, String password) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content("""
+                                {"username":"%s","password":"%s"}
+                                """.formatted(username, password)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        return new AuthTokens(
+                JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken"),
+                JsonTestSupport.read(result.getResponse().getContentAsString(), "$.refreshToken"));
+    }
+
+    private record AuthTokens(String accessToken, String refreshToken) {}
 
     private int queryForCount(String sql) {
         return jdbcTemplate.queryForObject(sql, Integer.class);

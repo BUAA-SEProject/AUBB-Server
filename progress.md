@@ -1,5 +1,29 @@
 # 进度日志
 
+## Session: 2026-04-17 refresh token / revoke / 强制失效
+
+### Phase 40：优先级 3 认证会话闭环
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `AuthController`、`AuthenticationApplicationService`、`JwtTokenService`、`JwtPrincipalAuthenticationConverter`、`SecurityConfig`、`AuthApiIntegrationTests`、`PlatformGovernanceApiIntegrationTests`、`docs/security.md`、`docs/product-specs/platform-governance-and-iam.md` 和 `V1/V2` 迁移
+  - 确认当前系统只有 access token，`logout` 仅写审计，没有 refresh token、session 持久化或 revoke 状态
+  - 确认当前 Bearer 鉴权直接信任 JWT claim 构造 principal，不会回查会话或用户状态，这是“旧 token 不能立即失效”的根因
+  - 收敛最小数据模型为 `auth_sessions`，计划通过 `sid` claim + 每请求 session 校验补齐 logout / revoke / 禁用 / 管理员强制失效
+  - 新增 `V23__auth_sessions_refresh_tokens.sql`、`AuthSessionEntity`、`AuthSessionMapper` 和 `AuthSessionApplicationService`
+  - 新增 `OpaqueRefreshTokenCodec`，实现 opaque refresh token 签发、解析、哈希匹配和 refresh token 轮换
+  - 让 `AuthController` 补齐 `POST /api/v1/auth/refresh`、`POST /api/v1/auth/revoke`，并让 `logout` 真正撤销当前会话
+  - 在 JWT access token 中新增 `sid` / `tokenType` claim，并通过 `AccessTokenSessionValidator` + `auth_sessions` 做每请求会话校验
+  - 抽出 `AuthenticatedPrincipalLoader` 打破 `SecurityConfig` 与登录服务的 Bean 环，并复用到 refresh / access token 校验路径
+  - 在 `UserAdministrationApplicationService` 和 `UserAdminController` 中补齐管理员强制失效接口，以及账号停用后的批量 session invalidation
+  - 扩展 `AuthApiIntegrationTests`、`PlatformGovernanceApiIntegrationTests`，覆盖 refresh、logout、revoke、disable 和 admin invalidate；新增 `AccessTokenSessionValidatorTests`
+  - 同步 `README.md`、`docs/security.md`、`docs/reliability.md`、`docs/product-specs/platform-governance-and-iam.md`、`docs/generated/db-schema.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=AccessTokenSessionValidatorTests,OpaqueRefreshTokenCodecTests,JwtTokenServiceTests,AuthApiIntegrationTests,PlatformGovernanceApiIntegrationTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `27` 个测试通过
+
 ## Session: 2026-04-17 JWT 默认密钥治理
 
 ### Phase 39：优先级 2 认证密钥基线收口

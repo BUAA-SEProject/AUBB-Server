@@ -5,6 +5,7 @@ import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.identityaccess.application.auth.AuthSessionApplicationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.IdentityAssignmentCommand;
@@ -71,6 +72,7 @@ public class UserAdministrationApplicationService {
             organizationApplicationService;
     private final GovernanceAuthorizationService governanceAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final AuthSessionApplicationService authSessionApplicationService;
     private final PasswordEncoder passwordEncoder;
     private final PlatformTransactionManager transactionManager;
     private final PasswordPolicy passwordPolicy = new PasswordPolicy();
@@ -334,6 +336,10 @@ public class UserAdministrationApplicationService {
             user.setLockedUntil(null);
         }
         userMapper.updateById(user);
+        if (accountStatus != AccountStatus.ACTIVE) {
+            authSessionApplicationService.invalidateAllSessionsForUser(
+                    userId, principal.getUserId(), "ACCOUNT_STATUS_" + accountStatus.name());
+        }
         auditLogApplicationService.record(
                 principal.getUserId(),
                 AuditAction.USER_STATUS_CHANGED,
@@ -344,12 +350,27 @@ public class UserAdministrationApplicationService {
         return toView(user);
     }
 
+    @Transactional
+    public void invalidateSessions(Long userId, String reason, AuthenticatedUserPrincipal principal) {
+        UserEntity user = requireUser(userId);
+        governanceAuthorizationService.assertCanManageUserAt(principal, user.getPrimaryOrgUnitId());
+        authSessionApplicationService.invalidateAllSessionsForUser(
+                userId, principal.getUserId(), normalizeInvalidationReason(reason));
+    }
+
     private UserEntity requireUser(Long userId) {
         UserEntity user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "用户不存在");
         }
         return user;
+    }
+
+    private String normalizeInvalidationReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "ADMIN_FORCED_INVALIDATION";
+        }
+        return reason.trim();
     }
 
     private void validatePassword(String password) {

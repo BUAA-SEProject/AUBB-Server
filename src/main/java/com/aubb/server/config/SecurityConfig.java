@@ -2,6 +2,7 @@ package com.aubb.server.config;
 
 import com.aubb.server.common.api.ApiErrorResponse;
 import com.aubb.server.common.web.RequestIdFilter;
+import com.aubb.server.modules.identityaccess.application.auth.AccessTokenSessionValidator;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import javax.crypto.SecretKey;
@@ -16,9 +17,11 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -35,6 +38,7 @@ public class SecurityConfig {
     private final ObjectMapper objectMapper;
     private final RequestIdFilter requestIdFilter;
     private final JwtPrincipalAuthenticationConverter jwtPrincipalAuthenticationConverter;
+    private final AccessTokenSessionValidator accessTokenSessionValidator;
 
     @Bean
     SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
@@ -46,6 +50,8 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh", "/api/v1/auth/revoke")
                         .permitAll()
                         .anyRequest()
                         .authenticated())
@@ -69,10 +75,13 @@ public class SecurityConfig {
     }
 
     @Bean
-    JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
-        return NimbusJwtDecoder.withSecretKey(jwtSecretKey)
+    JwtDecoder jwtDecoder(SecretKey jwtSecretKey, JwtSecurityProperties jwtSecurityProperties) {
+        NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+        jwtDecoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(jwtSecurityProperties.getIssuer()), accessTokenSessionValidator));
+        return jwtDecoder;
     }
 
     @Bean

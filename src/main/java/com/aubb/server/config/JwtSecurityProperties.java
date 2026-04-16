@@ -25,6 +25,9 @@ public class JwtSecurityProperties {
     @NotNull(message = "aubb.security.jwt.ttl 必须配置")
     private Duration ttl;
 
+    @NotNull(message = "aubb.security.jwt.refresh-ttl 必须配置")
+    private Duration refreshTtl;
+
     @NotBlank(message = "aubb.security.jwt.secret 必须通过环境变量或外部配置提供")
     @Size(min = 32, message = "aubb.security.jwt.secret 至少需要 32 个字符")
     private String secret;
@@ -36,5 +39,10 @@ public class JwtSecurityProperties {
     @AssertTrue(message = "aubb.security.jwt.ttl 必须为正时长")
     public boolean isTtlPositive() {
         return ttl != null && !ttl.isZero() && !ttl.isNegative();
+    }
+
+    @AssertTrue(message = "aubb.security.jwt.refresh-ttl 必须为正时长")
+    public boolean isRefreshTtlPositive() {
+        return refreshTtl != null && !refreshTtl.isZero() && !refreshTtl.isNegative();
     }
 }

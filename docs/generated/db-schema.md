@@ -23,6 +23,8 @@
 - `src/main/resources/db/migration/V19__judge_environment_profiles_phase1.sql`
 - `src/main/resources/db/migration/V20__assignment_grade_weights_phase1.sql`
 - `src/main/resources/db/migration/V21__grade_appeals_phase1.sql`
+- `src/main/resources/db/migration/V22__programming_judge_failed_status.sql`
+- `src/main/resources/db/migration/V23__auth_sessions_refresh_tokens.sql`
 
 ## 总览
 
@@ -31,6 +33,7 @@
 - `platform_configs`：单份即时生效的平台配置
 - `org_units`：学校 / 学院 / 课程 / 班级组织树
 - `users`：平台用户账号
+- `auth_sessions`：refresh token 与会话撤销状态
 - `academic_profiles`：用户教务画像
 - `user_org_memberships`：用户组织成员关系
 - `user_scope_roles`：用户作用域身份分配
@@ -130,6 +133,29 @@
 - `ux_users_email_lower`
 - `ix_users_primary_org_unit_id`
 - `ix_users_account_status`
+
+### `auth_sessions`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `session_id` | `text` | 必填，唯一，最长 64 |
+| `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `refresh_token_hash` | `text` | 必填，refresh token 的 SHA-256 哈希 |
+| `refresh_token_expires_at` | `timestamptz` | 必填，refresh token 过期时间 |
+| `revoked_at` | `timestamptz` | 会话撤销时间 |
+| `revoked_reason` | `text` | 撤销原因，最长 256 |
+| `revoked_by_user_id` | `bigint` | 操作人，外键到 `users.id`，删除时置空 |
+| `last_access_issued_at` | `timestamptz` | 最近签发 access token 的时间 |
+| `last_refreshed_at` | `timestamptz` | 最近 refresh 成功时间 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_auth_sessions_session_id`
+- `ix_auth_sessions_user_id_revoked_at`
+- `ix_auth_sessions_refresh_token_expires_at`
 
 ### `user_scope_roles`
 

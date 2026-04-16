@@ -1,5 +1,27 @@
 # 发现与决策
 
+## 2026-04-17 refresh token / revoke / 强制失效发现
+
+- 当前登录链路只有 access token：`AuthController.login` 直接调用 `AuthenticationApplicationService.login(...)` + `JwtTokenService.issueToken(...)`，`LoginResultView` 也只返回 access token，没有 refresh token 或 session 标识。
+- 当前 `logout` 只是写审计，不会修改任何服务端状态；因此现有 access token 在过期前仍然可用。
+- 当前 Bearer 请求在 JWT 验签后，由 `JwtPrincipalAuthenticationConverter` 直接信任 claim 构造 `AuthenticatedUserPrincipal`，不会回查用户状态或会话状态，所以“用户被禁用后旧 token 立刻失效”“管理员强制失效后旧 token 立刻失效”现在都做不到。
+- 持久化层目前没有 `refresh token / auth session / revocation` 相关表。最小闭环不需要一开始拆成多张表，单张 `auth_sessions` 足够同时承载 refresh token、revoke 状态和 access token 的服务端锚点。
+- 最小实现路径应保持现有 JWT Bearer 主链路不变，只补三件事：
+  - 登录时创建 `auth_sessions` 并返回 opaque refresh token
+  - access token 带 `sid`，服务端在每次 Bearer 请求时按 `sid` 校验会话仍有效
+  - refresh/revoke/禁用/管理员强制失效都通过 `auth_sessions` 状态完成
+- 对“用户被禁用”场景，不必先改 `users` 表增加 token version；只要请求链路在 session 校验时回查当前用户状态，并在管理员禁用时批量 revoke 活跃 session，就能满足当前 todo 的最小闭环。
+- 实现中遇到的关键工程问题不是业务规则，而是 Bean 依赖环：`SecurityConfig -> AccessTokenSessionValidator -> AuthSessionApplicationService -> AuthenticationApplicationService -> PasswordEncoder(SecurityConfig)`。最小修复是抽出只读 `AuthenticatedPrincipalLoader`，承接 principal 装配和账号状态回查，让安全配置不再反向依赖登录服务。
+- 最终落地的最小模型是：
+  - access token 继续使用 JWT Bearer，并新增 `sid` 与 `tokenType=access`
+  - refresh token 使用 opaque token，不把 token 明文落库，只存 `SHA-256` 哈希
+  - `auth_sessions` 单表同时承载 refresh token 过期时间、revoke 原因、最近签发时间
+  - 每次受保护请求都按 `sid` 校验 `auth_sessions` 与当前用户状态，以换取 logout / revoke / disable 的立即生效
+- 当前闭环已经覆盖：
+  - 登录后刷新 access token，并轮换 refresh token
+  - `logout` / `POST /api/v1/auth/revoke` 后旧 access token 和 refresh token 不再可用
+  - 用户被禁用或管理员强制失效后旧会话立刻失效
+
 ## 2026-04-17 JWT 默认密钥治理发现
 
 - 当前 JWT 弱点不是“默认值太弱”，而是 `application.yaml` 和 `SecurityConfig` 仍允许在缺失密钥时使用默认回退启动；这会让部署遗漏环境变量时仍带着可预测签名密钥上线。

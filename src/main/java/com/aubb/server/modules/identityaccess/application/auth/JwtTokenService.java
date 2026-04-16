@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
@@ -12,6 +13,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class JwtTokenService {
+
+    private static final String ACCESS_TOKEN_TYPE = "access";
 
     private final JwtEncoder jwtEncoder;
     private final JwtSecurityProperties jwtSecurityProperties;
@@ -21,15 +24,18 @@ public class JwtTokenService {
         this.jwtSecurityProperties = jwtSecurityProperties;
     }
 
-    public LoginResultView issueToken(AuthenticatedUserPrincipal principal) {
+    public LoginResultView issueToken(AuthenticatedUserPrincipal principal, String sessionId, String refreshToken) {
         Instant issuedAt = Instant.now();
         Duration ttl = jwtSecurityProperties.getTtl();
         Instant expiresAt = issuedAt.plus(ttl);
         JwtClaimsSet.Builder claimsBuilder = JwtClaimsSet.builder()
+                .id(UUID.randomUUID().toString())
                 .issuer(jwtSecurityProperties.getIssuer())
                 .subject(principal.getUsername())
                 .issuedAt(issuedAt)
                 .expiresAt(expiresAt)
+                .claim("tokenType", ACCESS_TOKEN_TYPE)
+                .claim("sid", sessionId)
                 .claim("userId", principal.getUserId())
                 .claim("displayName", principal.getDisplayName())
                 .claim("primaryOrgUnitId", principal.getPrimaryOrgUnitId())
@@ -51,11 +57,21 @@ public class JwtTokenService {
         JwtClaimsSet claims = claimsBuilder.build();
 
         String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
-        return new LoginResultView(token, "Bearer", ttl.toSeconds(), AuthenticatedUserView.from(principal));
+        return new LoginResultView(
+                token,
+                "Bearer",
+                ttl.toSeconds(),
+                AuthenticatedUserView.from(principal),
+                refreshToken,
+                refreshTtl().toSeconds());
     }
 
     public Duration ttl() {
         return jwtSecurityProperties.getTtl();
+    }
+
+    public Duration refreshTtl() {
+        return jwtSecurityProperties.getRefreshTtl();
     }
 
     private Map<String, Object> academicProfileClaim(AuthenticatedUserPrincipal principal) {

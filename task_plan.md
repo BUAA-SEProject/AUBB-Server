@@ -2,11 +2,23 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。当前优先收口优先级 2：去掉 JWT 默认密钥并建立密钥治理基线，要求服务在缺失密钥时 fail-fast，并保持现有登录/鉴权链路和测试基线可验证。完成后再进入优先级 3：refresh token / revoke / 强制失效机制。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 3 的 refresh token / revoke / 强制失效机制已完成并验证通过；下一步进入优先级 4：首个学校 / 管理员 bootstrap 初始化闭环。
 
 ## 当前阶段
 
-Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 40：refresh token / revoke / 强制失效机制
+
+- [x] 复核 `AuthController`、`application/auth`、JWT 解码链路、现有认证集成测试和 `docs/security.md`
+- [x] 确认最小数据模型为 `auth_sessions`，避免过早拆成多张 token 表
+- [x] 新增 refresh token、session revoke 和 access token 会话校验能力
+- [x] 让 logout、`/api/v1/auth/revoke`、用户禁用和管理员强制失效都能让旧会话不可继续使用
+- [x] 补充 `POST /api/v1/auth/refresh`、`POST /api/v1/auth/revoke` 及必要的管理员强制失效接口
+- [x] 补齐单元测试和认证 / 平台治理集成测试，覆盖 refresh、revoke、禁用、强制失效回归
+- [x] 同步 README、安全文档、IAM 规格、数据库结构和执行计划
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要认证 / 治理测试
+- **Status:** completed
 
 ### Phase 39：JWT 默认密钥移除与密钥治理基线
 

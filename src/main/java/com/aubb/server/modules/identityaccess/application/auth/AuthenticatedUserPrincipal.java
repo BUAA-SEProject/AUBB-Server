@@ -23,6 +23,7 @@ public class AuthenticatedUserPrincipal implements Serializable {
     private final String username;
     private final String displayName;
     private final Long primaryOrgUnitId;
+    private final String sessionId;
     private final AccountStatus accountStatus;
     private final AcademicProfileView academicProfile;
     private final List<ScopeIdentityView> identities;
@@ -36,10 +37,23 @@ public class AuthenticatedUserPrincipal implements Serializable {
             AccountStatus accountStatus,
             AcademicProfileView academicProfile,
             List<ScopeIdentityView> identities) {
+        this(userId, username, displayName, primaryOrgUnitId, null, accountStatus, academicProfile, identities);
+    }
+
+    public AuthenticatedUserPrincipal(
+            Long userId,
+            String username,
+            String displayName,
+            Long primaryOrgUnitId,
+            String sessionId,
+            AccountStatus accountStatus,
+            AcademicProfileView academicProfile,
+            List<ScopeIdentityView> identities) {
         this.userId = userId;
         this.username = username;
         this.displayName = displayName;
         this.primaryOrgUnitId = primaryOrgUnitId;
+        this.sessionId = sessionId;
         this.accountStatus = accountStatus;
         this.academicProfile = academicProfile;
         this.identities = identities;

@@ -1,11 +1,13 @@
 package com.aubb.server.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +34,7 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute(
-                "TRUNCATE TABLE audit_logs, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
+                "TRUNCATE TABLE audit_logs, auth_sessions, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
 
         jdbcTemplate.update("""
                 INSERT INTO org_units (code, name, type, level, sort_order, status)
@@ -111,9 +113,9 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
 
     @Test
     void logsInWithJwtAndReadsCurrentUserProfile() throws Exception {
-        String token = login("school-admin", "Password123");
+        AuthTokens tokens = login("school-admin", "Password123");
 
-        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("school-admin"))
                 .andExpect(jsonPath("$.academicProfile.academicId").value("AUBB-ADMIN-001"))
@@ -124,9 +126,10 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
 
     @Test
     void forbidsClassAdminFromAccessingSchoolLevelPlatformConfigEndpoint() throws Exception {
-        String token = login("teacher", "Password123");
+        AuthTokens tokens = login("teacher", "Password123");
 
-        mockMvc.perform(get("/api/v1/admin/platform-config/current").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get("/api/v1/admin/platform-config/current")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
                 .andExpect(status().isForbidden());
     }
 
@@ -182,6 +185,7 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
 
     @Test
     void issuesTwoHourJwtByDefault() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType("application/json")
                         .content("""
@@ -189,6 +193,8 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.expiresInSeconds").value(7200))
+                .andExpect(jsonPath("$.refreshExpiresInSeconds")
+                        .value(Duration.ofDays(14).toSeconds()))
                 .andReturn();
 
         String token = JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken");
@@ -196,10 +202,81 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
 
         long ttlSeconds =
                 jwt.getExpiresAt().getEpochSecond() - jwt.getIssuedAt().getEpochSecond();
-        org.assertj.core.api.Assertions.assertThat(ttlSeconds).isEqualTo(7200);
+        assertThat(ttlSeconds).isEqualTo(7200);
+        assertThat(jwt.getClaimAsString("sid")).isNotBlank();
+        assertThat(jwt.getClaimAsString("tokenType")).isEqualTo("access");
+        assertThat(tokens.refreshToken()).isNotBlank();
     }
 
-    private String login(String username, String password) throws Exception {
+    @Test
+    void refreshesAccessTokenAndRotatesRefreshToken() throws Exception {
+        AuthTokens loginTokens = login("school-admin", "Password123");
+
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(loginTokens.refreshToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isString())
+                .andExpect(jsonPath("$.refreshToken").isString())
+                .andReturn();
+
+        String refreshedAccessToken =
+                JsonTestSupport.read(refreshResult.getResponse().getContentAsString(), "$.accessToken");
+        String rotatedRefreshToken =
+                JsonTestSupport.read(refreshResult.getResponse().getContentAsString(), "$.refreshToken");
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + refreshedAccessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("school-admin"));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(loginTokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+
+        assertThat(rotatedRefreshToken).isNotEqualTo(loginTokens.refreshToken());
+    }
+
+    @Test
+    void logoutRevokesCurrentAccessAndRefreshToken() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
+
+        mockMvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(tokens.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+    }
+
+    @Test
+    void revokeEndpointInvalidatesSessionBoundTokens() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
+
+        mockMvc.perform(post("/api/v1/auth/revoke")
+                        .contentType("application/json")
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(tokens.refreshToken())))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private AuthTokens login(String username, String password) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType("application/json")
                         .content("""
@@ -207,8 +284,13 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(username, password)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.refreshToken").isString())
                 .andReturn();
 
-        return JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken");
+        return new AuthTokens(
+                JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken"),
+                JsonTestSupport.read(result.getResponse().getContentAsString(), "$.refreshToken"));
     }
+
+    private record AuthTokens(String accessToken, String refreshToken) {}
 }

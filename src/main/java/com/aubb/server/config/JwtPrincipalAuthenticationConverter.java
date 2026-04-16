@@ -36,6 +36,7 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 jwt.getSubject(),
                 jwt.getClaimAsString("displayName"),
                 readLong(jwt.getClaim("primaryOrgUnitId")),
+                jwt.getClaimAsString("sid"),
                 AccountStatus.valueOf(jwt.getClaimAsString("accountStatus")),
                 readAcademicProfile(jwt),
                 identities);

@@ -33,6 +33,7 @@ aubb:
     jwt:
       issuer: AUBB-Server
       ttl: PT2H
+      refresh-ttl: P14D
       secret: ${AUBB_JWT_SECRET}
   storage:
     minio:
