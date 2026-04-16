@@ -45,7 +45,7 @@ Java 生产代码根目录。
 ### `src/main/resources`
 
 - `application.yaml`
-  - 默认运行配置，包含 JWT、OpenAPI 和 MinIO 等基础设施开关。
+  - 默认运行配置，包含 JWT、OpenAPI、MinIO、go-judge 和 RabbitMQ 队列开关。
 - `db/migration/`
   - Flyway 迁移脚本，任何数据库结构调整都必须在这里新增版本脚本。
 
@@ -56,6 +56,7 @@ Java 生产代码根目录。
 - `integration/`
   - 面向 HTTP API 和跨模块链路的集成测试。
   - 这里承载登录、平台治理、课程系统、assignment、submission 等真实业务回归。
+  - 其中 `AbstractRealJudgeIntegrationTest` 会拉起 go-judge、MinIO 和 RabbitMQ Testcontainers，覆盖真实评测与队列链路。
 - `domain/`
   - 早期平台治理阶段遗留的仓库级领域测试目录。
   - 当前仍保留 `iam / organization / platformconfig` 等子目录，后续新增领域测试优先按模块继续放到 `modules/<module>/domain/`。

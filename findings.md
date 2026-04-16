@@ -178,3 +178,6 @@
 - `docs/exec-plans/active/` 中保留已完成计划会误导下一轮开发优先级；活动计划目录应只保留仍在推进的路线图。
 - 当前仓库 Unix 环境下 `./mvnw` 没有稳定执行位，主入口文档应统一显式给出 `bash ./mvnw ...`，否则接手者会在第一步验证上遇到 `Permission denied`。
 - 已完成的 `docs/exec-plans/completed/` 历史计划保留原命令记录即可；真正需要对齐的是 README、AGENTS、开发流程、当前规格和 active 计划这类“面向下一位开发者”的入口文档。
+- `ARCHITECTURE.md` 在上一轮评测队列落地后仍把 RabbitMQ 描述为“未来异步扩展位”，这是当前最容易误导下一位开发者的口径漂移。
+- `docs/repository-structure.md` 需要明确 `application.yaml` 已包含 go-judge 与 RabbitMQ 队列开关，以及真实 judge 集成测试会拉起 go-judge / MinIO / RabbitMQ 三类容器。
+- `docs/product-specs/index.md`、`docs/product-sense.md` 和 `docs/quality-score.md` 应继续只做入口层概括，不复制细节，但必须覆盖学生侧成绩册、评测队列和详细评测报告这类会影响“下一步开发从哪里开始看”的变化。

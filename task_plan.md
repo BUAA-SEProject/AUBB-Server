@@ -6,7 +6,15 @@
 
 ## 当前阶段
 
-Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 completed
+Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 completed
+
+### Phase 24：接手文档与仓库入口二次收口
+
+- [x] 复核 `ARCHITECTURE.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/product-sense.md`、`docs/product-specs/index.md`、`docs/quality-score.md`
+- [x] 修正 RabbitMQ 仍被描述为“未来扩展位”等口径漂移
+- [x] 把评测队列、详细评测报告、学生侧成绩册和当前下一步优先级同步到入口文档
+- [x] 保持 active 路线图只描述仍在推进的长期计划
+- **Status:** completed
 
 ## Skills 选择
 

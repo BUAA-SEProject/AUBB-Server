@@ -289,6 +289,32 @@
   - `findings.md`
   - `progress.md`
 
+## Session: 2026-04-16 仓库现状复核与接手文档二次收口
+
+### Phase 24：入口文档口径纠偏
+
+- **Status:** completed
+- Actions taken:
+  - 重新核对 `ARCHITECTURE.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/product-sense.md`、`docs/product-specs/index.md`、`docs/quality-score.md` 和 active 路线图
+  - 修正 RabbitMQ 仍被描述为“后续异步扩展位”的过期口径
+  - 补齐学生侧成绩册、详细评测报告、`compileArgs / runArgs` 和真实 judge 测试链路在入口文档中的概括
+  - 保持 README / docs / active plan 三个接手入口在“当前能力 + 下一步优先级”上口径一致
+- Files created/modified:
+  - `ARCHITECTURE.md`
+  - `docs/index.md`
+  - `docs/repository-structure.md`
+  - `docs/product-sense.md`
+  - `docs/product-specs/index.md`
+  - `docs/quality-score.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `git diff --check -- <targeted-files>`
+  - 当前轮次只涉及文档和计划口径整理，代码验证沿用同日已完成的 `bash ./mvnw clean verify`
+  - 当前代码基线结果：`BUILD SUCCESS`，全量 `74` 个测试通过
+
 ## Session: 2026-04-16 编程工作区目录树快照第一阶段
 
 ### Phase 15：工作区快照后端模型
