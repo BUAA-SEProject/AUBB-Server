@@ -207,3 +207,32 @@
   - `todo.md`
   - `task_plan.md`
   - `findings.md`
+
+## Session: 2026-04-16 教师侧成绩册第一阶段
+
+### Phase 13：gradebook 聚合与接口
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `modules.grading.application.gradebook`，补齐成绩册聚合服务与视图模型
+  - 新增教师侧成绩册 API，覆盖开课实例、教学班和单学生三类视图
+  - 复用 `SubmissionScoreSummaryView`、`CourseAuthorizationService` 和现有 assignment / submission / grading 读模型
+  - 明确成绩册第一阶段默认按每个学生每个作业最新正式提交聚合，并只覆盖结构化作业
+  - 新增 `GradebookIntegrationTests`，覆盖 offering / class / student 视图、TA 作用域和最新提交语义
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/**`
+  - `src/main/java/com/aubb/server/modules/grading/api/TeacherGradebookController.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+  - `README.md`
+  - `ARCHITECTURE.md`
+  - `docs/product-sense.md`
+  - `docs/product-specs/{assignment,submission,grading}-system.md`
+  - `docs/exec-plans/completed/2026-04-16-gradebook-first-slice.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+- Verification:
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests test`
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests,SubmissionIntegrationTests,StructuredAssignmentIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `62` 个测试通过

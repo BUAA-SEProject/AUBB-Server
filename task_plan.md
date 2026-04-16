@@ -2,11 +2,11 @@
 
 ## 当前目标
 
-围绕 `todo.md` 的作业主链路，仓库已完成“题库 + 结构化试卷 + 分题提交 + 客观题自动评分 + 人工批改 + 成绩发布 + question-level judge + 样例试运行 + 工作区 + CUSTOM_SCRIPT 第一阶段”这一段。当前下一优先级切片切换为：把结构化编程题从“Python3 最小闭环”推进到“多语言稳定运行 + 更完整 IDE + 成绩册统计”。
+围绕 `todo.md` 的作业主链路，仓库已完成“题库 + 结构化试卷 + 分题提交 + 客观题自动评分 + 人工批改 + 成绩发布 + question-level judge + 样例试运行 + 工作区 + CUSTOM_SCRIPT 第一阶段”这一段。当前这一轮继续补齐“教师侧成绩册第一阶段”，并把下一优先级收敛为：多语言稳定运行、更完整 IDE / 目录树工作区，以及成绩册导出 / 学生侧成绩册。
 
 ## 当前阶段
 
-Phase 5 in_progress
+Phase 6 in_progress
 
 ## Skills 选择
 
@@ -59,8 +59,8 @@ Phase 5 in_progress
 
 ### Phase 6：成绩册与统计
 
-- [ ] assignment / lab 级成绩册聚合
-- [ ] 课程 / 班级 / 学生维度统计
+- [x] assignment 级成绩册聚合
+- [x] 课程 / 班级 / 学生维度统计（教师侧第一阶段）
 - [ ] 导出与报表
 - **Status:** in_progress
 
@@ -73,6 +73,8 @@ Phase 5 in_progress
 | question-level judge 必须先补题目级隐藏测试模型 | 只有样例输入输出不足以支撑真实编程题自动评测 |
 | 样例试运行不能复用 `judge_jobs` | 否则会污染正式评测历史、成绩和审计语义 |
 | 题目级隐藏测试点当前先挂在 `assignment_questions.config_json` | 先复用现有题目快照链路，避免提前引入额外表拆分；后续若需要更复杂查询再拆表 |
+| 教师侧成绩册聚合放在 `grading` | 当前聚合依赖 assignment 成绩发布、submission 最新提交和 `submission_answers` 评分摘要，放在 grading 最符合职责边界 |
+| 成绩册第一阶段只覆盖结构化作业 | legacy 文本作业没有分题评分摘要，强行混入会让聚合语义不稳定 |
 
 ## 错误记录
 
