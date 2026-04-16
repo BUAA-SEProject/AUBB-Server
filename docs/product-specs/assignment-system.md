@@ -155,6 +155,7 @@
 
 - `GET /api/v1/me/assignments`
 - `GET /api/v1/me/assignments/{assignmentId}`
+  - 列表当前按 `openAt ASC, id ASC` 排序，并在数据库侧完成权限过滤与分页；课程公共作业对开课实例内任一激活成员可见，班级作业只对对应教学班激活成员可见，草稿作业永不进入学生列表。
 
 ## 当前实现边界
 
@@ -172,6 +173,7 @@
 - 教学班功能开关中的 `assignment_enabled` 目前只作为课程域配置位保留，尚未在 assignment 接口层强制拦截。
 - 助教当前沿用课程成员可见性规则；批改权限已在 grading 模块对班级作业开放，更细的 staff scope 留待后续扩展。
 - assignment 当前已支持 assignment 级成绩权重 `gradeWeight`，并会被 grading 模块用于教师 / 学生成绩册、CSV 导出和统计报告中的加权总分计算；更复杂的总评策略仍留在后续阶段。
+- “我的作业”热点列表当前已切换为数据库侧 `count + page` 查询；课程成员边界仍由 `CourseAuthorizationService` 预解析出全量可见 offering，再下推给 SQL，避免 per-row `canViewAssignment(...)` 查询放大。
 
 ## 验收标准
 

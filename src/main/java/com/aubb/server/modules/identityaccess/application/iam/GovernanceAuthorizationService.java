@@ -10,6 +10,7 @@ import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -91,6 +92,19 @@ public class GovernanceAuthorizationService {
                 .map(ScopeIdentityView::scopeOrgUnitId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+    }
+
+    @Transactional(readOnly = true)
+    public Set<Long> loadManageableOrgUnitIds(AuthenticatedUserPrincipal principal) {
+        Set<Long> visibleRoots = visibleScopeRootIds(principal);
+        if (visibleRoots.isEmpty()) {
+            return Set.of();
+        }
+        Map<Long, OrgUnitEntity> index = loadOrgUnitIndex();
+        return index.keySet().stream()
+                .filter(orgUnitId ->
+                        visibleRoots.stream().anyMatch(rootId -> isDescendantOrSelf(orgUnitId, rootId, index)))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     @Transactional(readOnly = true)

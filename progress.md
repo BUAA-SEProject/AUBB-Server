@@ -1,5 +1,27 @@
 # 进度日志
 
+## Session: 2026-04-17 关键列表数据库分页权限过滤
+
+### Phase 46：优先级 9 热点列表收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `todo.md`、`task_plan.md`、`findings.md`、`progress.md`，恢复当前阶段上下文
+  - 复核 `UserAdministrationApplicationService.listUsers`、`AssignmentApplicationService.listMyAssignments`、`GovernanceAuthorizationService`、`CourseAuthorizationService` 与现有 migration / 测试
+  - 并行使用子代理梳理 `listUsers` 与 `listMyAssignments` 的内存过滤、权限边界和最小下推改造点
+  - 在 `GovernanceAuthorizationService` 中新增可管理组织集合解析，在 `CourseAuthorizationService` 中新增作业全量可见 offering 集合解析
+  - 为 `UserMapper`、`AssignmentMapper` 增加数据库侧 `count + page` 查询，并将 `listUsers`、`listMyAssignments` 改为只对当前页做详情补全
+  - 新增 `V28__db_paginated_permission_filter_indexes.sql`，补齐 `users / user_scope_roles / course_members / assignments` 热点索引
+  - 新增 `GovernanceAuthorizationServiceTests`、`CourseAuthorizationServiceTests`
+  - 扩展 `PlatformGovernanceApiIntegrationTests`、`AssignmentIntegrationTests`，覆盖分页正确性、典型越权边界和 `total/items` 一致性
+  - 同步 README、assignment / IAM 规格、可靠性说明、数据库结构与执行计划
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=GovernanceAuthorizationServiceTests,CourseAuthorizationServiceTests,PlatformGovernanceApiIntegrationTests#listsUsersByScopeAndStatusFilters+listsUsersByAcademicProfileAndRoleFilters+paginatesUsersAfterScopeAndProfileFiltersWithoutLeakingOutOfScopeUsers,AssignmentIntegrationTests#studentSeesOnlyPublishedAssignmentsForOwnCourseAndClass+paginatesMyAssignmentsAndKeepsOfferingScopeAccurate test`
+  - 当前结果：`BUILD SUCCESS`，定向 `6` 个测试通过
+
 ## Session: 2026-04-17 通知 / 消息中心 MVP
 
 ### Phase 45：优先级 8 站内通知收口

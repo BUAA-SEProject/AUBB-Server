@@ -581,6 +581,74 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void paginatesUsersAfterScopeAndProfileFiltersWithoutLeakingOutOfScopeUsers() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (2, 'CRS-ENG-1', 'Engineering Course', 'COURSE', 3, 1, 'ACTIVE')
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
+                VALUES (4, 'CLS-ENG-1', 'Engineering Class 1', 'CLASS', 4, 1, 'ACTIVE')
+                """);
+        insertUserWithPhone(5L, "teacher-one", "Teacher One", "teacher-one@example.com", "13800000001");
+        insertUserWithPhone(5L, "teacher-two", "Teacher Two", "teacher-two@example.com", "13800000002");
+        insertUserWithPhone(3L, "biz-teacher", "Biz Teacher", "biz-teacher@example.com", "13800000003");
+
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status, phone)
+                SELECT id, ?, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "T2026001", "张老师一", "TEACHER", "ACTIVE", "13800000001", "teacher-one");
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status, phone)
+                SELECT id, ?, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "T2026002", "张老师二", "TEACHER", "ACTIVE", "13800000002", "teacher-two");
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status, phone)
+                SELECT id, ?, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "T2026999", "商学院教师", "TEACHER", "ACTIVE", "13800000003", "biz-teacher");
+        jdbcTemplate.update("""
+                INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
+                SELECT id, ?, ? FROM users WHERE username = ?
+                """, 5L, "CLASS_ADMIN", "teacher-one");
+        jdbcTemplate.update("""
+                INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
+                SELECT id, ?, ? FROM users WHERE username = ?
+                """, 5L, "CLASS_ADMIN", "teacher-two");
+        jdbcTemplate.update("""
+                INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
+                SELECT id, ?, ? FROM users WHERE username = ?
+                """, 3L, "CLASS_ADMIN", "biz-teacher");
+
+        String collegeAdminToken = login("college-admin", "Password123");
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .header("Authorization", "Bearer " + collegeAdminToken)
+                        .param("keyword", "teacher")
+                        .param("academicId", "T2026")
+                        .param("identityType", "TEACHER")
+                        .param("roleCode", "CLASS_ADMIN")
+                        .param("page", "1")
+                        .param("pageSize", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].username").value("teacher-two"));
+
+        mockMvc.perform(get("/api/v1/admin/users")
+                        .header("Authorization", "Bearer " + collegeAdminToken)
+                        .param("keyword", "teacher")
+                        .param("academicId", "T2026")
+                        .param("identityType", "TEACHER")
+                        .param("roleCode", "CLASS_ADMIN")
+                        .param("page", "2")
+                        .param("pageSize", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].username").value("teacher-one"));
+    }
+
+    @Test
     void createsUserWithAcademicProfileAndMemberships() throws Exception {
         jdbcTemplate.update("""
                 INSERT INTO org_units (parent_id, code, name, type, level, sort_order, status)
@@ -795,5 +863,30 @@ class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
 
     private int queryForCount(String sql) {
         return jdbcTemplate.queryForObject(sql, Integer.class);
+    }
+
+    private void insertUserWithPhone(
+            Long primaryOrgUnitId, String username, String displayName, String email, String phone) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO users (
+                    primary_org_unit_id,
+                    username,
+                    display_name,
+                    email,
+                    password_hash,
+                    account_status,
+                    failed_login_attempts,
+                    phone
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                primaryOrgUnitId,
+                username,
+                displayName,
+                email,
+                PASSWORD_ENCODER.encode("Password123"),
+                "ACTIVE",
+                0,
+                phone);
     }
 }

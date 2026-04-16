@@ -17,6 +17,7 @@ import com.aubb.server.modules.organization.domain.OrgUnitType;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -191,6 +192,21 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public Set<Long> loadFullAssignmentAccessOfferingIds(AuthenticatedUserPrincipal principal, Long offeringId) {
+        Set<Long> offeringIds = new LinkedHashSet<>(loadAdminAccessibleOfferingIds(principal, offeringId));
+        offeringIds.addAll(courseMemberMapper
+                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getUserId, principal.getUserId())
+                        .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.INSTRUCTOR.name())
+                        .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
+                        .eq(offeringId != null, CourseMemberEntity::getOfferingId, offeringId))
+                .stream()
+                .map(CourseMemberEntity::getOfferingId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        return Set.copyOf(offeringIds);
+    }
+
+    @Transactional(readOnly = true)
     public void assertSecondaryCollegesCompatible(Long primaryCollegeUnitId, List<Long> secondaryCollegeUnitIds) {
         if (secondaryCollegeUnitIds == null || secondaryCollegeUnitIds.isEmpty()) {
             return;
@@ -250,6 +266,30 @@ public class CourseAuthorizationService {
                         .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
                         .last("LIMIT 1"))
                 != null;
+    }
+
+    private Set<Long> loadAdminAccessibleOfferingIds(AuthenticatedUserPrincipal principal, Long offeringId) {
+        Set<Long> manageableOrgUnitIds = governanceAuthorizationService.loadManageableOrgUnitIds(principal);
+        if (manageableOrgUnitIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<Long> offeringIds = new LinkedHashSet<>(courseOfferingMapper
+                .selectList(Wrappers.<CourseOfferingEntity>lambdaQuery()
+                        .eq(offeringId != null, CourseOfferingEntity::getId, offeringId)
+                        .and(wrapper -> wrapper.in(CourseOfferingEntity::getOrgCourseUnitId, manageableOrgUnitIds)
+                                .or()
+                                .in(CourseOfferingEntity::getPrimaryCollegeUnitId, manageableOrgUnitIds)))
+                .stream()
+                .map(CourseOfferingEntity::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        offeringIds.addAll(courseOfferingCollegeMapMapper
+                .selectList(Wrappers.<CourseOfferingCollegeMapEntity>lambdaQuery()
+                        .eq(offeringId != null, CourseOfferingCollegeMapEntity::getOfferingId, offeringId)
+                        .in(CourseOfferingCollegeMapEntity::getCollegeUnitId, manageableOrgUnitIds))
+                .stream()
+                .map(CourseOfferingCollegeMapEntity::getOfferingId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        return Set.copyOf(offeringIds);
     }
 
     private void assertLabFeatureEnabled(Long offeringId, Long teachingClassId) {

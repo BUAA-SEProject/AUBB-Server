@@ -2,11 +2,23 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 8 的通知 / 消息中心 MVP 已完成并验证通过；下一步进入优先级 9：关键列表查询优化为数据库可分页权限过滤。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 9 的关键列表查询数据库分页权限过滤已完成并验证通过；下一步进入优先级 10：清理文档漂移并固化 OpenAPI / 稳定接口清单。
 
 ## 当前阶段
 
-Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 46：关键列表数据库分页权限过滤
+
+- [x] 复核 `todo.md`、`listUsers`、`listMyAssignments` 现状实现与现有权限服务边界，确认本轮只处理两个已确认热点
+- [x] 识别当前“全量候选 + Java 过滤 + 内存分页”的根因，并拆分出可安全下推到 SQL 的谓词与必须保留在服务层的作用域预解析
+- [x] 为 `UserMapper`、`AssignmentMapper` 增加定向 count/page 查询，让 `listUsers`、`listMyAssignments` 切换到数据库侧分页
+- [x] 在 `GovernanceAuthorizationService`、`CourseAuthorizationService` 中补齐最小作用域集合解析，保持平台级权限和课程级权限边界不混用
+- [x] 新增贴合查询路径的索引 migration，补齐 `users / user_scope_roles / course_members / assignments` 热点访问路径
+- [x] 补齐治理与课程授权单元测试，以及 `listUsers`、`listMyAssignments` 的分页正确性 / 越权边界集成测试
+- [x] 同步 README、可靠性说明、产品规格、数据库结构和执行计划
+- [x] 执行 `bash ./mvnw spotless:apply`、`bash ./mvnw -q -DskipTests compile` 与最小必要专项测试
+- **Status:** completed
 
 ### Phase 45：通知 / 消息中心 MVP
 

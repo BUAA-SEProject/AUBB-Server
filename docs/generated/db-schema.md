@@ -29,6 +29,7 @@
 - `src/main/resources/db/migration/V25__judge_artifact_object_storage_phase1.sql`
 - `src/main/resources/db/migration/V26__lab_report_mvp.sql`
 - `src/main/resources/db/migration/V27__notification_center_mvp.sql`
+- `src/main/resources/db/migration/V28__db_paginated_permission_filter_indexes.sql`
 
 ## 总览
 
@@ -144,6 +145,7 @@
 - `ux_users_email_lower`
 - `ix_users_primary_org_unit_id`
 - `ix_users_account_status`
+- `idx_users_primary_org_unit_created_at_id`
 
 ### `auth_sessions`
 
@@ -221,6 +223,7 @@
 - `ux_user_scope_roles_user_scope_role`
 - `ix_user_scope_roles_user_id`
 - `ix_user_scope_roles_scope_org_unit_id`
+- `idx_user_scope_roles_role_code_user_id`
 
 ### `academic_terms`
 
@@ -307,6 +310,17 @@
 | `remark` | `text` | 备注 |
 | `joined_at` / `left_at` | `timestamptz` | 加入与离开时间 |
 
+索引与约束：
+
+- `ix_course_members_offering_id`
+- `ix_course_members_teaching_class_id`
+- `ix_course_members_user_id`
+- `ix_course_members_member_role_status`
+- `idx_course_members_user_offering_status_class`
+- `ux_course_members_instructor_unique`
+- `ux_course_members_student_unique`
+- `ux_course_members_ta_unique`
+
 ### `assignments`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -335,6 +349,7 @@
 - `ix_assignments_teaching_class_id_status`
 - `ix_assignments_open_at_due_at`
 - `idx_assignments_grade_published_at`
+- `idx_assignments_visible_open_at_id`
 - `ck_assignments_grade_weight_positive`
 
 ### `labs`

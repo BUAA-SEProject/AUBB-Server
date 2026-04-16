@@ -34,7 +34,6 @@ import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicPro
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.organization.application.OrgUnitSummaryView;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -198,37 +197,49 @@ public class UserAdministrationApplicationService {
             governanceAuthorizationService.assertCanManageUserAt(principal, orgUnitId);
         }
 
-        LambdaQueryWrapper<UserEntity> query = Wrappers.<UserEntity>lambdaQuery()
-                .orderByDesc(UserEntity::getCreatedAt)
-                .orderByDesc(UserEntity::getId);
-        if (accountStatus != null) {
-            query.eq(UserEntity::getAccountStatus, accountStatus.name());
-        }
-        if (orgUnitId != null) {
-            query.eq(UserEntity::getPrimaryOrgUnitId, orgUnitId);
-        }
-        List<UserEntity> candidates = userMapper.selectList(query);
-        Map<Long, List<ScopeIdentityView>> identitiesByUserId = scopeIdentityService.loadForUsers(
-                candidates.stream().map(UserEntity::getId).toList());
-        Map<Long, AcademicProfileView> profilesByUserId =
-                loadAcademicProfiles(candidates.stream().map(UserEntity::getId).toList());
-
         String normalizedKeyword = normalizeKeyword(keyword);
         String normalizedAcademicId = normalizeOptionalLowercase(academicId);
-        List<UserEntity> visibleUsers = candidates.stream()
-                .filter(user -> governanceAuthorizationService.canManageUserAt(principal, user.getPrimaryOrgUnitId()))
-                .filter(user -> matchesKeyword(user, profilesByUserId.get(user.getId()), normalizedKeyword))
-                .filter(user -> matchesAcademicId(profilesByUserId.get(user.getId()), normalizedAcademicId))
-                .filter(user -> matchesIdentityType(profilesByUserId.get(user.getId()), identityType))
-                .filter(user -> matchesRoleCode(identitiesByUserId.getOrDefault(user.getId(), List.of()), roleCode))
-                .toList();
-
         long safePage = Math.max(page, 1);
         long safePageSize = Math.max(pageSize, 1);
         long offset = (safePage - 1) * safePageSize;
-        List<UserEntity> pagedUsers =
-                visibleUsers.stream().skip(offset).limit(safePageSize).toList();
-        // 先按数据库条件取候选集，再统一用组织树作用域规则做过滤，避免把层级授权逻辑散落在 SQL 里。
+        List<Long> manageableOrgIds = orgUnitId == null
+                ? governanceAuthorizationService.loadManageableOrgUnitIds(principal).stream()
+                        .toList()
+                : List.of(orgUnitId);
+        boolean includeUsersWithoutOrg =
+                orgUnitId == null && principal.hasAuthority(GovernanceRole.SCHOOL_ADMIN.name());
+        if (manageableOrgIds.isEmpty() && !includeUsersWithoutOrg) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+
+        long total = userMapper.countVisibleUsers(
+                manageableOrgIds,
+                includeUsersWithoutOrg,
+                normalizedKeyword,
+                normalizedAcademicId,
+                identityType == null ? null : identityType.name(),
+                accountStatus == null ? null : accountStatus.name(),
+                roleCode == null ? null : roleCode.name(),
+                orgUnitId);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+
+        List<UserEntity> pagedUsers = userMapper.selectVisibleUsersPage(
+                manageableOrgIds,
+                includeUsersWithoutOrg,
+                normalizedKeyword,
+                normalizedAcademicId,
+                identityType == null ? null : identityType.name(),
+                accountStatus == null ? null : accountStatus.name(),
+                roleCode == null ? null : roleCode.name(),
+                orgUnitId,
+                offset,
+                safePageSize);
+        Map<Long, List<ScopeIdentityView>> identitiesByUserId = scopeIdentityService.loadForUsers(
+                pagedUsers.stream().map(UserEntity::getId).toList());
+        Map<Long, AcademicProfileView> profilesByUserId =
+                loadAcademicProfiles(pagedUsers.stream().map(UserEntity::getId).toList());
         Map<Long, OrgUnitSummaryView> primaryOrgById = organizationApplicationService.loadSummaryMap(pagedUsers.stream()
                 .map(UserEntity::getPrimaryOrgUnitId)
                 .filter(Objects::nonNull)
@@ -243,7 +254,7 @@ public class UserAdministrationApplicationService {
                         primaryOrgById.get(user.getPrimaryOrgUnitId()),
                         membershipsByUserId.getOrDefault(user.getId(), List.of())))
                 .toList();
-        return new PageResponse<>(items, visibleUsers.size(), safePage, safePageSize);
+        return new PageResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -684,42 +695,6 @@ public class UserAdministrationApplicationService {
             return null;
         }
         return value.trim();
-    }
-
-    private boolean matchesKeyword(UserEntity entity, AcademicProfileView academicProfile, String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return true;
-        }
-        return containsIgnoreCase(entity.getUsername(), keyword)
-                || containsIgnoreCase(entity.getDisplayName(), keyword)
-                || containsIgnoreCase(entity.getEmail(), keyword)
-                || (academicProfile != null && containsIgnoreCase(academicProfile.realName(), keyword))
-                || (academicProfile != null && containsIgnoreCase(academicProfile.academicId(), keyword));
-    }
-
-    private boolean matchesAcademicId(AcademicProfileView academicProfile, String academicId) {
-        if (academicId == null || academicId.isBlank()) {
-            return true;
-        }
-        return academicProfile != null && containsIgnoreCase(academicProfile.academicId(), academicId);
-    }
-
-    private boolean matchesIdentityType(AcademicProfileView academicProfile, AcademicIdentityType identityType) {
-        if (identityType == null) {
-            return true;
-        }
-        return academicProfile != null && identityType == academicProfile.identityType();
-    }
-
-    private boolean matchesRoleCode(List<ScopeIdentityView> identities, GovernanceRole roleCode) {
-        if (roleCode == null) {
-            return true;
-        }
-        return identities.stream().anyMatch(identity -> roleCode.name().equals(identity.roleCode()));
-    }
-
-    private boolean containsIgnoreCase(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
     }
 
     private void upsertAcademicProfileInternal(Long userId, AcademicProfileCommand academicProfile) {

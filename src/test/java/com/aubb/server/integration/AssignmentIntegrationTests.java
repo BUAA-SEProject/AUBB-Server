@@ -178,6 +178,69 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void paginatesMyAssignmentsAndKeepsOfferingScopeAccurate() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long otherOfferingId = createOffering(engAdminToken, catalogId, termId, "CS101-2026SP-02", "数据结构（2026春）-2");
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        Long classBId = createTeachingClass(teacherToken, otherOfferingId, "CLS-B", "B班", 2025);
+
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long offeringAssignmentId = createAssignment(teacherToken, offeringId, null, "课程公共任务");
+        Long classAssignmentOneId = createAssignment(teacherToken, offeringId, classAId, "A班任务一");
+        Long classAssignmentTwoId = createAssignment(teacherToken, offeringId, classAId, "A班任务二");
+        Long hiddenOtherOfferingAssignmentId = createAssignment(teacherToken, otherOfferingId, classBId, "其他开课任务");
+
+        publishAssignment(teacherToken, offeringAssignmentId);
+        publishAssignment(teacherToken, classAssignmentOneId);
+        publishAssignment(teacherToken, classAssignmentTwoId);
+        publishAssignment(teacherToken, hiddenOtherOfferingAssignmentId);
+
+        mockMvc.perform(get("/api/v1/me/assignments")
+                        .header("Authorization", "Bearer " + studentAToken)
+                        .param("page", "1")
+                        .param("pageSize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].title").value("课程公共任务"))
+                .andExpect(jsonPath("$.items[1].title").value("A班任务一"));
+
+        mockMvc.perform(get("/api/v1/me/assignments")
+                        .header("Authorization", "Bearer " + studentAToken)
+                        .param("page", "2")
+                        .param("pageSize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].title").value("A班任务二"));
+
+        mockMvc.perform(get("/api/v1/me/assignments")
+                        .header("Authorization", "Bearer " + studentAToken)
+                        .param("offeringId", String.valueOf(offeringId))
+                        .param("page", "2")
+                        .param("pageSize", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].title").value("A班任务一"));
+
+        mockMvc.perform(get("/api/v1/me/assignments")
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("offeringId", String.valueOf(otherOfferingId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].title").value("其他开课任务"));
+    }
+
+    @Test
     void studentCannotManageAssignments() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -268,6 +331,11 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
     }
 
     private Long createOffering(String token, Long catalogId, Long termId) throws Exception {
+        return createOffering(token, catalogId, termId, "CS101-2026SP-01", "数据结构（2026春）");
+    }
+
+    private Long createOffering(String token, Long catalogId, Long termId, String offeringCode, String offeringName)
+            throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/course-offerings")
                         .header("Authorization", "Bearer " + token)
                         .contentType("application/json")
@@ -275,8 +343,8 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                                 {
                                   "catalogId":%s,
                                   "termId":%s,
-                                  "offeringCode":"CS101-2026SP-01",
-                                  "offeringName":"数据结构（2026春）",
+                                  "offeringCode":"%s",
+                                  "offeringName":"%s",
                                   "primaryCollegeUnitId":2,
                                   "secondaryCollegeUnitIds":[],
                                   "deliveryMode":"HYBRID",
@@ -286,7 +354,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                                   "startAt":"2026-02-20T08:00:00+08:00",
                                   "endAt":"2026-07-10T23:59:59+08:00"
                                 }
-                                """.formatted(catalogId, termId)))
+                                """.formatted(catalogId, termId, offeringCode, offeringName)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");

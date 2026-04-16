@@ -255,17 +255,20 @@ public class AssignmentApplicationService {
     @Transactional(readOnly = true)
     public PageResponse<AssignmentView> listMyAssignments(
             Long offeringId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
-        List<AssignmentEntity> matched = assignmentMapper
-                .selectList(Wrappers.<AssignmentEntity>lambdaQuery()
-                        .orderByAsc(AssignmentEntity::getOpenAt)
-                        .orderByAsc(AssignmentEntity::getId))
-                .stream()
-                .filter(assignment -> offeringId == null || Objects.equals(offeringId, assignment.getOfferingId()))
-                .filter(assignment -> !AssignmentStatus.DRAFT.name().equals(assignment.getStatus()))
-                .filter(assignment -> courseAuthorizationService.canViewAssignment(
-                        principal, assignment.getOfferingId(), assignment.getTeachingClassId()))
-                .toList();
-        return toPage(matched, loadOfferings(matched), page, pageSize);
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        List<Long> fullOfferingIds =
+                courseAuthorizationService.loadFullAssignmentAccessOfferingIds(principal, offeringId).stream()
+                        .toList();
+        long total =
+                assignmentMapper.countVisibleAssignmentsForUser(principal.getUserId(), offeringId, fullOfferingIds);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<AssignmentEntity> pagedAssignments = assignmentMapper.selectVisibleAssignmentsForUserPage(
+                principal.getUserId(), offeringId, fullOfferingIds, offset, safePageSize);
+        return toCurrentSlicePage(pagedAssignments, loadOfferings(pagedAssignments), total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -319,6 +322,30 @@ public class AssignmentApplicationService {
                 })
                 .toList();
         return new PageResponse<>(items, entities.size(), safePage, safePageSize);
+    }
+
+    private PageResponse<AssignmentView> toCurrentSlicePage(
+            List<AssignmentEntity> entities,
+            Map<Long, CourseOfferingEntity> offerings,
+            long total,
+            long page,
+            long pageSize) {
+        Map<Long, TeachingClassEntity> classIndex = loadTeachingClasses(entities);
+        Map<Long, AssignmentJudgeConfigView> judgeConfigIndex = loadJudgeConfigViews(entities);
+        List<AssignmentView> items = entities.stream()
+                .map(assignment -> {
+                    TeachingClassEntity teachingClass = assignment.getTeachingClassId() == null
+                            ? null
+                            : classIndex.get(assignment.getTeachingClassId());
+                    return toView(
+                            assignment,
+                            offerings.get(assignment.getOfferingId()),
+                            teachingClass,
+                            null,
+                            judgeConfigIndex.get(assignment.getId()));
+                })
+                .toList();
+        return new PageResponse<>(items, total, page, pageSize);
     }
 
     private AssignmentView toView(AssignmentEntity entity) {

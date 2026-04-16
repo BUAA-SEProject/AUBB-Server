@@ -89,6 +89,7 @@
 ### 用户
 
 - `GET /api/v1/admin/users`
+  - 列表当前按 `createdAt DESC, id DESC` 排序，并在数据库侧完成作用域、账号状态、教务画像、治理身份和分页过滤；`orgUnitId` 仍保持“精确主组织过滤”而不是子树展开。
 - `GET /api/v1/admin/users/{userId}`
 - `POST /api/v1/admin/users`
 - `POST /api/v1/admin/users/import`
@@ -131,6 +132,7 @@
 - 认证链路当前只实现单表 `auth_sessions` 的最小会话模型，不提供设备列表、登录终端画像或自助会话管理界面。
 - 当前已实现教务画像和组织成员关系；教师 / 助教 / 学员课程角色已进入 `course_members`，assignment 和 submission 第一切片已开始复用该授权边界，judge / grading 等后续课程子域仍未实现。
 - 用户查询按管理员作用域过滤，课程域成员查询留待后续课程模块实现。
+- 用户治理热点列表当前已从“候选集全量加载 + Java 内存过滤”切换到“组织作用域集合预解析 + 数据库侧 count/page”；组织树祖先规则仍由 `GovernanceAuthorizationService` 统一维护，不在 controller 或 Mapper 中重复建模。
 
 ## 验收标准
 

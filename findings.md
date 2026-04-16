@@ -1,5 +1,18 @@
 # 发现与决策
 
+## 2026-04-17 关键列表数据库分页权限过滤发现
+
+- `listUsers` 和 `listMyAssignments` 当前共同的性能根因不是“少一个索引”，而是“候选集先全量拉入内存，再做权限过滤和分页”；只补索引不会自动修复分页准确性。
+- `listUsers` 的平台治理可见性仍然依赖组织树祖先规则，因此最稳的改法不是把组织树逻辑硬塞进 SQL，而是先在 `GovernanceAuthorizationService` 中一次性解析出可管理组织集合，再把用户筛选、角色筛选、画像筛选和分页交给数据库。
+- `listMyAssignments` 的课程侧权限也不适合继续 per-row 调 `canViewAssignment(...)`；更稳的切法是先在 `CourseAuthorizationService` 中一次性解析“全量可见 offering”，再由 SQL 用 `EXISTS course_members` 处理课程公共作业和班级作业的成员可见性。
+- `total` 必须和 `items` 共用同一套 SQL 谓词；否则即使页面数据看起来正确，也会出现翻页数和真实结果不一致的问题。
+- 这轮最小索引闭环应只围绕新查询路径补齐：
+  - `users(primary_org_unit_id, created_at desc, id desc)`
+  - `user_scope_roles(role_code, user_id)`
+  - `course_members(user_id, offering_id, member_status, teaching_class_id)`
+  - `assignments(open_at, id) WHERE status <> 'DRAFT'`
+- 课程级权限和平台级权限必须继续分开建模：前者只服务 assignment 可见 offering / 成员边界，后者只服务治理组织树作用域，不能为了“写一条大 SQL”把两套授权体系混成一层。
+
 ## 2026-04-17 通知 / 消息中心 MVP 发现
 
 - `todo.md` M4 的真实目标不是“先补实时推送”，而是先建立“通知内容 + 用户已读状态”的持久化模型；当前缺的是通知域本身，不是 WebSocket 通道。
