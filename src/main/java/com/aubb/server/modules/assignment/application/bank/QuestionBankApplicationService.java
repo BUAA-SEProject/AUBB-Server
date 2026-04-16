@@ -20,6 +20,7 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -80,16 +81,19 @@ public class QuestionBankApplicationService {
             Long offeringId,
             AssignmentQuestionType questionType,
             String keyword,
+            boolean includeArchived,
             long page,
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         requireOffering(offeringId);
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        String questionTypeCode = questionType == null ? null : questionType.name();
         List<QuestionBankQuestionEntity> matched = questionMapper
                 .selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
                         .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
-                        .eq(questionType != null, QuestionBankQuestionEntity::getQuestionType, questionType.name())
+                        .eq(questionTypeCode != null, QuestionBankQuestionEntity::getQuestionType, questionTypeCode)
+                        .isNull(!includeArchived, QuestionBankQuestionEntity::getArchivedAt)
                         .orderByDesc(QuestionBankQuestionEntity::getCreatedAt)
                         .orderByDesc(QuestionBankQuestionEntity::getId))
                 .stream()
@@ -113,6 +117,60 @@ public class QuestionBankApplicationService {
         QuestionBankQuestionEntity entity = requireQuestion(questionId);
         courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
         return toView(entity, true);
+    }
+
+    @Transactional
+    public QuestionBankQuestionView updateQuestion(
+            Long questionId,
+            String title,
+            String prompt,
+            AssignmentQuestionType questionType,
+            Integer defaultScore,
+            List<AssignmentQuestionOptionInput> options,
+            AssignmentQuestionConfigInput config,
+            AuthenticatedUserPrincipal principal) {
+        QuestionBankQuestionEntity entity = requireQuestion(questionId);
+        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        assertActiveQuestion(entity, "QUESTION_BANK_QUESTION_ARCHIVED", "已归档题目不能再编辑");
+        structuredQuestionSupport.validateQuestionDefinition(
+                questionType, defaultScore, options, config, "QUESTION_BANK");
+
+        entity.setTitle(structuredQuestionSupport.normalizeTitle(title, "QUESTION_BANK_TITLE_REQUIRED"));
+        entity.setPromptText(structuredQuestionSupport.normalizePrompt(prompt, "QUESTION_BANK_PROMPT_REQUIRED"));
+        entity.setQuestionType(questionType.name());
+        entity.setDefaultScore(structuredQuestionSupport.normalizeScore(defaultScore, "QUESTION_BANK_SCORE_INVALID"));
+        entity.setConfigJson(structuredQuestionSupport.writeConfigJson(config));
+        questionMapper.updateById(entity);
+
+        replaceOptions(entity.getId(), options);
+        QuestionBankQuestionEntity refreshed = requireQuestion(questionId);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.QUESTION_BANK_QUESTION_UPDATED,
+                "QUESTION_BANK_QUESTION",
+                String.valueOf(questionId),
+                AuditResult.SUCCESS,
+                Map.of("offeringId", entity.getOfferingId(), "questionType", questionType.name()));
+        return toView(refreshed, true);
+    }
+
+    @Transactional
+    public QuestionBankQuestionView archiveQuestion(Long questionId, AuthenticatedUserPrincipal principal) {
+        QuestionBankQuestionEntity entity = requireQuestion(questionId);
+        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        if (entity.getArchivedAt() == null) {
+            entity.setArchivedByUserId(principal.getUserId());
+            entity.setArchivedAt(OffsetDateTime.now());
+            questionMapper.updateById(entity);
+            auditLogApplicationService.record(
+                    principal.getUserId(),
+                    AuditAction.QUESTION_BANK_QUESTION_ARCHIVED,
+                    "QUESTION_BANK_QUESTION",
+                    String.valueOf(questionId),
+                    AuditResult.SUCCESS,
+                    Map.of("offeringId", entity.getOfferingId(), "questionType", entity.getQuestionType()));
+        }
+        return toView(requireQuestion(questionId), true);
     }
 
     @Transactional(readOnly = true)
@@ -147,8 +205,16 @@ public class QuestionBankApplicationService {
                 entity.getDefaultScore(),
                 options,
                 configView,
+                entity.getArchivedAt() != null,
+                entity.getArchivedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());
+    }
+
+    private void replaceOptions(Long questionId, List<AssignmentQuestionOptionInput> options) {
+        optionMapper.delete(Wrappers.<QuestionBankQuestionOptionEntity>lambdaQuery()
+                .eq(QuestionBankQuestionOptionEntity::getQuestionId, questionId));
+        persistOptions(questionId, options);
     }
 
     private void persistOptions(Long questionId, List<AssignmentQuestionOptionInput> options) {
@@ -171,5 +237,11 @@ public class QuestionBankApplicationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "COURSE_OFFERING_NOT_FOUND", "开课实例不存在");
         }
         return offering;
+    }
+
+    private void assertActiveQuestion(QuestionBankQuestionEntity entity, String code, String message) {
+        if (entity.getArchivedAt() != null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, code, message);
+        }
     }
 }

@@ -263,6 +263,9 @@ public class AssignmentPaperApplicationService {
         if (!Objects.equals(offeringId, bankQuestion.getOfferingId())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "QUESTION_BANK_SCOPE_INVALID", "题库题目不属于当前开课实例");
         }
+        if (bankQuestion.getArchivedAt() != null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "QUESTION_BANK_QUESTION_ARCHIVED", "已归档题目不能再用于组卷");
+        }
         List<QuestionBankQuestionOptionEntity> bankOptions =
                 questionBankQuestionOptionMapper.selectList(Wrappers.<QuestionBankQuestionOptionEntity>lambdaQuery()
                         .eq(QuestionBankQuestionOptionEntity::getQuestionId, bankQuestion.getId())

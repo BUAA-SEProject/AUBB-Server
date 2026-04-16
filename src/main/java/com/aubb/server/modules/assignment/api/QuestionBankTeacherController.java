@@ -23,6 +23,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -61,11 +62,12 @@ public class QuestionBankTeacherController {
             @PathVariable Long offeringId,
             @RequestParam(required = false) AssignmentQuestionType questionType,
             @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return questionBankApplicationService.listQuestions(
-                offeringId, questionType, keyword, page, pageSize, principal);
+                offeringId, questionType, keyword, includeArchived, page, pageSize, principal);
     }
 
     @GetMapping("/question-bank/questions/{questionId}")
@@ -73,6 +75,30 @@ public class QuestionBankTeacherController {
     public QuestionBankQuestionView detail(
             @PathVariable Long questionId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return questionBankApplicationService.getQuestion(questionId, principal);
+    }
+
+    @PutMapping("/question-bank/questions/{questionId}")
+    @PreAuthorize("isAuthenticated()")
+    public QuestionBankQuestionView update(
+            @PathVariable Long questionId,
+            @Valid @RequestBody CreateQuestionBankQuestionRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.updateQuestion(
+                questionId,
+                request.title(),
+                request.prompt(),
+                request.questionType(),
+                request.defaultScore(),
+                request.toOptionInputs(),
+                request.toConfigInput(),
+                principal);
+    }
+
+    @PostMapping("/question-bank/questions/{questionId}/archive")
+    @PreAuthorize("isAuthenticated()")
+    public QuestionBankQuestionView archive(
+            @PathVariable Long questionId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.archiveQuestion(questionId, principal);
     }
 
     public record CreateQuestionBankQuestionRequest(

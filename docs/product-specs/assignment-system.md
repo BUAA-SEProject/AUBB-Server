@@ -11,7 +11,7 @@
 - 教师在开课实例下创建作业
 - 作业可绑定整个开课实例，也可绑定某个教学班
 - 作业状态流转：`DRAFT -> PUBLISHED -> CLOSED`
-- 教师可创建题库题目，并按开课实例查看题库列表 / 详情
+- 教师可创建、更新、归档题库题目，并按开课实例查看题库列表 / 详情
 - 教师可在创建作业时附带结构化试卷
 - 结构化试卷支持多个大题，每个大题下挂多道题目
 - 当前题型支持：
@@ -23,11 +23,11 @@
 - 结构化试卷支持直接内联建题，也支持引用题库题目并在发布时做快照
 - 学生、助教、教师按课程成员关系查看自己有权访问的已发布作业
 - 学生侧作业详情会返回结构化试卷，但不会暴露正确答案与敏感配置
-- 关键状态变更与题库建题写入审计日志
+- 关键状态变更与题库生命周期操作写入审计日志
 
 ### 不在范围
 
-- 题库编辑、删除、标签体系和复杂组卷规则
+- 题库标签体系、数据库侧检索和复杂组卷规则
 - 结构化作业的复制、更新和发布后变更
 - 人工批改与成绩发布逻辑本身
 - 更完整的在线 IDE / 目录树工作区
@@ -44,12 +44,13 @@
 7. 学生只能查看自己所在开课实例内、且班级范围匹配的非草稿作业。
 8. 作业必须提供开放时间、截止时间和正整数提交次数上限，且截止时间不能早于开放时间。
 9. 题库源数据和作业快照分离：引用题库建卷时，会把题目、选项和配置复制到 assignment 快照表，后续题库变化不会污染已创建作业。
-10. 当前 assignment 级 `judgeConfig` 与结构化试卷互斥，不能在同一作业上同时使用。
-11. 客观题必须配置合法选项：
+10. 题库题目归档后不会影响既有 assignment 快照，但不能再被新的作业继续引用。
+11. 当前 assignment 级 `judgeConfig` 与结构化试卷互斥，不能在同一作业上同时使用。
+12. 客观题必须配置合法选项：
    - 单选题必须且只能有一个正确选项
    - 多选题至少有一个正确选项
-12. 文件题必须配置文件数量和大小限制；编程题必须配置支持语言和隐藏测试点，若选择 `CUSTOM_SCRIPT` 还必须提供脚本内容，当前固定由平台落盘为 Python checker 执行。
-13. 编程题隐藏测试点分值之和必须等于题目分值。
+13. 文件题必须配置文件数量和大小限制；编程题必须配置支持语言和隐藏测试点，若选择 `CUSTOM_SCRIPT` 还必须提供脚本内容，当前固定由平台落盘为 Python checker 执行。
+14. 编程题隐藏测试点分值之和必须等于题目分值。
 
 ## 核心数据模型
 
@@ -58,6 +59,7 @@
 - `question_bank_questions`
   - 开课实例内可复用题目源数据
   - 当前按 `offering_id` 进行作用域隔离
+  - 当前通过 `archived_at` 表达软归档，保留历史来源关系
 - `question_bank_question_options`
   - 客观题源数据选项及正确性
 - `assignment_sections`
@@ -70,7 +72,7 @@
 - `assignment_judge_profiles / assignment_judge_cases`
   - 继续保留 legacy assignment 级脚本型自动评测配置
 - `audit_logs`
-  - 记录 `QUESTION_BANK_QUESTION_CREATED / ASSIGNMENT_CREATED / ASSIGNMENT_PUBLISHED / ASSIGNMENT_CLOSED`
+  - 记录 `QUESTION_BANK_QUESTION_CREATED / QUESTION_BANK_QUESTION_UPDATED / QUESTION_BANK_QUESTION_ARCHIVED / ASSIGNMENT_CREATED / ASSIGNMENT_PUBLISHED / ASSIGNMENT_CLOSED`
 
 详细字段以 [../generated/db-schema.md](../generated/db-schema.md) 为准。
 
@@ -84,7 +86,7 @@
 ### 教师
 
 - 创建课程公共作业或教学班专属作业
-- 创建题库题目并按开课实例管理题库
+- 创建、更新、归档题库题目并按开课实例管理题库
 - 用内联建题或题库引用方式组卷
 - 查看自己可管理课程下的作业列表与详情
 - 发布和关闭作业
@@ -112,6 +114,8 @@
 - `POST /api/v1/teacher/course-offerings/{offeringId}/question-bank/questions`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/question-bank/questions`
 - `GET /api/v1/teacher/question-bank/questions/{questionId}`
+- `PUT /api/v1/teacher/question-bank/questions/{questionId}`
+- `POST /api/v1/teacher/question-bank/questions/{questionId}/archive`
 
 ### 我的作业
 
@@ -120,14 +124,15 @@
 
 ## 当前实现边界
 
-- assignment 已从“纯作业头”推进到“作业头 + 题库 + 试卷快照”，但仍未进入题库高级管理和人工批改阶段。
 - assignment 已从“纯作业头”推进到“作业头 + 题库 + 试卷快照”；人工批改与成绩发布已转入 grading 模块。
 - assignment 继续提供成绩册所需的作业列元数据、范围和题目分值来源，但不负责跨作业成绩聚合。
+- 题库当前已支持更新与归档，但归档是软归档而不是硬删除，也还没有标签和数据库侧搜索。
 - 结构化试卷已支持五种题型的建模与读取；其中编程题已支持题目级隐藏测试点、资源限制和多文件提交约束建模。
 - assignment 级脚本型自动评测仍只适用于 legacy 文本作业，不适用于结构化试卷。
 - 结构化编程题当前已接入 question-level judge，并已向学生侧暴露样例输入输出、工作区最小草稿能力和样例试运行入口。
 - assignment 只负责提供编程题配置与快照，不直接承载工作区状态和试运行结果；对应状态分别落在 submission 与 judge 模块。
 - `CUSTOM_SCRIPT` 当前已支持通过固定 Python checker 真实执行；更完整的目录树 IDE 仍未落地。
+- 已归档题目当前仍可通过详情接口读取，便于教师回溯，但不会再出现在默认题库列表，也不能继续引用组卷。
 - 教学班功能开关中的 `assignment_enabled` 目前只作为课程域配置位保留，尚未在 assignment 接口层强制拦截。
 - 助教当前沿用课程成员可见性规则；批改权限已在 grading 模块对班级作业开放，更细的 staff scope 留待后续扩展。
 
@@ -135,6 +140,7 @@
 
 - 教师可创建课程公共作业和教学班专属作业。
 - 教师可在开课实例内创建题库题目，并通过题库引用或内联方式组装结构化试卷。
+- 教师更新题库题目后，既有 assignment 快照不会被污染；归档后的题目不能继续引用组卷。
 - 教师可将草稿作业发布，并可关闭已发布作业。
 - 学生只能看到自己有权访问的已发布作业，无法读取其他班级作业或草稿作业。
 - 学生详情中不会暴露客观题正确答案和编程题敏感脚本配置。

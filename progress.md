@@ -336,3 +336,36 @@
   - `bash ./mvnw -Dtest=GradebookIntegrationTests test`
   - `bash ./mvnw clean verify`
   - `BUILD SUCCESS`，全量 `65` 个测试通过
+
+## Session: 2026-04-16 题库生命周期第一阶段
+
+### Phase 17：题库更新与归档
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V14__question_bank_lifecycle_phase2.sql`，为题库题目补齐 `archived_by_user_id / archived_at` 与活跃题目索引
+  - 为教师侧题库新增更新与归档接口，并在默认列表中过滤归档题目
+  - 让 assignment 组卷时拒绝引用已归档题目，同时保持既有 assignment 快照不受题库后续更新影响
+  - 扩展 `StructuredAssignmentIntegrationTests`，覆盖“更新不污染快照”和“归档后不可再引用”
+  - 同步 assignment 产品规格、数据库结构、路线图与工作记忆
+- Files created/modified:
+  - `src/main/resources/db/migration/V14__question_bank_lifecycle_phase2.sql`
+  - `src/main/java/com/aubb/server/modules/assignment/api/QuestionBankTeacherController.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/bank/QuestionBankApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/bank/QuestionBankQuestionView.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/AssignmentPaperApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/assignment/infrastructure/bank/QuestionBankQuestionEntity.java`
+  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/generated/db-schema.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=StructuredAssignmentIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - `BUILD SUCCESS`，全量 `66` 个测试通过

@@ -3,6 +3,7 @@ package com.aubb.server.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -240,6 +241,104 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .isEqualTo(3);
     }
 
+    @Test
+    void teacherUpdatesAndArchivesQuestionBankQuestionWithoutMutatingPublishedSnapshot() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-2026", "2026级一班", 2026);
+
+        Long bankQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"初始链表单选",
+                  "prompt":"链表头插法的时间复杂度是？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":10,
+                  "options":[
+                    {"optionKey":"A","content":"O(1)","correct":true},
+                    {"optionKey":"B","content":"O(n)","correct":false}
+                  ]
+                }
+                """);
+
+        Long assignmentId = createScorableStructuredAssignment(teacherToken, offeringId, classId, bankQuestionId);
+        publishAssignment(teacherToken, assignmentId);
+
+        updateQuestionBankQuestion(teacherToken, bankQuestionId, """
+                {
+                  "title":"更新后的链表单选",
+                  "prompt":"更新后的题面",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":12,
+                  "options":[
+                    {"optionKey":"A","content":"O(1)","correct":false},
+                    {"optionKey":"B","content":"O(n)","correct":true}
+                  ]
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", bankQuestionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("更新后的链表单选"))
+                .andExpect(jsonPath("$.defaultScore").value(12))
+                .andExpect(jsonPath("$.archived").value(false))
+                .andExpect(jsonPath("$.options[1].correct").value(true));
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].sourceQuestionId")
+                        .value(bankQuestionId))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].title").value("初始链表单选"))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].options[0].correct")
+                        .value(true));
+
+        archiveQuestionBankQuestion(teacherToken, bankQuestionId);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("includeArchived", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].archived").value(true));
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"引用已归档题目的作业",
+                                  "description":"不应成功",
+                                  "teachingClassId":%s,
+                                  "openAt":"2026-04-01T08:00:00+08:00",
+                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "maxSubmissions":1,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"客观题",
+                                        "questions":[
+                                          {"bankQuestionId":%s,"score":10}
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(classId, bankQuestionId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("QUESTION_BANK_QUESTION_ARCHIVED"));
+    }
+
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
         jdbcTemplate.update(
                 """
@@ -369,6 +468,20 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
+    }
+
+    private void updateQuestionBankQuestion(String token, Long questionId, String body) throws Exception {
+        mockMvc.perform(put("/api/v1/teacher/question-bank/questions/{questionId}", questionId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content(body))
+                .andExpect(status().isOk());
+    }
+
+    private void archiveQuestionBankQuestion(String token, Long questionId) throws Exception {
+        mockMvc.perform(post("/api/v1/teacher/question-bank/questions/{questionId}/archive", questionId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
     }
 
     private Long createStructuredAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)

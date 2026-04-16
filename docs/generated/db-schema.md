@@ -15,6 +15,7 @@
 - `src/main/resources/db/migration/V11__structured_programming_judge_phase1.sql`
 - `src/main/resources/db/migration/V12__programming_workspace_and_sample_runs.sql`
 - `src/main/resources/db/migration/V13__programming_workspace_file_tree_phase1.sql`
+- `src/main/resources/db/migration/V14__question_bank_lifecycle_phase2.sql`
 
 ## 总览
 
@@ -253,6 +254,7 @@
 | `id` | `bigint` | 主键，identity |
 | `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
 | `created_by_user_id` | `bigint` | 创建人，外键到 `users.id`，删除置空 |
+| `archived_by_user_id` | `bigint` | 归档人，外键到 `users.id`，删除置空 |
 | `title` | `text` | 必填，最长 128 |
 | `prompt_text` | `text` | 必填，题面正文 |
 | `question_type` | `text` | 必填，`SINGLE_CHOICE / MULTIPLE_CHOICE / SHORT_ANSWER / FILE_UPLOAD / PROGRAMMING` |
@@ -260,10 +262,13 @@
 | `config_json` | `text` | 必填，默认 `{}` |
 | `created_at` | `timestamptz` | 必填，默认 `now()` |
 | `updated_at` | `timestamptz` | 必填，默认 `now()` |
+| `archived_at` | `timestamptz` | 软归档时间；为空表示仍可被引用 |
 
 索引与约束：
 
 - `ix_question_bank_questions_offering_type`
+- `ix_question_bank_questions_offering_type_active`
+- `ix_question_bank_questions_offering_archived_at`
 
 ### `question_bank_question_options`
 
@@ -641,6 +646,7 @@
 - `assignments.created_by_user_id -> users.id`
 - `question_bank_questions.offering_id -> course_offerings.id`
 - `question_bank_questions.created_by_user_id -> users.id`
+- `question_bank_questions.archived_by_user_id -> users.id`
 - `question_bank_question_options.question_id -> question_bank_questions.id`
 - `assignment_sections.assignment_id -> assignments.id`
 - `assignment_questions.assignment_id -> assignments.id`
@@ -684,7 +690,7 @@
 - `user_org_memberships` 用于表达用户在课程/班级等组织下的业务成员关系，不替代治理身份。
 - `course_offerings` 是课程系统的业务核心，教学班、成员和后续任务/实验都应围绕它挂接。
 - `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围，并承载 assignment 级成绩发布时间与发布人。
-- `question_bank_questions` 与 `assignment_questions` 分离建模，确保题库复用与已发布作业快照互不污染。
+- `question_bank_questions` 与 `assignment_questions` 分离建模，确保题库复用与已发布作业快照互不污染；题库题目归档后也不会反向修改既有快照。
 - `assignment_sections / assignment_questions / assignment_question_options` 用于表达结构化试卷的快照，不再把题目结构塞进 assignment 单列字段。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。

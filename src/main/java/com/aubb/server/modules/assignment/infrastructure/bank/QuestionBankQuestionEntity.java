@@ -21,6 +21,8 @@ public class QuestionBankQuestionEntity {
 
     private Long createdByUserId;
 
+    private Long archivedByUserId;
+
     private String title;
 
     private String promptText;
@@ -36,4 +38,6 @@ public class QuestionBankQuestionEntity {
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private OffsetDateTime updatedAt;
+
+    private OffsetDateTime archivedAt;
 }

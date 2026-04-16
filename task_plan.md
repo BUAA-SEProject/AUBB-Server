@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-Phases 15 / 16 / 18 in progress
+Phases 15 / 16 / 17 / 18 in progress
 
 ## Skills 选择
 
@@ -57,11 +57,11 @@ Phases 15 / 16 / 18 in progress
 
 ### Phase 17：题库与组卷第二阶段
 
-- [ ] 为题库补齐更新、删除与更清晰的引用约束
+- [x] 为题库补齐更新、归档与更清晰的引用约束
 - [ ] 增加标签 / 分类 / 检索等基础管理能力
 - [ ] 增强组卷能力，支持更稳定的题库选题与试卷编辑
 - [ ] 保持 assignment 快照不可变，不直接引用运行中的题库实体
-- **Status:** pending
+- **Status:** in_progress
 
 ### Phase 18：成绩与反馈第二阶段
 
