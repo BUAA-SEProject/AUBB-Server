@@ -19,6 +19,7 @@
 - `src/main/resources/db/migration/V15__question_bank_tags_phase1.sql`
 - `src/main/resources/db/migration/V16__judge_queue_and_reports_phase1.sql`
 - `src/main/resources/db/migration/V17__online_ide_phase2.sql`
+- `src/main/resources/db/migration/V18__question_bank_categories_phase2.sql`
 
 ## 总览
 
@@ -39,6 +40,7 @@
 - `assignments`：作业主数据
 - `question_bank_questions`：开课实例内题库题目
 - `question_bank_question_options`：题库客观题选项
+- `question_bank_categories`：开课实例内题库分类字典
 - `question_bank_tags`：开课实例内题库标签字典
 - `question_bank_question_tags`：题库题目与标签的关联关系
 - `assignment_sections`：结构化试卷大题快照
@@ -259,6 +261,7 @@
 | --- | --- | --- |
 | `id` | `bigint` | 主键，identity |
 | `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `category_id` | `bigint` | 可空，外键到 `question_bank_categories.id`，删除置空 |
 | `created_by_user_id` | `bigint` | 创建人，外键到 `users.id`，删除置空 |
 | `archived_by_user_id` | `bigint` | 归档人，外键到 `users.id`，删除置空 |
 | `title` | `text` | 必填，最长 128 |
@@ -275,6 +278,24 @@
 - `ix_question_bank_questions_offering_type`
 - `ix_question_bank_questions_offering_type_active`
 - `ix_question_bank_questions_offering_archived_at`
+- `ix_question_bank_questions_offering_category_active`
+
+### `question_bank_categories`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `category_name` | `text` | 必填，最长 64 |
+| `normalized_name` | `text` | 必填，最长 64，按开课实例内大小写不敏感去重 |
+| `created_by_user_id` | `bigint` | 创建人，外键到 `users.id`，删除置空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_question_bank_categories_offering_normalized_name`
+- `ix_question_bank_categories_offering_name`
 
 ### `question_bank_question_options`
 
@@ -715,9 +736,12 @@
 - `assignments.grade_published_by_user_id -> users.id`
 - `assignments.created_by_user_id -> users.id`
 - `question_bank_questions.offering_id -> course_offerings.id`
+- `question_bank_questions.category_id -> question_bank_categories.id`
 - `question_bank_questions.created_by_user_id -> users.id`
 - `question_bank_questions.archived_by_user_id -> users.id`
 - `question_bank_question_options.question_id -> question_bank_questions.id`
+- `question_bank_categories.offering_id -> course_offerings.id`
+- `question_bank_categories.created_by_user_id -> users.id`
 - `question_bank_tags.offering_id -> course_offerings.id`
 - `question_bank_tags.created_by_user_id -> users.id`
 - `question_bank_question_tags.question_id -> question_bank_questions.id`
@@ -770,6 +794,7 @@
 - `course_offerings` 是课程系统的业务核心，教学班、成员和后续任务/实验都应围绕它挂接。
 - `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围，并承载 assignment 级成绩发布时间与发布人。
 - `question_bank_questions` 与 `assignment_questions` 分离建模，确保题库复用与已发布作业快照互不污染；题库题目归档后也不会反向修改既有快照。
+- `question_bank_categories` 作为开课实例内题库分类字典存在，题目当前只支持一个主分类，分类名按 `trim + lower-case` 做查找与复用。
 - 题库标签拆成 `question_bank_tags` 与 `question_bank_question_tags`，避免直接把标签数组塞进题目主表，便于后续扩展标签运营和按标签精确过滤。
 - `assignment_sections / assignment_questions / assignment_question_options` 用于表达结构化试卷的快照，不再把题目结构塞进 assignment 单列字段。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。

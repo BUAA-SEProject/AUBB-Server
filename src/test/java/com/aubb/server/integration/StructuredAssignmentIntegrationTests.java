@@ -1,6 +1,7 @@
 package com.aubb.server.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -436,6 +437,91 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         assertThat(queryForCount(
                         "SELECT COUNT(*) FROM question_bank_question_tags WHERE question_id = " + graphQuestionId))
                 .isEqualTo(2);
+    }
+
+    @Test
+    void teacherCategorizesQuestionBankQuestionsAndFiltersByCategory() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        Long graphQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"图搜索题",
+                  "prompt":"BFS 的访问顺序特点是什么？",
+                  "questionType":"SHORT_ANSWER",
+                  "defaultScore":15,
+                  "categoryName":"图论"
+                }
+                """);
+
+        createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"树遍历题",
+                  "prompt":"说明前序遍历。",
+                  "questionType":"SHORT_ANSWER",
+                  "defaultScore":10,
+                  "categoryName":"树结构"
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("category", "图论"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(graphQuestionId))
+                .andExpect(jsonPath("$.items[0].categoryName").value("图论"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[?(@.name == '图论')].activeQuestionCount").value(contains(1)))
+                .andExpect(jsonPath("$[?(@.name == '树结构')].activeQuestionCount").value(contains(1)));
+
+        updateQuestionBankQuestion(teacherToken, graphQuestionId, """
+                {
+                  "title":"图搜索题（更新）",
+                  "prompt":"更新后的 BFS 题面",
+                  "questionType":"SHORT_ANSWER",
+                  "defaultScore":20,
+                  "categoryName":"搜索算法"
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", graphQuestionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("图搜索题（更新）"))
+                .andExpect(jsonPath("$.categoryName").value("搜索算法"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("category", "图论"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("category", "搜索算法"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(graphQuestionId));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.name == '图论')].activeQuestionCount").value(contains(0)))
+                .andExpect(
+                        jsonPath("$[?(@.name == '搜索算法')].activeQuestionCount").value(contains(1)));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM question_bank_categories WHERE offering_id = 1"))
+                .isEqualTo(3);
     }
 
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {

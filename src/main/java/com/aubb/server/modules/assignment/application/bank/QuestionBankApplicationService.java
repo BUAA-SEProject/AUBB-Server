@@ -8,6 +8,8 @@ import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOp
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionView;
 import com.aubb.server.modules.assignment.application.paper.StructuredQuestionSupport;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
+import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankCategoryEntity;
+import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankCategoryMapper;
 import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankQuestionEntity;
 import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankQuestionMapper;
 import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankQuestionOptionEntity;
@@ -43,6 +45,7 @@ public class QuestionBankApplicationService {
 
     private final QuestionBankQuestionMapper questionMapper;
     private final QuestionBankQuestionOptionMapper optionMapper;
+    private final QuestionBankCategoryMapper categoryMapper;
     private final QuestionBankTagMapper tagMapper;
     private final QuestionBankQuestionTagMapper questionTagMapper;
     private final CourseOfferingMapper offeringMapper;
@@ -58,6 +61,7 @@ public class QuestionBankApplicationService {
             AssignmentQuestionType questionType,
             Integer defaultScore,
             List<AssignmentQuestionOptionInput> options,
+            String categoryName,
             List<String> tags,
             AssignmentQuestionConfigInput config,
             AuthenticatedUserPrincipal principal) {
@@ -73,6 +77,7 @@ public class QuestionBankApplicationService {
         entity.setPromptText(structuredQuestionSupport.normalizePrompt(prompt, "QUESTION_BANK_PROMPT_REQUIRED"));
         entity.setQuestionType(questionType.name());
         entity.setDefaultScore(structuredQuestionSupport.normalizeScore(defaultScore, "QUESTION_BANK_SCORE_INVALID"));
+        entity.setCategoryId(resolveCategoryId(offeringId, categoryName, principal.getUserId()));
         entity.setConfigJson(structuredQuestionSupport.writeConfigJson(config));
         questionMapper.insert(entity);
 
@@ -93,6 +98,7 @@ public class QuestionBankApplicationService {
             Long offeringId,
             AssignmentQuestionType questionType,
             String keyword,
+            String category,
             List<String> tags,
             boolean includeArchived,
             long page,
@@ -101,8 +107,13 @@ public class QuestionBankApplicationService {
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         requireOffering(offeringId);
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        String normalizedCategory = normalizeCategoryLookup(category);
         List<String> normalizedTags = normalizeTags(tags);
         String questionTypeCode = questionType == null ? null : questionType.name();
+        Long matchedCategoryId = resolveCategoryIdByName(offeringId, normalizedCategory);
+        if (normalizedCategory != null && matchedCategoryId == null) {
+            return new PageResponse<>(List.of(), 0, Math.max(page, 1), Math.max(pageSize, 1));
+        }
         List<Long> matchedQuestionIdsByTags = resolveQuestionIdsByTags(offeringId, normalizedTags);
         if (!normalizedTags.isEmpty() && matchedQuestionIdsByTags.isEmpty()) {
             return new PageResponse<>(List.of(), 0, Math.max(page, 1), Math.max(pageSize, 1));
@@ -111,6 +122,7 @@ public class QuestionBankApplicationService {
                 questionMapper.selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
                         .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
                         .eq(questionTypeCode != null, QuestionBankQuestionEntity::getQuestionType, questionTypeCode)
+                        .eq(matchedCategoryId != null, QuestionBankQuestionEntity::getCategoryId, matchedCategoryId)
                         .and(normalizedKeyword != null, query -> query.like(
                                         QuestionBankQuestionEntity::getTitle, normalizedKeyword)
                                 .or()
@@ -131,6 +143,36 @@ public class QuestionBankApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public List<QuestionBankCategoryView> listCategories(Long offeringId, AuthenticatedUserPrincipal principal) {
+        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        requireOffering(offeringId);
+        List<QuestionBankCategoryEntity> categories =
+                categoryMapper.selectList(Wrappers.<QuestionBankCategoryEntity>lambdaQuery()
+                        .eq(QuestionBankCategoryEntity::getOfferingId, offeringId)
+                        .orderByAsc(QuestionBankCategoryEntity::getCategoryName)
+                        .orderByAsc(QuestionBankCategoryEntity::getId));
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Long> activeQuestionCounts = questionMapper
+                .selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
+                        .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
+                        .isNotNull(QuestionBankQuestionEntity::getCategoryId)
+                        .isNull(QuestionBankQuestionEntity::getArchivedAt))
+                .stream()
+                .collect(Collectors.groupingBy(QuestionBankQuestionEntity::getCategoryId, Collectors.counting()));
+        return categories.stream()
+                .map(category -> new QuestionBankCategoryView(
+                        category.getId(),
+                        category.getOfferingId(),
+                        category.getCategoryName(),
+                        activeQuestionCounts.getOrDefault(category.getId(), 0L),
+                        category.getCreatedAt(),
+                        category.getUpdatedAt()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public QuestionBankQuestionView getQuestion(Long questionId, AuthenticatedUserPrincipal principal) {
         QuestionBankQuestionEntity entity = requireQuestion(questionId);
         courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
@@ -145,6 +187,7 @@ public class QuestionBankApplicationService {
             AssignmentQuestionType questionType,
             Integer defaultScore,
             List<AssignmentQuestionOptionInput> options,
+            String categoryName,
             List<String> tags,
             AssignmentQuestionConfigInput config,
             AuthenticatedUserPrincipal principal) {
@@ -158,6 +201,7 @@ public class QuestionBankApplicationService {
         entity.setPromptText(structuredQuestionSupport.normalizePrompt(prompt, "QUESTION_BANK_PROMPT_REQUIRED"));
         entity.setQuestionType(questionType.name());
         entity.setDefaultScore(structuredQuestionSupport.normalizeScore(defaultScore, "QUESTION_BANK_SCORE_INVALID"));
+        entity.setCategoryId(resolveCategoryId(entity.getOfferingId(), categoryName, principal.getUserId()));
         entity.setConfigJson(structuredQuestionSupport.writeConfigJson(config));
         questionMapper.updateById(entity);
 
@@ -217,9 +261,12 @@ public class QuestionBankApplicationService {
         AssignmentQuestionConfigView configView = structuredQuestionSupport.toConfigView(
                 structuredQuestionSupport.readConfigInput(entity.getConfigJson()), revealCorrect);
         List<String> tags = listTags(entity.getId());
+        QuestionBankCategoryEntity category = loadCategory(entity.getCategoryId());
         return new QuestionBankQuestionView(
                 entity.getId(),
                 entity.getOfferingId(),
+                entity.getCategoryId(),
+                category == null ? null : category.getCategoryName(),
                 entity.getTitle(),
                 entity.getPromptText(),
                 AssignmentQuestionType.valueOf(entity.getQuestionType()),
@@ -368,6 +415,62 @@ public class QuestionBankApplicationService {
                         .distinct()
                         .sorted()
                         .toList();
+    }
+
+    private Long resolveCategoryId(Long offeringId, String categoryName, Long userId) {
+        String normalizedName = normalizeCategoryLookup(categoryName);
+        if (normalizedName == null) {
+            return null;
+        }
+        QuestionBankCategoryEntity existing = findCategoryByNormalizedName(offeringId, normalizedName);
+        if (existing != null) {
+            return existing.getId();
+        }
+        QuestionBankCategoryEntity entity = new QuestionBankCategoryEntity();
+        entity.setOfferingId(offeringId);
+        entity.setCategoryName(categoryName.trim());
+        entity.setNormalizedName(normalizedName);
+        entity.setCreatedByUserId(userId);
+        try {
+            categoryMapper.insert(entity);
+            return entity.getId();
+        } catch (DuplicateKeyException exception) {
+            QuestionBankCategoryEntity concurrentCategory = findCategoryByNormalizedName(offeringId, normalizedName);
+            if (concurrentCategory != null) {
+                return concurrentCategory.getId();
+            }
+            throw exception;
+        }
+    }
+
+    private Long resolveCategoryIdByName(Long offeringId, String normalizedCategoryName) {
+        if (normalizedCategoryName == null) {
+            return null;
+        }
+        QuestionBankCategoryEntity category = findCategoryByNormalizedName(offeringId, normalizedCategoryName);
+        return category == null ? null : category.getId();
+    }
+
+    private QuestionBankCategoryEntity findCategoryByNormalizedName(Long offeringId, String normalizedCategoryName) {
+        return categoryMapper.selectOne(Wrappers.<QuestionBankCategoryEntity>lambdaQuery()
+                .eq(QuestionBankCategoryEntity::getOfferingId, offeringId)
+                .eq(QuestionBankCategoryEntity::getNormalizedName, normalizedCategoryName)
+                .last("LIMIT 1"));
+    }
+
+    private QuestionBankCategoryEntity loadCategory(Long categoryId) {
+        return categoryId == null ? null : categoryMapper.selectById(categoryId);
+    }
+
+    private String normalizeCategoryLookup(String categoryName) {
+        if (!StringUtils.hasText(categoryName)) {
+            return null;
+        }
+        String normalized = categoryName.trim();
+        if (!StringUtils.hasText(normalized)) {
+            return null;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private CourseOfferingEntity requireOffering(Long offeringId) {

@@ -9,6 +9,8 @@ import java.util.List;
 public record QuestionBankQuestionView(
         Long id,
         Long offeringId,
+        Long categoryId,
+        String categoryName,
         String title,
         String prompt,
         AssignmentQuestionType questionType,

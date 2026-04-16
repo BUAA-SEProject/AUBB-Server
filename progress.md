@@ -25,6 +25,32 @@
 
 ## Session: 2026-04-16 在线 IDE 第二阶段后端
 
+## Session: 2026-04-16 题库分类与分类过滤第一阶段
+
+### Phase 27：题库分类管理基础
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 新增 `V18__question_bank_categories_phase2.sql`，引入 `question_bank_categories`，并为题库题目补充 `category_id`
+  - 在 `QuestionBankApplicationService` 中补齐题目分类写入、按分类过滤题库列表，以及教师侧分类列表读取
+  - 扩展 `QuestionBankTeacherController`、题库题目视图与请求模型，支持 `categoryName` 和 `category` 过滤
+  - 扩展 `StructuredAssignmentIntegrationTests`，覆盖分类创建、分类过滤、分类更新与分类列表计数
+- Files created/modified:
+  - `src/main/resources/db/migration/V18__question_bank_categories_phase2.sql`
+  - `src/main/java/com/aubb/server/modules/assignment/application/bank/**`
+  - `src/main/java/com/aubb/server/modules/assignment/infrastructure/bank/**`
+  - `src/main/java/com/aubb/server/modules/assignment/api/QuestionBankTeacherController.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `README.md`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/product-specs/index.md`
+  - `docs/generated/db-schema.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+
 ### Phase 25：模板工作区、修订历史与自定义试运行
 
 - **Status:** completed

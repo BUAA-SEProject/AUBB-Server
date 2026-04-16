@@ -11,8 +11,9 @@
 - 教师在开课实例下创建作业
 - 作业可绑定整个开课实例，也可绑定某个教学班
 - 作业状态流转：`DRAFT -> PUBLISHED -> CLOSED`
-- 教师可创建、更新、归档带标签的题库题目，并按开课实例查看题库列表 / 详情
-- 题库列表当前支持按题型、关键词和标签精确过滤
+- 教师可创建、更新、归档带标签、带分类的题库题目，并按开课实例查看题库列表 / 详情
+- 题库列表当前支持按题型、关键词、分类和标签精确过滤
+- 教师可查看开课实例内题库分类列表与当前活跃题目数
 - 教师可在创建作业时附带结构化试卷
 - 结构化试卷支持多个大题，每个大题下挂多道题目
 - 当前题型支持：
@@ -28,7 +29,7 @@
 
 ### 不在范围
 
-- 题库分类体系、复杂组卷规则和更完整的标签运营能力
+- 更复杂的题库分类体系、复杂组卷规则和更完整的标签运营能力
 - 结构化作业的复制、更新和发布后变更
 - 人工批改与成绩发布逻辑本身
 - 更完整的在线 IDE / 目录树工作区
@@ -53,7 +54,8 @@
 13. 文件题必须配置文件数量和大小限制；编程题必须配置支持语言和隐藏测试点，若选择 `CUSTOM_SCRIPT` 还必须提供脚本内容，当前固定由平台落盘为 Python checker 执行。
 14. 编程题可选配置模板入口文件、模板目录与模板源码文件，用于生成学生的初始工作区；模板路径必须是安全相对路径，且不能和隐藏测试点配置耦合。
 15. 编程题隐藏测试点分值之和必须等于题目分值。
-16. 题库标签当前按开课实例隔离，写入时会做 `trim + lower-case` 归一化；列表使用重复 `tag` 参数时，语义为“同时命中全部标签”。
+16. 题库分类当前按开课实例隔离；题目当前只支持一个主分类，分类字典会在题目创建 / 更新时按名称自动创建。
+17. 题库标签当前按开课实例隔离，写入时会做 `trim + lower-case` 归一化；列表使用重复 `tag` 参数时，语义为“同时命中全部标签”。
 
 ## 核心数据模型
 
@@ -69,6 +71,9 @@
   - 开课实例内可复用的题库标签字典
 - `question_bank_question_tags`
   - 题库题目与标签的关联关系
+- `question_bank_categories`
+  - 开课实例内题库分类字典
+  - 当前按 `offering_id + normalized_name` 去重
 - `assignment_sections`
   - 结构化试卷中的“大题”快照
 - `assignment_questions`
@@ -95,7 +100,7 @@
 
 - 创建课程公共作业或教学班专属作业
 - 创建、更新、归档题库题目并按开课实例管理题库
-- 为题库题目配置标签，并按标签缩小列表范围
+- 为题库题目配置主分类与标签，并按分类或标签缩小列表范围
 - 用内联建题或题库引用方式组卷
 - 查看自己可管理课程下的作业列表与详情
 - 发布和关闭作业
@@ -122,7 +127,8 @@
 - `POST /api/v1/teacher/assignments/{assignmentId}/close`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/question-bank/questions`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/question-bank/questions`
-  - 支持 `questionType / keyword / tag / includeArchived / page / pageSize`
+  - 支持 `questionType / keyword / category / tag / includeArchived / page / pageSize`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/question-bank/categories`
 - `GET /api/v1/teacher/question-bank/questions/{questionId}`
 - `PUT /api/v1/teacher/question-bank/questions/{questionId}`
 - `POST /api/v1/teacher/question-bank/questions/{questionId}/archive`
@@ -136,7 +142,7 @@
 
 - assignment 已从“纯作业头”推进到“作业头 + 题库 + 试卷快照”；人工批改与成绩发布已转入 grading 模块。
 - assignment 继续提供成绩册所需的作业列元数据、范围和题目分值来源，但不负责跨作业成绩聚合。
-- 题库当前已支持更新、软归档、标签和标签精确检索；分类体系、复杂组卷规则与更完整搜索仍未实现。
+- 题库当前已支持更新、软归档、标签、分类和精确过滤；更复杂的分类体系、组卷规则与更完整搜索仍未实现。
 - 结构化试卷已支持五种题型的建模与读取；其中编程题已支持题目级隐藏测试点、资源限制、多文件提交约束，以及模板工作区快照建模。
 - assignment 级脚本型自动评测仍只适用于 legacy 文本作业，不适用于结构化试卷。
 - 结构化编程题当前已接入 question-level judge，并已向学生侧暴露样例输入输出、模板工作区、工作区修订历史和样例试运行入口。
@@ -150,7 +156,7 @@
 
 - 教师可创建课程公共作业和教学班专属作业。
 - 教师可在开课实例内创建题库题目，并通过题库引用或内联方式组装结构化试卷。
-- 教师可为题库题目配置标签，并按标签精确过滤题库列表。
+- 教师可为题库题目配置主分类与标签，并按分类或标签精确过滤题库列表。
 - 教师更新题库题目后，既有 assignment 快照不会被污染；归档后的题目不能继续引用组卷。
 - 教师可将草稿作业发布，并可关闭已发布作业。
 - 学生只能看到自己有权访问的已发布作业，无法读取其他班级作业或草稿作业。

@@ -11,35 +11,23 @@ import lombok.Setter;
 
 @Getter
 @Setter
-@TableName("question_bank_questions")
-public class QuestionBankQuestionEntity {
+@TableName("question_bank_categories")
+public class QuestionBankCategoryEntity {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
     private Long offeringId;
 
+    private String categoryName;
+
+    private String normalizedName;
+
     private Long createdByUserId;
-
-    private Long archivedByUserId;
-
-    private Long categoryId;
-
-    private String title;
-
-    private String promptText;
-
-    private String questionType;
-
-    private Integer defaultScore;
-
-    private String configJson;
 
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private OffsetDateTime updatedAt;
-
-    private OffsetDateTime archivedAt;
 }

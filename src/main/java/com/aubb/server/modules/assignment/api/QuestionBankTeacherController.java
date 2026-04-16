@@ -3,6 +3,7 @@ package com.aubb.server.modules.assignment.api;
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankApplicationService;
+import com.aubb.server.modules.assignment.application.bank.QuestionBankCategoryView;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankQuestionView;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
@@ -54,6 +55,7 @@ public class QuestionBankTeacherController {
                 request.questionType(),
                 request.defaultScore(),
                 request.toOptionInputs(),
+                request.categoryName(),
                 request.tags(),
                 request.toConfigInput(),
                 principal);
@@ -65,13 +67,21 @@ public class QuestionBankTeacherController {
             @PathVariable Long offeringId,
             @RequestParam(required = false) AssignmentQuestionType questionType,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String category,
             @RequestParam(name = "tag", required = false) List<String> tags,
             @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return questionBankApplicationService.listQuestions(
-                offeringId, questionType, keyword, tags, includeArchived, page, pageSize, principal);
+                offeringId, questionType, keyword, category, tags, includeArchived, page, pageSize, principal);
+    }
+
+    @GetMapping("/course-offerings/{offeringId}/question-bank/categories")
+    @PreAuthorize("isAuthenticated()")
+    public List<QuestionBankCategoryView> listCategories(
+            @PathVariable Long offeringId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.listCategories(offeringId, principal);
     }
 
     @GetMapping("/question-bank/questions/{questionId}")
@@ -94,6 +104,7 @@ public class QuestionBankTeacherController {
                 request.questionType(),
                 request.defaultScore(),
                 request.toOptionInputs(),
+                request.categoryName(),
                 request.tags(),
                 request.toConfigInput(),
                 principal);
@@ -112,6 +123,7 @@ public class QuestionBankTeacherController {
             @NotNull AssignmentQuestionType questionType,
             @NotNull @Positive Integer defaultScore,
             List<@Valid QuestionOptionRequest> options,
+            @Size(max = 64) String categoryName,
             List<@NotBlank @Size(max = 32) String> tags,
             @Valid QuestionConfigRequest config) {
 
