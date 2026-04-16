@@ -29,6 +29,28 @@ springdoc:
   swagger-ui:
     enabled: ${AUBB_SWAGGER_UI_ENABLED:true}
 aubb:
+  bootstrap:
+    enabled: ${AUBB_BOOTSTRAP_ENABLED:false}
+    school:
+      code: ${AUBB_BOOTSTRAP_SCHOOL_CODE:}
+      name: ${AUBB_BOOTSTRAP_SCHOOL_NAME:}
+      sort-order: ${AUBB_BOOTSTRAP_SCHOOL_SORT_ORDER:1}
+    admin:
+      username: ${AUBB_BOOTSTRAP_ADMIN_USERNAME:}
+      display-name: ${AUBB_BOOTSTRAP_ADMIN_DISPLAY_NAME:}
+      email: ${AUBB_BOOTSTRAP_ADMIN_EMAIL:}
+      password: ${AUBB_BOOTSTRAP_ADMIN_PASSWORD:}
+      academic-id: ${AUBB_BOOTSTRAP_ADMIN_ACADEMIC_ID:}
+      real-name: ${AUBB_BOOTSTRAP_ADMIN_REAL_NAME:}
+      phone: ${AUBB_BOOTSTRAP_ADMIN_PHONE:}
+    platform-config:
+      platform-name: ${AUBB_BOOTSTRAP_PLATFORM_NAME:}
+      platform-short-name: ${AUBB_BOOTSTRAP_PLATFORM_SHORT_NAME:}
+      logo-url: ${AUBB_BOOTSTRAP_LOGO_URL:}
+      footer-text: ${AUBB_BOOTSTRAP_FOOTER_TEXT:}
+      default-home-path: ${AUBB_BOOTSTRAP_DEFAULT_HOME_PATH:/admin}
+      theme-key: ${AUBB_BOOTSTRAP_THEME_KEY:aubb-light}
+      login-notice: ${AUBB_BOOTSTRAP_LOGIN_NOTICE:}
   security:
     jwt:
       issuer: AUBB-Server

@@ -1,5 +1,42 @@
 # 发现与决策
 
+## 2026-04-17 首个学校 / 管理员 bootstrap 初始化闭环发现
+
+- 当前仓库已经具备三段核心业务能力，但都建立在“系统里已经存在学校管理员”的前提上：
+  - `OrganizationApplicationService.createOrgUnit(...)` 能创建根 `SCHOOL` 节点
+  - `UserAdministrationApplicationService.createUser(...)` 能创建学校管理员并分配 `SCHOOL_ADMIN`
+  - `PlatformConfigApplicationService.upsertCurrent(...)` 能写入单份平台配置
+- 真正缺失的是首启入口：现有 HTTP 管理接口都要求 `SCHOOL_ADMIN` 认证，代码库里也没有业务级 `CommandLineRunner / ApplicationRunner / seed`，因此新环境无法从空库自举出第一位管理员。
+- 当前唯一启动期自动初始化模式是 `MinioStorageConfiguration` 中受开关控制的 `ApplicationRunner`。这为本任务提供了最合适的实现模板：
+  - 默认关闭
+  - 启用时 fail-fast 校验配置
+  - 启动时执行
+  - 逻辑本身必须幂等
+- 现有 schema 基本够用，不需要为了 bootstrap 另起一套初始化表；最小闭环可以直接复用：
+  - `org_units`
+  - `users`
+  - `academic_profiles`
+  - `user_scope_roles`
+  - `platform_configs`
+- 但当前 `org_units` 只通过应用层约束根节点必须是 `SCHOOL`，数据库层没有“单一学校根节点”约束；这会削弱“首个学校 bootstrap”语义，并放大重复初始化和并发初始化的脏数据风险。
+- 如果 bootstrap 要做到真正幂等，不能直接盲调 `createOrgUnit()` / `createUser()`；必须先按自然键查询后再 create / reuse / patch：
+  - 学校根节点：按 `code` 查找，且要防止不同 code 的第二个 `SCHOOL` 根节点
+  - 管理员：按 `username` 复用，并补齐 `SCHOOL_ADMIN@schoolId`、学工号画像和主组织
+  - 平台配置：复用现有 `upsertCurrent(...)` 单例语义
+- 管理员密码是 bootstrap 的敏感点。最小安全语义应是：
+  - 首次创建时使用外部配置密码
+  - 重复执行默认不覆盖既有密码，避免把正常运行环境变成“每次启动重置管理员密码”
+- 在非 HTTP 启动场景下，审计服务会把 `requestId/ip` 记为 `unknown`。这不会阻塞 bootstrap，但文档要明确这是启动期初始化行为，而不是普通接口调用。
+- 当前已按上述路径落地默认关闭的 `aubb.bootstrap.*` 启动期 bootstrap runner，并补齐：
+  - 首个学校根节点
+  - 首个学校管理员与 `SCHOOL_ADMIN` 作用域角色
+  - 管理员学工画像
+  - 单份平台配置
+- 当前幂等语义已固定为“只创建缺失项，不重置既有管理员密码，不覆盖既有平台配置”；若环境里已存在冲突学校根节点或不同 code 的根学校，启动直接 fail-fast。
+- 为了把“首个学校 bootstrap”从应用层约束下沉到 schema，已新增数据库保护：
+  - 根节点必须是 `SCHOOL`
+  - 全库只允许一个学校根节点
+
 ## 2026-04-17 refresh token / revoke / 强制失效发现
 
 - 当前登录链路只有 access token：`AuthController.login` 直接调用 `AuthenticationApplicationService.login(...)` + `JwtTokenService.issueToken(...)`，`LoginResultView` 也只返回 access token，没有 refresh token 或 session 标识。

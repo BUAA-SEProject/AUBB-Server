@@ -1,5 +1,30 @@
 # 进度日志
 
+## Session: 2026-04-17 首个学校 / 管理员 bootstrap 初始化闭环
+
+### Phase 41：优先级 4 初始化入口收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `docs/product-specs/platform-governance-and-iam.md`、`todo.md`、`docs/design-docs/adr-0002-jwt-and-scoped-governance.md`
+  - 复核 `identityaccess / organization / platformconfig` 模块 application service、controller、domain policy 与 V1 / V2 / V23 migration
+  - 确认当前已具备“建学校根节点 / 建学校管理员 / 写平台配置”三段业务能力，但都依赖先有 `SCHOOL_ADMIN`
+  - 确认代码库里没有业务级 bootstrap command、startup runner、seed 文件或 Flyway 初始化数据；当前唯一启动期初始化模式是 `MinioStorageConfiguration` 的条件化 `ApplicationRunner`
+  - 通过子代理复核现有可复用调用路径、幂等风险和潜在冲突点，收敛“受配置开关控制的启动期 bootstrap runner + 幂等 application service”为最小方案
+  - 新增 `PlatformBootstrapProperties`、`PlatformBootstrapConfiguration` 与 `PlatformBootstrapApplicationService`，用默认关闭的启动期 runner 执行首个学校 / 管理员 / 平台配置初始化
+  - 为 bootstrap 补齐“只创建缺失项、不重置既有管理员密码”的幂等语义，并补记角色、画像和审计
+  - 新增 `V24__single_school_root_guard.sql`，在数据库层约束根节点必须是单一 `SCHOOL`
+  - 扩展 `OrganizationApplicationService`，显式拒绝第二个学校根节点创建
+  - 新增 `PlatformBootstrapPropertiesValidationTests` 和 `BootstrapInitializationIntegrationTests`，覆盖启动失败、首次初始化、重复执行不脏写、管理员登录和平台配置读取
+  - 同步 `README.md`、`docs/security.md`、`docs/reliability.md`、`docs/product-specs/platform-governance-and-iam.md`、`docs/design-docs/adr-0002-jwt-and-scoped-governance.md` 与 `docs/generated/db-schema.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `git diff --check`
+  - `bash ./mvnw -Dtest=PlatformBootstrapPropertiesValidationTests,BootstrapInitializationIntegrationTests test`
+  - `bash ./mvnw -Dtest=PlatformBootstrapPropertiesValidationTests,BootstrapInitializationIntegrationTests,PlatformGovernanceApiIntegrationTests,AubbServerApplicationTests,HarnessHealthSmokeTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `19` 个测试通过
+
 ## Session: 2026-04-17 refresh token / revoke / 强制失效
 
 ### Phase 40：优先级 3 认证会话闭环

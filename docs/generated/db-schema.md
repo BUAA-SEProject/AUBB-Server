@@ -25,6 +25,7 @@
 - `src/main/resources/db/migration/V21__grade_appeals_phase1.sql`
 - `src/main/resources/db/migration/V22__programming_judge_failed_status.sql`
 - `src/main/resources/db/migration/V23__auth_sessions_refresh_tokens.sql`
+- `src/main/resources/db/migration/V24__single_school_root_guard.sql`
 
 ## 总览
 
@@ -107,6 +108,8 @@
 
 - `ux_org_units_code`
 - `ix_org_units_parent_id_sort_order`
+- `ck_org_units_root_is_school`
+- `ux_org_units_single_school_root`
 
 ### `users`
 

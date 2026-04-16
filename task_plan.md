@@ -2,11 +2,22 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 3 的 refresh token / revoke / 强制失效机制已完成并验证通过；下一步进入优先级 4：首个学校 / 管理员 bootstrap 初始化闭环。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 4 的首个学校 / 管理员 bootstrap 初始化闭环已完成并验证通过；下一步进入优先级 5：Dockerfile、CI 与发布流水线。
 
 ## 当前阶段
 
-Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 41：首个学校 / 管理员 bootstrap 初始化闭环
+
+- [x] 复核 `platform-governance-and-iam` 规格、identityaccess / organization / platformconfig 模块与现有 migration，确认初始化缺口
+- [x] 确认启动期最小入口采用受配置开关控制的 `ApplicationRunner`，而不是额外引入独立初始化系统
+- [x] 设计并实现幂等 bootstrap 服务，覆盖学校根节点、首个学校管理员、必要平台配置
+- [x] 补齐配置校验与重复执行幂等保护，新增单一学校根节点约束 migration
+- [x] 补齐启动参数与集成测试，覆盖首次初始化、重复执行不脏写、管理员登录与平台配置可读取
+- [x] 同步 README、部署 / 初始化说明、安全 / 可靠性文档、IAM 规格与执行计划
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要 bootstrap 测试
+- **Status:** completed
 
 ### Phase 40：refresh token / revoke / 强制失效机制
 
