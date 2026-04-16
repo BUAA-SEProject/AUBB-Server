@@ -16,6 +16,7 @@
 - [生成数据库结构](generated/db-schema.md)
 - [可靠性](reliability.md)
 - [安全](security.md)
+- [部署](deployment.md)
 - [对象存储](object-storage.md)
 - [质量评分](quality-score.md)
 

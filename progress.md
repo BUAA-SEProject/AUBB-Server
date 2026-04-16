@@ -1,5 +1,36 @@
 # 进度日志
 
+## Session: 2026-04-17 Dockerfile、CI 与发布流水线基线
+
+### Phase 42：优先级 5 工程化交付收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `pom.xml`、`compose.yaml`、`.github/`、`README.md`、`application.yaml`、`docs/index.md`、`docs/reliability.md`、`docs/object-storage.md`
+  - 确认当前仓库没有应用自身 `Dockerfile`、`.dockerignore`、GitHub Actions workflows 或部署编排文件，工程化资产只覆盖基础设施 `compose` 和 go-judge 运行镜像
+  - 确认根 `compose.yaml` 当前只拉起基础设施，不包含应用服务本身；README 也明确写了这一点
+  - 确认仓库运行时已经启用 `spring-boot-docker-compose` 依赖，因此根 `compose.yaml` 若直接无条件加入 `app` 服务，会破坏宿主机 `spring-boot:run` 的现有使用方式
+  - 收敛最小方案为：根目录 `Dockerfile` + `.dockerignore`、根 `compose.yaml` 使用 `app` profile 承载应用容器、本地与部署各自独立的 compose 用途、GitHub Actions 固化 `verify -> image -> deploy`
+  - 新增根目录 `Dockerfile`、`.dockerignore`、`deploy/compose.yaml` 和 `deploy/.env.production.example`
+  - 新增 `.github/workflows/ci.yml` 与 `.github/workflows/deploy.yml`，落地 `verify -> image -> deploy` 最小基线
+  - 将根 `compose.yaml` 扩展为“默认 infra + `app` profile 联调”模式，并为 PostgreSQL / RabbitMQ / Redis / MinIO 补齐健康检查和固定版本
+  - 在真实本地 compose smoke 中发现 `${AUBB_JWT_SECRET:?…}` 会破坏 infra-only 的 `compose up/down/config`，因此改为 app 容器入口 fail-fast 校验
+  - 补充 `DeliveryPipelineAssetsTests`，覆盖 Dockerfile、workflows、deploy compose 与本地 compose 关键约束
+  - 同步更新 `README.md`、`docs/deployment.md`、`docs/index.md`、`docs/reliability.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `git diff --check`
+  - `bash ./mvnw -Dtest=DeliveryPipelineAssetsTests,AubbServerApplicationTests,HarnessHealthSmokeTests test`
+  - `docker build -t aubb-server:local .`
+  - `docker compose --profile app config`
+  - `docker compose -f deploy/compose.yaml --env-file deploy/.env.production.example config`
+  - `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7`
+  - `AUBB_JWT_SECRET=compose-local-jwt-secret-with-at-least-32-chars AUBB_GO_JUDGE_PORT=15050 docker compose --profile app up -d --build`
+  - `curl -fsS http://localhost:8080/actuator/health`
+  - `docker compose --profile app down -v`
+  - 当前结果：`BUILD SUCCESS`，定向 `5` 个测试通过；本地 compose app + 基础设施联调和部署 compose 配置校验通过
+
 ## Session: 2026-04-17 首个学校 / 管理员 bootstrap 初始化闭环
 
 ### Phase 41：优先级 4 初始化入口收口

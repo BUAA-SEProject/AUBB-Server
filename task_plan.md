@@ -2,11 +2,22 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 4 的首个学校 / 管理员 bootstrap 初始化闭环已完成并验证通过；下一步进入优先级 5：Dockerfile、CI 与发布流水线。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 5 的 Dockerfile、CI 与发布流水线基线已完成并验证通过；下一步进入优先级 6：judge 详细产物对象化存储。
 
 ## 当前阶段
 
-Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 42：Dockerfile、CI 与发布流水线基线
+
+- [x] 复核 `pom.xml`、`compose.yaml`、`.github/`、`README.md` 与现有运行配置，确认应用级容器化和流水线缺口
+- [x] 为应用补齐根目录 `Dockerfile` 与 `.dockerignore`，并保持 Java 25 / Spring Boot 打包链路兼容
+- [x] 让根目录 `compose.yaml` 能编排 app + 基础设施用于本地联调，同时不破坏现有宿主机 `spring-boot-docker-compose` 用法
+- [x] 补齐 GitHub Actions `verify -> image -> deploy` 最小闭环，并在失败时保留测试报告或日志产物
+- [x] 为最小 deploy 提供清晰的版本、环境变量、回滚入口和部署编排文件，但不扩展到 Helm / K8s
+- [x] 补充工程化回归测试或仓库资产校验，并执行 `bash ./mvnw spotless:apply`、最小必要测试、`docker build`、`docker compose config` 与本地 compose smoke
+- [x] 同步 README、部署文档、环境变量说明、可靠性文档与执行计划
+- **Status:** completed
 
 ### Phase 41：首个学校 / 管理员 bootstrap 初始化闭环
 

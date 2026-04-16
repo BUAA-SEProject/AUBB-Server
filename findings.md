@@ -1,5 +1,31 @@
 # 发现与决策
 
+## 2026-04-17 Dockerfile、CI 与发布流水线基线发现
+
+- 当前仓库只有基础设施级 `compose.yaml` 和 `docker/go-judge/Dockerfile`，没有应用自身的 `Dockerfile`、`.dockerignore`、`.github/workflows` 或部署编排文件，因此“本地容器联调”“镜像构建”“最小 deploy”都缺少仓库内标准入口。
+- 当前 `compose.yaml` 只拉起 PostgreSQL、RabbitMQ、Redis、MinIO 和 go-judge，`README.md` 也明确写了“不包含应用服务本身”；这意味着本地要么手工启动应用，要么自行拼装容器参数，无法一条命令编排 app + 基础设施。
+- 运行时依赖里已经加入 `spring-boot-docker-compose`。因此如果直接把 `app` 服务无条件加入根 `compose.yaml`，宿主机执行 `spring-boot:run` 时可能连带拉起应用容器自己，形成端口冲突或递归。最稳的最小方案是：
+  - 根 `compose.yaml` 默认仍服务于宿主机运行的基础设施依赖
+  - 应用容器通过 `profiles: [app]` 挂入，显式 `docker compose --profile app up --build` 时才参与编排
+- 根 `compose.yaml` 里如果直接使用 `${AUBB_JWT_SECRET:?…}` 这种强制插值，`docker compose up -d`、`down`、`config` 即使在 infra-only 场景也会先于 profile 解析失败。更稳的做法是：
+  - 保持 compose 级可解析
+  - 在 `app` 容器入口检查 `AUBB_JWT_SECRET`，缺失时立刻退出
+  - 继续由 Spring 配置绑定层保证应用启动期 fail-fast
+- 本地联调最小环境变量集合已经很清晰：
+  - 强制项：`AUBB_JWT_SECRET`
+  - 应用连库：`SPRING_DATASOURCE_URL / USERNAME / PASSWORD`
+  - 队列与缓存：`SPRING_RABBITMQ_*`、`SPRING_DATA_REDIS_*`
+  - MinIO：`AUBB_MINIO_*`
+  - judge：`AUBB_GO_JUDGE_ENABLED`、`AUBB_GO_JUDGE_BASE_URL`、`AUBB_JUDGE_QUEUE_ENABLED`
+- 本机真实 smoke 验证暴露了另一个工程边界：`go-judge` 默认宿主机端口 `5050` 很容易被已有本地服务占用，因此根 `compose.yaml` 必须支持通过 `AUBB_GO_JUDGE_PORT` 等环境变量覆盖宿主机映射端口，不能把端口假设写死在文档里。
+- CI/CD 当前的真实缺口不是“测试命令不存在”，而是仓库没有把现有 `bash ./mvnw verify`、容器镜像构建和最小远程部署入口固化到工作流中，也没有在失败时保留 `surefire/failsafe` 报告。
+- deploy 在这一轮不需要扩展到 Helm / K8s；最小可交付方案可以是：
+  - GitHub Actions 手动触发
+  - 基于 GHCR 版本化镜像
+  - 通过 SSH 把部署 compose 和 `.env` 推到目标主机
+  - 目标主机执行 `docker compose pull && up -d`
+  - 回滚入口就是重新执行同一工作流并指定旧的 `image tag`
+
 ## 2026-04-17 首个学校 / 管理员 bootstrap 初始化闭环发现
 
 - 当前仓库已经具备三段核心业务能力，但都建立在“系统里已经存在学校管理员”的前提上：

@@ -1,33 +1,60 @@
 services:
   postgres:
-    image: 'postgres:16'
+    image: 'postgres:16.10'
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      - 'POSTGRES_DB=${AUBB_POSTGRES_DB:-aubb}'
+      - 'POSTGRES_PASSWORD=${AUBB_POSTGRES_PASSWORD:-aubb-secret}'
+      - 'POSTGRES_USER=${AUBB_POSTGRES_USER:-aubb}'
     ports:
-      - '5432'
+      - '${AUBB_POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - 'postgres-data:/var/lib/postgresql/data'
   rabbitmq:
     image: 'rabbitmq:4.1.0-management'
     environment:
-      - 'RABBITMQ_DEFAULT_PASS=secret'
-      - 'RABBITMQ_DEFAULT_USER=myuser'
+      - 'RABBITMQ_DEFAULT_PASS=${AUBB_RABBITMQ_PASSWORD:-aubb-secret}'
+      - 'RABBITMQ_DEFAULT_USER=${AUBB_RABBITMQ_USER:-aubb}'
     ports:
-      - '5672'
-      - '15672:15672'
+      - '${AUBB_RABBITMQ_PORT:-5672}:5672'
+      - '${AUBB_RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - 'rabbitmq-data:/var/lib/rabbitmq'
   redis:
-    image: 'redis:7'
+    image: 'redis:7.4.2-alpine'
+    command: ['redis-server', '--save', '60', '1', '--appendonly', 'yes']
     ports:
-      - '6379'
+      - '${AUBB_REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - 'redis-data:/data'
   minio:
     image: 'minio/minio:RELEASE.2025-09-07T16-13-09Z'
     command: server /data --console-address ":9001"
     environment:
-      - 'MINIO_ROOT_USER=aubbminio'
-      - 'MINIO_ROOT_PASSWORD=aubbminio-secret'
+      - 'MINIO_ROOT_USER=${AUBB_MINIO_ACCESS_KEY:-aubbminio}'
+      - 'MINIO_ROOT_PASSWORD=${AUBB_MINIO_SECRET_KEY:-aubbminio-secret}'
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '${AUBB_MINIO_PORT:-9000}:9000'
+      - '${AUBB_MINIO_CONSOLE_PORT:-9001}:9001'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     volumes:
       - 'minio-data:/data'
   go-judge:
@@ -37,7 +64,68 @@ services:
     privileged: true
     shm_size: '256m'
     ports:
-      - '5050:5050'
+      - '${AUBB_GO_JUDGE_PORT:-5050}:5050'
+  app:
+    profiles: ['app']
+    image: 'aubb-server:local'
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint:
+      - sh
+      - -c
+      - |
+        test -n "$$AUBB_JWT_SECRET" || {
+          echo "AUBB_JWT_SECRET is required for app profile" >&2
+          exit 1
+        }
+        exec java $$JAVA_OPTS -jar /opt/aubb/app.jar
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      go-judge:
+        condition: service_started
+    environment:
+      - 'SPRING_DOCKER_COMPOSE_ENABLED=false'
+      - 'SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${AUBB_POSTGRES_DB:-aubb}'
+      - 'SPRING_DATASOURCE_USERNAME=${AUBB_POSTGRES_USER:-aubb}'
+      - 'SPRING_DATASOURCE_PASSWORD=${AUBB_POSTGRES_PASSWORD:-aubb-secret}'
+      - 'SPRING_RABBITMQ_HOST=rabbitmq'
+      - 'SPRING_RABBITMQ_PORT=5672'
+      - 'SPRING_RABBITMQ_USERNAME=${AUBB_RABBITMQ_USER:-aubb}'
+      - 'SPRING_RABBITMQ_PASSWORD=${AUBB_RABBITMQ_PASSWORD:-aubb-secret}'
+      - 'SPRING_DATA_REDIS_HOST=redis'
+      - 'SPRING_DATA_REDIS_PORT=6379'
+      - 'AUBB_JWT_SECRET=${AUBB_JWT_SECRET:-}'
+      - 'AUBB_MINIO_ENABLED=${AUBB_MINIO_ENABLED:-true}'
+      - 'AUBB_MINIO_ENDPOINT=http://minio:9000'
+      - 'AUBB_MINIO_ACCESS_KEY=${AUBB_MINIO_ACCESS_KEY:-aubbminio}'
+      - 'AUBB_MINIO_SECRET_KEY=${AUBB_MINIO_SECRET_KEY:-aubbminio-secret}'
+      - 'AUBB_MINIO_BUCKET=${AUBB_MINIO_BUCKET:-aubb-assets}'
+      - 'AUBB_MINIO_AUTO_CREATE_BUCKET=${AUBB_MINIO_AUTO_CREATE_BUCKET:-true}'
+      - 'AUBB_GO_JUDGE_ENABLED=${AUBB_GO_JUDGE_ENABLED:-true}'
+      - 'AUBB_GO_JUDGE_BASE_URL=http://go-judge:5050'
+      - 'AUBB_JUDGE_QUEUE_ENABLED=${AUBB_JUDGE_QUEUE_ENABLED:-true}'
+      - 'AUBB_API_DOCS_ENABLED=${AUBB_API_DOCS_ENABLED:-true}'
+      - 'AUBB_SWAGGER_UI_ENABLED=${AUBB_SWAGGER_UI_ENABLED:-true}'
+      - 'AUBB_BOOTSTRAP_ENABLED=${AUBB_BOOTSTRAP_ENABLED:-false}'
+    ports:
+      - '${AUBB_APP_PORT:-8080}:8080'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
 volumes:
+  postgres-data:
+  rabbitmq-data:
+  redis-data:
   minio-data:

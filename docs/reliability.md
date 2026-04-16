@@ -7,6 +7,7 @@
 - MinIO 已具备正式接入路径；默认关闭，启用后 bucket 可用性进入健康检查。
 - RabbitMQ、Redis 仍是目标集成组件，但当前 Phase 2 不以它们作为默认启动阻塞条件。
 - 本地开发优先通过 Docker Compose 提供可重复依赖，测试通过 Testcontainers 保证独立验证。
+- 应用当前已具备根目录 `Dockerfile`、本地 compose `app` profile 和最小 GitHub Actions `verify -> image -> deploy` 闭环；本地联调与远程部署都必须走仓库内标准入口，而不是依赖临时命令拼装。
 - judge 真实链路集成测试当前默认走 RabbitMQ consumer；测试清理必须先等待运行中评测结束并 purge 测试队列，再执行数据库 `TRUNCATE`，避免与异步回写事务形成死锁。
 - JWT 签名密钥当前属于启动阻塞配置；缺失、空白或长度不足时必须在 Spring 上下文刷新阶段直接失败，避免服务以不可认证状态半启动。
 - 认证会话当前落库到 `auth_sessions`；受保护请求除 JWT 验签外还会校验会话与用户状态，用于支撑 refresh/revoke/强制失效。
@@ -17,6 +18,7 @@
 - 快速路径：仓库测试验证配置、领域规则、平台治理接口、课程系统、公开健康检查和代码结构约束。
 - 集成路径：通过 PostgreSQL Testcontainers 验证 Flyway 迁移、持久化与登录/治理链路。
 - 本地运行路径：使用 `compose.yaml` 提供 PostgreSQL、RabbitMQ、Redis、MinIO 开发依赖。
+- 容器路径：使用根目录 `Dockerfile` 构建应用镜像，通过 `docker compose --profile app config/up` 验证本地联调编排。
 - 文档同步由开发流程约束和人工评审负责，不再放入自动工作流校验。
 
 ## 可靠性规则
@@ -30,3 +32,6 @@
 7. 涉及异步评测的测试或运维脚本，不得在存在运行中 judge job 时直接批量清库；至少要先 drain 运行中任务，避免 `judge_jobs / submission_answers / audit_logs` 锁顺序反转。
 8. 涉及令牌撤销的改动，必须同时验证 access token 即时失效、refresh token 轮换和用户状态变更触发的旧会话失效，避免只实现半条链路。
 9. 涉及新环境初始化的改动，必须提供标准启动参数、幂等重复执行语义和自动化验证，不能继续依赖手工 SQL 插数。
+10. 根 `compose.yaml` 既要保留宿主机 `spring-boot-docker-compose` 的基础设施模式，也要通过显式 profile 支持 app + 基础设施联调，不能让两种运行方式互相冲突。
+11. CI 中任何 `verify` 失败都必须保留 `surefire/failsafe` 报告或关键日志，避免流水线失败后无法定位。
+12. 最小 deploy 至少要能表达“部署哪个镜像版本、用哪些环境变量、失败后如何回滚”，即使暂不引入更复杂编排。
