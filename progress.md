@@ -89,7 +89,7 @@
   - `bash ./mvnw -Dtest=GradebookIntegrationTests test`
   - `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests test`
   - `bash ./mvnw clean verify`
-  - 当前结果：`BUILD SUCCESS`，全量 `86` 个测试通过
+  - 当前结果：`BUILD SUCCESS`，全量 `87` 个测试通过
 
 ## Session: 2026-04-16 assignment 权重与加权总评第一阶段
 
@@ -123,7 +123,39 @@
   - `bash ./mvnw spotless:apply`
   - `bash ./mvnw -Dtest=AssignmentIntegrationTests,StructuredAssignmentIntegrationTests,GradebookIntegrationTests,GradingIntegrationTests test`
   - `bash ./mvnw clean verify`
-  - 当前结果：`BUILD SUCCESS`，全量 `86` 个测试通过
+  - 当前结果：`BUILD SUCCESS`，全量 `87` 个测试通过
+
+## Session: 2026-04-16 学生侧成绩册 CSV 导出第一阶段
+
+### Phase 33：学生侧成绩能力从“可查看”推进到“可留存 / 可复核”
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 在 `MyGradebookController` 中新增学生侧个人成绩册 CSV 导出接口 `GET /api/v1/me/course-offerings/{offeringId}/gradebook/export`
+  - 在 `GradebookApplicationService` 中复用既有 `buildStudentGradebook(...)` 聚合结果，补齐学生侧 CSV 渲染，保持导出与页面语义一致
+  - 修复学生侧 CSV 渲染时 `List.of(...)` 遇到 `null` 字段触发 `NullPointerException` 的实现错误，改用可空行构造方式
+  - 扩展 `GradebookIntegrationTests`，覆盖学生成功导出、教师误用 `/me` 导出被拒绝，以及未发布人工分在导出中继续隐藏
+  - 同步 `README.md`、grading 规格、active 计划、`todo.md` 与工作记忆，统一“学生侧成绩册与 CSV 导出第一阶段”口径
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/api/MyGradebookController.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookApplicationService.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+  - `README.md`
+  - `docs/product-sense.md`
+  - `docs/product-specs/index.md`
+  - `docs/product-specs/grading-system.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `docs/exec-plans/completed/2026-04-16-student-gradebook-export-phase1.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `87` 个测试通过
 
 ## Session: 2026-04-16 仓库状态复核与入口文档三次收口
 

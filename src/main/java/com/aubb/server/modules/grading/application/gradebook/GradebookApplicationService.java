@@ -128,6 +128,13 @@ public class GradebookApplicationService {
         return buildStudentGradebook(offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册");
     }
 
+    @Transactional(readOnly = true)
+    public GradebookExportContent exportMyGradebook(Long offeringId, AuthenticatedUserPrincipal principal) {
+        CourseOfferingEntity offering = requireOffering(offeringId);
+        return toStudentCsvExport(
+                buildStudentGradebook(offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册"));
+    }
+
     private StudentGradebookView buildStudentGradebook(
             CourseOfferingEntity offering,
             Long studentUserId,
@@ -280,6 +287,13 @@ public class GradebookApplicationService {
                 : "gradebook-class-%d.csv".formatted(snapshot.scope().teachingClassId());
         return new GradebookExportContent(
                 filename, "text/csv", renderCsv(snapshot).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private GradebookExportContent toStudentCsvExport(StudentGradebookView gradebookView) {
+        return new GradebookExportContent(
+                "gradebook-me-offering-%d.csv".formatted(gradebookView.scope().offeringId()),
+                "text/csv",
+                renderStudentCsv(gradebookView).getBytes(StandardCharsets.UTF_8));
     }
 
     private GradebookReportView buildGradebookReport(GradebookSnapshot snapshot, boolean includeTeachingClasses) {
@@ -477,6 +491,85 @@ public class GradebookApplicationService {
                 record.add(String.valueOf(Boolean.TRUE.equals(cell.gradePublished())));
             }
             appendCsvRow(builder, record);
+        }
+        return builder.toString();
+    }
+
+    private String renderStudentCsv(StudentGradebookView gradebookView) {
+        StringBuilder builder = new StringBuilder();
+        appendCsvRow(
+                builder,
+                List.of(
+                        "userId",
+                        "username",
+                        "displayName",
+                        "teachingClassCode",
+                        "teachingClassName",
+                        "assignmentCount",
+                        "submittedCount",
+                        "gradedCount",
+                        "totalFinalScore",
+                        "totalMaxScore",
+                        "totalWeightedScore",
+                        "totalWeight",
+                        "weightedScoreRate"));
+        List<String> summaryRow = new ArrayList<>();
+        summaryRow.add(String.valueOf(gradebookView.student().userId()));
+        summaryRow.add(gradebookView.student().username());
+        summaryRow.add(gradebookView.student().displayName());
+        summaryRow.add(gradebookView.student().teachingClassCode());
+        summaryRow.add(gradebookView.student().teachingClassName());
+        summaryRow.add(String.valueOf(gradebookView.summary().assignmentCount()));
+        summaryRow.add(String.valueOf(gradebookView.summary().submittedCount()));
+        summaryRow.add(String.valueOf(gradebookView.summary().gradedCount()));
+        summaryRow.add(String.valueOf(gradebookView.summary().totalFinalScore()));
+        summaryRow.add(String.valueOf(gradebookView.summary().totalMaxScore()));
+        summaryRow.add(String.valueOf(gradebookView.summary().totalWeightedScore()));
+        summaryRow.add(String.valueOf(gradebookView.summary().totalWeight()));
+        summaryRow.add(String.valueOf(gradebookView.summary().weightedScoreRate()));
+        appendCsvRow(builder, summaryRow);
+        builder.append('\n');
+
+        appendCsvRow(
+                builder,
+                List.of(
+                        "assignmentId",
+                        "title",
+                        "teachingClassCode",
+                        "teachingClassName",
+                        "maxScore",
+                        "gradeWeight",
+                        "gradePublished",
+                        "applicable",
+                        "submitted",
+                        "latestAttemptNo",
+                        "submittedAt",
+                        "finalScore",
+                        "weightedScore",
+                        "fullyGraded"));
+        for (StudentGradebookView.AssignmentGradeView assignmentView : gradebookView.assignments()) {
+            GradebookPageView.AssignmentColumnView assignment = assignmentView.assignment();
+            GradebookPageView.GradeCellView grade = assignmentView.grade();
+            List<String> assignmentRow = new ArrayList<>();
+            assignmentRow.add(String.valueOf(assignment.assignmentId()));
+            assignmentRow.add(assignment.title());
+            assignmentRow.add(
+                    assignment.teachingClassId() == null
+                            ? null
+                            : gradebookView.student().teachingClassCode());
+            assignmentRow.add(assignment.teachingClassName());
+            assignmentRow.add(assignment.maxScore() == null ? null : String.valueOf(assignment.maxScore()));
+            assignmentRow.add(String.valueOf(defaultGradeWeight(assignment.gradeWeight())));
+            assignmentRow.add(String.valueOf(Boolean.TRUE.equals(assignment.gradePublished())));
+            assignmentRow.add(String.valueOf(Boolean.TRUE.equals(grade.applicable())));
+            assignmentRow.add(String.valueOf(Boolean.TRUE.equals(grade.submitted())));
+            assignmentRow.add(grade.latestAttemptNo() == null ? null : String.valueOf(grade.latestAttemptNo()));
+            assignmentRow.add(
+                    grade.submittedAt() == null ? null : grade.submittedAt().toString());
+            assignmentRow.add(grade.finalScore() == null ? null : String.valueOf(grade.finalScore()));
+            assignmentRow.add(grade.weightedScore() == null ? null : String.valueOf(grade.weightedScore()));
+            assignmentRow.add(grade.fullyGraded() == null ? null : String.valueOf(grade.fullyGraded()));
+            appendCsvRow(builder, assignmentRow);
         }
         return builder.toString();
     }

@@ -233,6 +233,38 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void studentExportsOwnGradebookAsCsvButTeacherCannotUseStudentExport() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+        String studentAToken = login("student-a", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        MvcResult result = mockMvc.perform(
+                        get("/api/v1/me/course-offerings/{offeringId}/gradebook/export", scenario.offeringId())
+                                .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String csv = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(result.getResponse().getContentType()).startsWith("text/csv");
+        assertThat(result.getResponse().getHeader("Content-Disposition"))
+                .contains("attachment;")
+                .contains("gradebook-me-offering-%d".formatted(scenario.offeringId()));
+        assertThat(csv)
+                .contains(
+                        "userId,username,displayName,teachingClassCode,teachingClassName,assignmentCount,submittedCount,gradedCount,totalFinalScore,totalMaxScore,totalWeightedScore,totalWeight,weightedScoreRate");
+        assertThat(csv).contains("6,student-a,Student A,CLS-A,A班,2,2,2,38,40,96.0,100,0.96");
+        assertThat(csv)
+                .contains(
+                        "assignmentId,title,teachingClassCode,teachingClassName,maxScore,gradeWeight,gradePublished,applicable,submitted,latestAttemptNo,submittedAt,finalScore,weightedScore,fullyGraded");
+        assertThat(csv).contains("课程公共客观题,,");
+        assertThat(csv).contains("结构化批改作业,CLS-A,A班,30,60,true,true,true,1,");
+
+        mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/gradebook/export", scenario.offeringId())
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void teacherReadsOfferingGradebookReportWithAssignmentAndClassStats() throws Exception {
         GradebookScenario scenario = seedGradebookScenario();
 
@@ -356,6 +388,17 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/gradebook", offeringId)
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isForbidden());
+
+        MvcResult exportResult = mockMvc.perform(
+                        get("/api/v1/me/course-offerings/{offeringId}/gradebook/export", offeringId)
+                                .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String csv = exportResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(csv).contains("6,student-a,Student A,CLS-A,A班,2,2,2,20,40,60.0,100,0.6");
+        assertThat(csv).contains("结构化批改作业,CLS-A,A班,30,60,false,true,true,1,");
+        assertThat(csv).contains(",10,20.0,true");
     }
 
     private GradebookScenario seedGradebookScenario() throws Exception {
