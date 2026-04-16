@@ -56,7 +56,8 @@ Java 生产代码根目录。
 - `integration/`
   - 面向 HTTP API 和跨模块链路的集成测试。
   - 这里承载登录、平台治理、课程系统、assignment、submission 等真实业务回归。
-  - 其中 `AbstractRealJudgeIntegrationTest` 会拉起 go-judge、MinIO 和 RabbitMQ Testcontainers，覆盖真实评测与队列链路。
+  - 这里也承载编程题工作区、样例试运行、成绩册和对象存储等跨模块回归。
+  - 其中 `AbstractRealJudgeIntegrationTest` 会拉起 go-judge、MinIO 和 RabbitMQ Testcontainers，覆盖真实评测、队列、工作区试运行和详细日志链路。
 - `domain/`
   - 早期平台治理阶段遗留的仓库级领域测试目录。
   - 当前仍保留 `iam / organization / platformconfig` 等子目录，后续新增领域测试优先按模块继续放到 `modules/<module>/domain/`。
@@ -121,6 +122,15 @@ Java 生产代码根目录。
 - 单一目录直接文件数明显高于同模块其他目录，阅读和跳转成本开始上升
 
 当前仓库里，`course` 和 `identityaccess` 已按这套规则收敛，后续新增模块应优先沿用，而不是重新回到平铺方式。
+
+当前编程题在线 IDE 后端能力的代码入口主要在：
+
+- `src/main/java/com/aubb/server/modules/assignment`
+  - 编程题模板工作区与题目配置快照
+- `src/main/java/com/aubb/server/modules/submission`
+  - 工作区目录树、目录操作、修订历史和模板重置
+- `src/main/java/com/aubb/server/modules/judge`
+  - 样例试运行、自定义标准输入试运行、详细评测报告与真实 go-judge 执行
 
 ### 新增共享能力
 

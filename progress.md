@@ -2,6 +2,27 @@
 
 ## Session: 2026-04-16 作业模块能力重规划
 
+## Session: 2026-04-16 仓库状态复核与入口文档三次收口
+
+### Phase 26：接手入口与仓库口径再次校准
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 复核 `README.md`、`AGENTS.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/product-sense.md`、`docs/quality-score.md` 和 active 计划入口
+  - 修正仍停留在“课程第一切片 / 最小工作区”的旧表述，把模板工作区、工作区修订历史、历史恢复和自定义标准输入试运行同步到入口文档
+  - 把“下一位开发者从哪里开始看”统一到 README、仓库结构说明、产品规格索引和 active 计划四个入口
+  - 记录当前工作区存在与本任务无关的既有脏改动，因此收口时改用“定向 `git diff --check`”而不是全仓 diff 检查
+- Files created/modified:
+  - `AGENTS.md`
+  - `docs/index.md`
+  - `docs/repository-structure.md`
+  - `docs/product-sense.md`
+  - `docs/quality-score.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
 ## Session: 2026-04-16 在线 IDE 第二阶段后端
 
 ### Phase 25：模板工作区、修订历史与自定义试运行

@@ -181,3 +181,15 @@
 - `ARCHITECTURE.md` 在上一轮评测队列落地后仍把 RabbitMQ 描述为“未来异步扩展位”，这是当前最容易误导下一位开发者的口径漂移。
 - `docs/repository-structure.md` 需要明确 `application.yaml` 已包含 go-judge 与 RabbitMQ 队列开关，以及真实 judge 集成测试会拉起 go-judge / MinIO / RabbitMQ 三类容器。
 - `docs/product-specs/index.md`、`docs/product-sense.md` 和 `docs/quality-score.md` 应继续只做入口层概括，不复制细节，但必须覆盖学生侧成绩册、评测队列和详细评测报告这类会影响“下一步开发从哪里开始看”的变化。
+
+## 2026-04-16 仓库状态复核补充发现
+
+- `AGENTS.md` 中“当前真实业务进度”若继续停留在“平台治理已完成，并已进入课程系统第一切片”，会直接误导后续任务的范围判断；它需要同步到当前主链路状态和下一步优先级。
+- `docs/product-sense.md` 和 `docs/quality-score.md` 是最容易被忽略、但又最容易在接手时先扫一眼的入口页；它们必须至少覆盖模板工作区、修订历史、自定义试运行和真实 go-judge / RabbitMQ 基线。
+- 全仓 `git diff --check` 在当前工作区并不适合作为收尾信号，因为 `.agents/skills/**`、`design/**` 和 `pom.xml` 已有与本任务无关的既有脏改动；仓库整理任务应改为对“本轮改动文件”做定向 diff 检查。
+- 当前最合适的接手顺序已经比较稳定：
+  1. `README.md`
+  2. `docs/repository-structure.md`
+  3. `docs/product-specs/index.md`
+  4. `docs/exec-plans/active/README.md`
+  5. `todo.md`
