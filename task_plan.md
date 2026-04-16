@@ -1,8 +1,8 @@
-# 任务计划：结构化编程题评测第一阶段完成，继续推进试运行与 IDE
+# 任务计划：结构化编程题评测继续推进到自定义脚本执行
 
 ## 当前目标
 
-围绕 `todo.md` 的作业主链路，仓库已完成“题库 + 结构化试卷 + 分题提交 + 客观题自动评分 + 人工批改 + 成绩发布 + question-level judge”这一段。当前下一优先级切片切换为：把结构化编程题从“隐藏测试点自动评测”推进到“样例试运行 + 在线 IDE / 工作区”。
+围绕 `todo.md` 的作业主链路，仓库已完成“题库 + 结构化试卷 + 分题提交 + 客观题自动评分 + 人工批改 + 成绩发布 + question-level judge + 样例试运行 + 工作区 + CUSTOM_SCRIPT 第一阶段”这一段。当前下一优先级切片切换为：把结构化编程题从“Python3 最小闭环”推进到“多语言稳定运行 + 更完整 IDE + 成绩册统计”。
 
 ## 当前阶段
 
@@ -54,15 +54,15 @@ Phase 5 in_progress
 
 - [x] 样例试运行 API
 - [x] 在线 IDE / 工作区模型
-- [ ] `CUSTOM_SCRIPT` 真实执行
-- **Status:** in_progress
+- [x] `CUSTOM_SCRIPT` 真实执行
+- **Status:** completed
 
 ### Phase 6：成绩册与统计
 
 - [ ] assignment / lab 级成绩册聚合
 - [ ] 课程 / 班级 / 学生维度统计
 - [ ] 导出与报表
-- **Status:** pending
+- **Status:** in_progress
 
 ## 已做决策
 

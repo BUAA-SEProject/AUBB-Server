@@ -183,3 +183,27 @@
   - `src/main/java/com/aubb/server/modules/judge/**/sample/**`
   - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
   - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+
+## Session: 2026-04-16 CUSTOM_SCRIPT 第一阶段
+
+### Phase 12：自定义脚本真实执行
+
+- **Status:** completed
+- Actions taken:
+  - 在 `JudgeExecutionService` 中新增统一的编程题 case 执行 helper，让样例试运行和正式题目级评测共用同一套运行链路
+  - 为 `CUSTOM_SCRIPT` 增加固定 Python checker 执行模式，不再把教师输入当 shell 命令直接执行
+  - 为 checker 注入保留文件名上下文，包括学生程序 stdout / stderr、期望输出、stdin 和运行元数据 JSON
+  - 允许 checker 以 JSON 返回 `verdict / score / message`，并把分值回写到题目级评测结果和 `submission_answers`
+  - 新增 `StructuredProgrammingJudgeIntegrationTests` 与 `ProgrammingWorkspaceIntegrationTests` 的 `CUSTOM_SCRIPT` 回归
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `README.md`
+  - `ARCHITECTURE.md`
+  - `docs/product-specs/{assignment,judge}-system.md`
+  - `docs/product-sense.md`
+  - `docs/generated/db-schema.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`

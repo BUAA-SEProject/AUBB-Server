@@ -20,7 +20,7 @@
 
 ### 当前最关键的缺口
 
-- 没有 `CUSTOM_SCRIPT` 真实执行与更完整的目录树 IDE
+- 已补上 `CUSTOM_SCRIPT` 第一阶段真实执行；当前仍缺更完整的目录树 IDE
 - 没有成绩册、统计与导出
 
 ## 子代理结论汇总
@@ -82,7 +82,7 @@
 - 现有 `assignment_judge_profiles` 是 legacy assignment 级配置；结构化编程题当前已通过 `assignment_questions.config_json` 挂题目级隐藏测试点。
 - `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与产物对象仍未持久化。
 - `programming_workspaces` 已提供最小工作区状态；当前只保存代码正文、语言和附件引用，不提供目录树级文件操作。
-- `programming_sample_runs` 已提供样例试运行历史与完整 stdout / stderr，但尚未支持 `CUSTOM_SCRIPT` 和产物对象存储。
+- `programming_sample_runs` 已提供样例试运行历史与完整 stdout / stderr，并已支持 `CUSTOM_SCRIPT`；正式评测与试运行的评测产物对象存储仍未落地。
 - 结构化作业一旦落地，旧版“整份文本提交”不能误用于新型作业，必须在业务层显式区分。
 - 学生详情接口不能泄露题库正确答案或 assignment 快照中的 `isCorrect` 信息。
 - assignment 级成绩发布当前是全局开关，后续若需要按班级或按学生分批发布，需要单独建模。

@@ -15,7 +15,7 @@
 
 ## 下一步应该做什么
 
-下一步面向产品的工作，不再是继续维持骨架，而是沿着课程主链路继续把 `CUSTOM_SCRIPT`、更完整的在线 IDE / 目录树工作区、实验和成绩统计补齐，同时把当前的 question-level judge 从“隐藏测试点自动评测 + 样例试运行”扩展到“自定义脚本、多语言稳定运行和更完整的 case / 日志产物”。当前可直接参考：
+下一步面向产品的工作，不再是继续维持骨架，而是沿着课程主链路继续把多语言稳定运行、更完整的在线 IDE / 目录树工作区、实验和成绩统计补齐，同时把当前的 question-level judge 从“隐藏测试点自动评测 + 样例试运行 + 自定义脚本”扩展到“更稳健的多语言运行、更完整的 case / 日志产物和成绩册统计”。当前可直接参考：
 
 - [product-specs/platform-governance-and-iam.md](product-specs/platform-governance-and-iam.md)
 - [product-specs/course-system.md](product-specs/course-system.md)

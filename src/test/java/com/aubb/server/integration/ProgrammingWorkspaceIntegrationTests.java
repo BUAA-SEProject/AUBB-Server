@@ -263,6 +263,84 @@ class ProgrammingWorkspaceIntegrationTests {
         assertThat(request.at("/cmd/0/files/0/content").asText()).isEqualTo("1 2\n");
     }
 
+    @Test
+    void studentRunsCustomJudgeSampleRunAndReceivesCustomVerdict() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createCustomScriptProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.judgeMode")
+                        .value("CUSTOM_SCRIPT"))
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        MvcResult sampleRunResult = mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                        {
+                                          "codeText":"a, b = map(int, input().split())\\nprint(a + b - 1)",
+                                          "programmingLanguage":"PYTHON3"
+                                        }
+                                        """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.stdoutText").value("2\n"))
+                .andExpect(jsonPath("$.stderrText").isEmpty())
+                .andExpect(jsonPath("$.resultSummary").value(org.hamcrest.Matchers.containsString("允许 1 的误差")))
+                .andReturn();
+
+        Long sampleRunId = readLong(sampleRunResult, "$.id");
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(sampleRunId))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[0].verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$[0].stdoutText").value("2\n"));
+
+        assertThat(queryForInt("SELECT COUNT(*) FROM submissions")).isZero();
+        assertThat(queryForInt("SELECT COUNT(*) FROM judge_jobs")).isZero();
+        assertThat(queryForInt("SELECT COUNT(*) FROM programming_sample_runs")).isEqualTo(1);
+        assertThat(GO_JUDGE_SERVER.requests()).hasSize(2);
+        assertThat(GO_JUDGE_SERVER
+                        .requests()
+                        .get(1)
+                        .at("/cmd/0/copyIn/_aubb_custom_judge.py/content")
+                        .asText())
+                .contains("#ALLOW_OFF_BY_ONE");
+        assertThat(GO_JUDGE_SERVER
+                        .requests()
+                        .get(1)
+                        .at("/cmd/0/copyIn/_aubb_judge_context.json/content")
+                        .asText())
+                .contains("\"sampleRun\":true");
+    }
+
     private Long uploadArtifact(String token, Long assignmentId, String filename, String contentType, String content)
             throws Exception {
         MockMultipartFile file =
@@ -398,6 +476,31 @@ class ProgrammingWorkspaceIntegrationTests {
     }
 
     private Long createStructuredProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        return createProgrammingAssignment(token, offeringId, classId, "STANDARD_IO", null);
+    }
+
+    private Long createCustomScriptProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        return createProgrammingAssignment(token, offeringId, classId, "CUSTOM_SCRIPT", """
+                #ALLOW_OFF_BY_ONE
+                import json
+                import pathlib
+
+                actual = pathlib.Path("_aubb_actual_stdout.txt").read_text()
+                expected = pathlib.Path("_aubb_expected_stdout.txt").read_text()
+                actual_value = int(actual.strip())
+                expected_value = int(expected.strip())
+                if abs(actual_value - expected_value) <= 1:
+                    print(json.dumps({"verdict": "ACCEPTED", "message": "允许 1 的误差"}))
+                else:
+                    print(json.dumps({"verdict": "WRONG_ANSWER", "message": "超出允许误差"}))
+                """);
+    }
+
+    private Long createProgrammingAssignment(
+            String token, Long offeringId, Long classId, String judgeMode, String customJudgeScript) throws Exception {
+        String customJudgeScriptJson = customJudgeScript == null
+                ? "null"
+                : tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(customJudgeScript);
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
                         .header("Authorization", "Bearer " + token)
                         .contentType("application/json")
@@ -429,7 +532,8 @@ class ProgrammingWorkspaceIntegrationTests {
                                               "timeLimitMs":1000,
                                               "memoryLimitMb":128,
                                               "outputLimitKb":64,
-                                              "judgeMode":"STANDARD_IO",
+                                              "judgeMode":"%s",
+                                              "customJudgeScript":%s,
                                               "judgeCases":[
                                                 {"stdinText":"2 3\\n","expectedStdout":"5\\n","score":100}
                                               ]
@@ -445,7 +549,9 @@ class ProgrammingWorkspaceIntegrationTests {
                                         OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
                                                 .minusDays(1)),
                                         OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
-                                                .plusDays(3)))))
+                                                .plusDays(3)),
+                                        judgeMode,
+                                        customJudgeScriptJson)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();
@@ -529,6 +635,19 @@ class ProgrammingWorkspaceIntegrationTests {
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
             JsonNode request = OBJECT_MAPPER.readTree(requestBytes);
             requests.add(request);
+
+            if ("_aubb_custom_judge.py".equals(request.at("/cmd/0/args/1").asText())) {
+                handleCustomJudge(exchange, request);
+                return;
+            }
+
+            String source = request.at("/cmd/0/copyIn/main.py/content").asText();
+            String stdin = request.at("/cmd/0/files/0/content").asText();
+            String stdout = "3\n";
+            if (source.contains("print(a + b - 1)")) {
+                String[] parts = stdin.strip().split(" ");
+                stdout = (Integer.parseInt(parts[0]) + Integer.parseInt(parts[1]) - 1) + "\n";
+            }
             byte[] responseBytes = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
                     "status",
                     "Accepted",
@@ -541,7 +660,47 @@ class ProgrammingWorkspaceIntegrationTests {
                     "runTime",
                     1_700_000L,
                     "files",
-                    Map.of("stdout", "3\n", "stderr", ""))));
+                    Map.of("stdout", stdout, "stderr", ""))));
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, responseBytes.length);
+            exchange.getResponseBody().write(responseBytes);
+            exchange.close();
+        }
+
+        private void handleCustomJudge(HttpExchange exchange, JsonNode request) throws IOException {
+            String script =
+                    request.at("/cmd/0/copyIn/_aubb_custom_judge.py/content").asText();
+            String actual =
+                    request.at("/cmd/0/copyIn/_aubb_actual_stdout.txt/content").asText();
+            String expected = request.at("/cmd/0/copyIn/_aubb_expected_stdout.txt/content")
+                    .asText();
+
+            String stdout;
+            if (script.contains("#ALLOW_OFF_BY_ONE")) {
+                int actualValue = Integer.parseInt(actual.strip());
+                int expectedValue = Integer.parseInt(expected.strip());
+                if (Math.abs(actualValue - expectedValue) <= 1) {
+                    stdout = "{\"verdict\":\"ACCEPTED\",\"message\":\"允许 1 的误差\"}";
+                } else {
+                    stdout = "{\"verdict\":\"WRONG_ANSWER\",\"message\":\"超出允许误差\"}";
+                }
+            } else {
+                stdout = "{\"verdict\":\"WRONG_ANSWER\",\"message\":\"未知脚本\"}";
+            }
+
+            byte[] responseBytes = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
+                    "status",
+                    "Accepted",
+                    "exitStatus",
+                    0,
+                    "time",
+                    1_500_000L,
+                    "memory",
+                    4_096L,
+                    "runTime",
+                    1_700_000L,
+                    "files",
+                    Map.of("stdout", stdout, "stderr", ""))));
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, responseBytes.length);
             exchange.getResponseBody().write(responseBytes);

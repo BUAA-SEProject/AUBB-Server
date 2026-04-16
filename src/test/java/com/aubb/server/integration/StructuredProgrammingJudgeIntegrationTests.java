@@ -261,6 +261,99 @@ class StructuredProgrammingJudgeIntegrationTests {
                 .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
     }
 
+    @Test
+    void programmingAnswerRunsCustomJudgeScriptAndUsesReturnedCaseScores() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createCustomScriptProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.judgeMode")
+                        .value("CUSTOM_SCRIPT"))
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        MvcResult submissionResult = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "answerText":"a, b = map(int, input().split())\\nresult = a + b\\nif result > 10:\\n    result -= 1\\nprint(result)",
+                                      "programmingLanguage":"PYTHON3"
+                                    }
+                                  ]
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PENDING_PROGRAMMING_JUDGE"))
+                .andReturn();
+
+        Long submissionId = readLong(submissionResult, "$.id");
+        Long answerId = readLong(submissionResult, "$.answers[0].id");
+
+        waitForLatestAnswerJudgeJobTerminal(answerId);
+
+        mockMvc.perform(get("/api/v1/me/submission-answers/{answerId}/judge-jobs", answerId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].submissionId").value(submissionId))
+                .andExpect(jsonPath("$[0].submissionAnswerId").value(answerId))
+                .andExpect(jsonPath("$[0].assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[0].verdict").value("WRONG_ANSWER"))
+                .andExpect(jsonPath("$[0].passedCaseCount").value(1))
+                .andExpect(jsonPath("$[0].totalCaseCount").value(2))
+                .andExpect(jsonPath("$[0].score").value(70))
+                .andExpect(jsonPath("$[0].caseResults.length()").value(2))
+                .andExpect(jsonPath("$[0].caseResults[0].score").value(60))
+                .andExpect(jsonPath("$[0].caseResults[1].score").value(10))
+                .andExpect(jsonPath("$[0].caseResults[1].errorMessage").value("命中部分分规则"));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
+                .andExpect(jsonPath("$.answers[0].autoScore").value(70))
+                .andExpect(jsonPath("$.answers[0].finalScore").value(70))
+                .andExpect(jsonPath("$.scoreSummary.finalScore").value(70));
+
+        assertThat(queryForString("SELECT grading_status FROM submission_answers WHERE id = ?", answerId))
+                .isEqualTo("PROGRAMMING_JUDGED");
+        assertThat(queryForInt("SELECT auto_score FROM submission_answers WHERE id = ?", answerId))
+                .isEqualTo(70);
+        assertThat(queryForInt("SELECT final_score FROM submission_answers WHERE id = ?", answerId))
+                .isEqualTo(70);
+        assertThat(GO_JUDGE_SERVER.requests()).hasSize(4);
+
+        JsonNode judgeRequest = GO_JUDGE_SERVER.requests().get(1);
+        assertThat(judgeRequest
+                        .at("/cmd/0/copyIn/_aubb_custom_judge.py/content")
+                        .asText())
+                .contains("#PARTIAL_SECOND_CASE");
+        assertThat(judgeRequest
+                        .at("/cmd/0/copyIn/_aubb_judge_context.json/content")
+                        .asText())
+                .contains("\"sampleRun\":false")
+                .contains("\"maxScore\":60");
+    }
+
     private void waitForLatestAnswerJudgeJobTerminal(Long answerId) throws Exception {
         long deadline = System.currentTimeMillis() + 8_000L;
         while (System.currentTimeMillis() < deadline) {
@@ -420,6 +513,32 @@ class StructuredProgrammingJudgeIntegrationTests {
     }
 
     private Long createStructuredProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        return createProgrammingAssignment(token, offeringId, classId, "STANDARD_IO", null);
+    }
+
+    private Long createCustomScriptProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        return createProgrammingAssignment(token, offeringId, classId, "CUSTOM_SCRIPT", """
+                #PARTIAL_SECOND_CASE
+                import json
+                import pathlib
+
+                context = json.loads(pathlib.Path("_aubb_judge_context.json").read_text())
+                actual = pathlib.Path("_aubb_actual_stdout.txt").read_text()
+                expected = pathlib.Path("_aubb_expected_stdout.txt").read_text()
+                if actual == expected:
+                    print(json.dumps({"verdict": "ACCEPTED", "message": "脚本判定通过"}))
+                elif context["stdinText"] == "7 8\\n" and actual == "14\\n":
+                    print(json.dumps({"verdict": "WRONG_ANSWER", "score": 10, "message": "命中部分分规则"}))
+                else:
+                    print(json.dumps({"verdict": "WRONG_ANSWER", "message": "输出不匹配"}))
+                """);
+    }
+
+    private Long createProgrammingAssignment(
+            String token, Long offeringId, Long classId, String judgeMode, String customJudgeScript) throws Exception {
+        String customJudgeScriptJson = customJudgeScript == null
+                ? "null"
+                : tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(customJudgeScript);
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
                         .header("Authorization", "Bearer " + token)
                         .contentType("application/json")
@@ -451,7 +570,8 @@ class StructuredProgrammingJudgeIntegrationTests {
                                               "timeLimitMs":1000,
                                               "memoryLimitMb":128,
                                               "outputLimitKb":64,
-                                              "judgeMode":"STANDARD_IO",
+                                              "judgeMode":"%s",
+                                              "customJudgeScript":%s,
                                               "judgeCases":[
                                                 {"stdinText":"2 3\\n","expectedStdout":"5\\n","score":60},
                                                 {"stdinText":"7 8\\n","expectedStdout":"15\\n","score":40}
@@ -468,7 +588,9 @@ class StructuredProgrammingJudgeIntegrationTests {
                                         OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
                                                 .minusDays(1)),
                                         OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
-                                                .plusDays(3)))))
+                                                .plusDays(3)),
+                                        judgeMode,
+                                        customJudgeScriptJson)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();
@@ -573,13 +695,61 @@ class StructuredProgrammingJudgeIntegrationTests {
                 return;
             }
 
+            if ("_aubb_custom_judge.py".equals(request.at("/cmd/0/args/1").asText())) {
+                handleCustomJudge(exchange, request);
+                return;
+            }
+
             String stdout;
             if (source.contains("from helper import add") && helper.contains("def add")) {
                 String[] parts = stripTrailingNewline(stdin).split(" ");
                 stdout = (Integer.parseInt(parts[0]) + Integer.parseInt(parts[1])) + "\n";
+            } else if (source.contains("result = a + b")) {
+                String[] parts = stripTrailingNewline(stdin).split(" ");
+                int resultValue = Integer.parseInt(parts[0]) + Integer.parseInt(parts[1]);
+                if (resultValue > 10) {
+                    resultValue -= 1;
+                }
+                stdout = resultValue + "\n";
             } else {
                 stdout = "0\n";
             }
+            byte[] response = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
+                    "status", "Accepted",
+                    "exitStatus", 0,
+                    "time", 1_000_000,
+                    "memory", 65_536,
+                    "runTime", 1_000_000,
+                    "files", Map.of("stdout", stdout, "stderr", ""))));
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        }
+
+        private void handleCustomJudge(HttpExchange exchange, JsonNode request) throws IOException {
+            String script =
+                    request.at("/cmd/0/copyIn/_aubb_custom_judge.py/content").asText();
+            JsonNode context = OBJECT_MAPPER.readTree(
+                    request.at("/cmd/0/copyIn/_aubb_judge_context.json/content").asText());
+            String actual =
+                    request.at("/cmd/0/copyIn/_aubb_actual_stdout.txt/content").asText();
+            String expected = request.at("/cmd/0/copyIn/_aubb_expected_stdout.txt/content")
+                    .asText();
+
+            String stdout;
+            if (script.contains("#PARTIAL_SECOND_CASE")) {
+                if (actual.equals(expected)) {
+                    stdout = "{\"verdict\":\"ACCEPTED\",\"message\":\"脚本判定通过\"}";
+                } else if ("7 8\n".equals(context.path("stdinText").asText()) && "14\n".equals(actual)) {
+                    stdout = "{\"verdict\":\"WRONG_ANSWER\",\"score\":10,\"message\":\"命中部分分规则\"}";
+                } else {
+                    stdout = "{\"verdict\":\"WRONG_ANSWER\",\"message\":\"输出不匹配\"}";
+                }
+            } else {
+                stdout = "{\"verdict\":\"WRONG_ANSWER\",\"message\":\"未知脚本\"}";
+            }
+
             byte[] response = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
                     "status", "Accepted",
                     "exitStatus", 0,

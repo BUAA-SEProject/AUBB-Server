@@ -447,7 +447,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                               "memoryLimitMb":128,
                                               "outputLimitKb":64,
                                               "judgeMode":"CUSTOM_SCRIPT",
-                                              "customJudgeScript":"python3 checker.py",
+                                              "customJudgeScript":"import json\\nprint(json.dumps({\\\"verdict\\\": \\\"ACCEPTED\\\"}))",
                                               "judgeCases":[
                                                 {"stdinText":"1 2\\n","expectedStdout":"3\\n","score":20}
                                               ]

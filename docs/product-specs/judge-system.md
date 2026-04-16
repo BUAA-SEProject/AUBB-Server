@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并补齐学生侧样例试运行与运行日志最小闭环，为后续 `CUSTOM_SCRIPT`、完整在线 IDE 和更复杂实验环境提供稳定链路。
+交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志和 `CUSTOM_SCRIPT` 第一阶段最小闭环，为后续完整在线 IDE 和更复杂实验环境提供稳定链路。
 
 ## 覆盖范围
 
@@ -21,6 +21,11 @@
   - 独立的 `programming_sample_runs` 历史
   - 单样例输入输出比对
   - 完整 `stdout / stderr` 记录
+- 当前支持结构化编程题 `CUSTOM_SCRIPT`：
+  - 教师配置脚本内容
+  - 平台固定落盘为 Python checker 执行
+  - checker 通过保留文件名读取学生程序输出、期望输出与运行上下文
+  - checker 以 JSON 返回 `verdict / score / message`
 - 学生按提交查看自己的评测作业列表
 - 学生按答案查看自己的题目级评测作业列表
 - 学生按题目查看自己的样例试运行历史
@@ -32,7 +37,7 @@
 ### 不在范围
 
 - 在线 IDE 工作区
-- `CUSTOM_SCRIPT` 真实执行与更复杂断言
+- 更复杂的 checker 断言库与评测产物对象存储
 - 评测产物对象存储留存
 - RabbitMQ worker、分布式调度和重试编排
 - 人工批改和成绩发布（当前已由 grading 模块承担）
@@ -47,8 +52,9 @@
 6. 教师只能查看和重排队自己课程范围内的评测作业。
 7. 当前固定使用 `GO_JUDGE` 作为引擎代码，当前执行方式是服务端 AFTER_COMMIT 异步触发 + go-judge `/run`。
 8. `SUCCEEDED` 表示评测流程执行成功并拿到了结论，最终判定由 `verdict` 表达；`FAILED` 表示评测基础设施或配置失败。
-9. 结构化编程题当前只对 `STANDARD_IO` 模式做真实执行；`CUSTOM_SCRIPT` 仍保留为配置扩展位。
-10. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
+9. 结构化编程题当前支持 `STANDARD_IO` 和 `CUSTOM_SCRIPT` 两种真实执行模式；`CUSTOM_SCRIPT` 当前固定使用 Python checker，不支持教师自定义命令串。
+10. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
+11. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
 
 ## 核心数据模型
 
@@ -119,10 +125,17 @@
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
 - 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把附件作为辅助源文件写入运行目录；自动化验证目前覆盖 `PYTHON3`。
+- `CUSTOM_SCRIPT` 当前通过固定的 Python checker 执行，checker 读取保留文件：
+  - `_aubb_stdin.txt`
+  - `_aubb_expected_stdout.txt`
+  - `_aubb_actual_stdout.txt`
+  - `_aubb_actual_stderr.txt`
+  - `_aubb_judge_context.json`
+- `CUSTOM_SCRIPT` 当前约定 checker 输出一段 JSON，例如 `{\"verdict\":\"ACCEPTED\",\"score\":60,\"message\":\"样例通过\"}`；非法 JSON、未知 verdict、越界分数或 checker 执行异常会落成 `SYSTEM_ERROR`。
 - 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回，但尚未把完整正式评测日志和产物持久化到对象存储。
 - 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果落到 `programming_sample_runs`。
 - 当前采用应用内异步执行，不走 RabbitMQ worker。
-- 当前只支持严格输出匹配（规范化行尾后比较），更复杂容错判定留待后续扩展。
+- 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
 
 ## 验收标准
 

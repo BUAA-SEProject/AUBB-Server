@@ -690,6 +690,7 @@
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
 - `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与评测产物对象仍未持久化。
 - `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩。
+- `assignment_questions.config_json.customJudgeScript` 当前按“脚本内容”语义保存，由 judge 模块固定落盘为 Python checker 执行，不额外引入新表。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。
