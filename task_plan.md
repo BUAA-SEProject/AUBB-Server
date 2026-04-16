@@ -6,7 +6,15 @@
 
 ## 当前阶段
 
-Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 completed
+Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 completed
+
+### Phase 29：接手入口文档四次收口
+
+- [x] 复核 `README.md`、`docs/index.md`、`docs/product-sense.md`、`docs/quality-score.md` 与当前活动计划
+- [x] 明确题库分类、草稿作业编辑和最近一次 `78` 项测试通过的验证基线
+- [x] 修正活动计划中“题库仍缺分类”的滞后表述
+- [x] 将本轮结论写回工作记忆，方便下一轮直接继续开发
+- **Status:** completed
 
 ### Phase 24：接手文档与仓库入口二次收口
 

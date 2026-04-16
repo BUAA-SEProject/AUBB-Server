@@ -2,6 +2,27 @@
 
 ## Session: 2026-04-16 作业模块能力重规划
 
+## Session: 2026-04-16 接手入口文档四次收口
+
+### Phase 29：项目状态复核与入口同步
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 复核 `README.md`、`docs/index.md`、`docs/product-sense.md`、`docs/quality-score.md` 与活动计划 `2026-04-16-assignment-module-replan.md`
+  - 把题库标签与分类、结构化作业草稿编辑，以及最近一次 `BUILD SUCCESS / 78` 项测试通过的验证基线同步到接手入口文档
+  - 修正活动计划和发现记录中“题库仍缺分类”的滞后表述，明确剩余缺口是更稳定的组卷编辑体验
+  - 追加 README 接手路径，方便下一位开发者直接从入口文档进入产品规格和 active 计划
+- Files created/modified:
+  - `README.md`
+  - `docs/index.md`
+  - `docs/product-sense.md`
+  - `docs/quality-score.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
 ## Session: 2026-04-16 仓库状态复核与入口文档三次收口
 
 ### Phase 26：接手入口与仓库口径再次校准
