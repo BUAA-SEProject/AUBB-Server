@@ -175,7 +175,10 @@ public class SubmissionAnswerApplicationService {
                 maxScore,
                 pendingManualCount,
                 pendingProgrammingCount,
-                pendingManualCount == 0 && pendingProgrammingCount == 0,
+                entities.stream()
+                        .map(SubmissionAnswerEntity::getGradingStatus)
+                        .map(SubmissionAnswerGradingStatus::valueOf)
+                        .noneMatch(SubmissionAnswerGradingStatus::isPending),
                 gradePublished);
     }
 

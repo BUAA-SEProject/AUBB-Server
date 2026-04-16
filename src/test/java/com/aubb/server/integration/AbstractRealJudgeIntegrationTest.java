@@ -2,6 +2,11 @@ package com.aubb.server.integration;
 
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.AmqpAdmin;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -16,6 +21,7 @@ abstract class AbstractRealJudgeIntegrationTest {
 
     protected static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     protected static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    private static final long JUDGE_CLEANUP_TIMEOUT_MS = 15_000L;
 
     private static final DockerImageName MINIO_IMAGE =
             DockerImageName.parse("minio/minio:RELEASE.2025-09-07T16-13-09Z");
@@ -65,6 +71,9 @@ abstract class AbstractRealJudgeIntegrationTest {
 
     protected static final RabbitMQContainer RABBITMQ_CONTAINER = new RabbitMQContainer(RABBITMQ_IMAGE);
 
+    @Autowired(required = false)
+    private AmqpAdmin amqpAdmin;
+
     static {
         Startables.deepStart(GO_JUDGE_CONTAINER, MINIO_CONTAINER, RABBITMQ_CONTAINER)
                 .join();
@@ -91,5 +100,81 @@ abstract class AbstractRealJudgeIntegrationTest {
         registry.add("aubb.storage.minio.access-key", () -> MINIO_ACCESS_KEY);
         registry.add("aubb.storage.minio.secret-key", () -> MINIO_SECRET_KEY);
         registry.add("aubb.storage.minio.bucket", () -> MINIO_BUCKET);
+    }
+
+    protected void resetJudgeTables(JdbcTemplate jdbcTemplate, String truncateSql) {
+        purgeJudgeQueue();
+        waitForRunningJudgeWorkToDrain(jdbcTemplate);
+        executeTruncateWithRetry(jdbcTemplate, truncateSql);
+    }
+
+    private void purgeJudgeQueue() {
+        if (amqpAdmin == null) {
+            return;
+        }
+        try {
+            amqpAdmin.purgeQueue(JUDGE_QUEUE_NAME, true);
+        } catch (AmqpException ignored) {
+            // 队列尚未声明或已被销毁时，测试清理直接回退到数据库侧等待即可。
+        }
+    }
+
+    private void waitForRunningJudgeWorkToDrain(JdbcTemplate jdbcTemplate) {
+        long deadline = System.currentTimeMillis() + JUDGE_CLEANUP_TIMEOUT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            Integer runningCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM judge_jobs WHERE status = 'RUNNING'", Integer.class);
+            if (runningCount == null || runningCount == 0) {
+                sleepSilently(150L);
+                Integer recheckCount = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM judge_jobs WHERE status = 'RUNNING'", Integer.class);
+                if (recheckCount == null || recheckCount == 0) {
+                    return;
+                }
+            }
+            sleepSilently(100L);
+        }
+
+        Integer pendingCount =
+                jdbcTemplate.queryForObject("SELECT COUNT(*) FROM judge_jobs WHERE status = 'PENDING'", Integer.class);
+        Integer runningCount =
+                jdbcTemplate.queryForObject("SELECT COUNT(*) FROM judge_jobs WHERE status = 'RUNNING'", Integer.class);
+        throw new AssertionError("judge 测试清理前仍存在进行中的评测任务，pending=%s, running=%s".formatted(pendingCount, runningCount));
+    }
+
+    private void executeTruncateWithRetry(JdbcTemplate jdbcTemplate, String truncateSql) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                jdbcTemplate.execute(truncateSql);
+                return;
+            } catch (DataAccessException exception) {
+                if (!isDeadlock(exception) || attempt == 3) {
+                    throw exception;
+                }
+                purgeJudgeQueue();
+                waitForRunningJudgeWorkToDrain(jdbcTemplate);
+                sleepSilently(150L);
+            }
+        }
+    }
+
+    private boolean isDeadlock(DataAccessException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current.getMessage() != null && current.getMessage().contains("deadlock detected")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private void sleepSilently(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("等待 judge 测试清理完成时线程被中断", exception);
+        }
     }
 }

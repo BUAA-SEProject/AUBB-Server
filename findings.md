@@ -1,5 +1,16 @@
 # 发现与决策
 
+## 2026-04-17 judge 死锁与终态超时修复发现
+
+- `StructuredProgrammingJudgeIntegrationTests`、`JudgeIntegrationTests` 和 `ProgrammingWorkspaceIntegrationTests` 都在 `@BeforeEach` 中直接执行大范围 `TRUNCATE ... RESTART IDENTITY CASCADE`，但真实评测执行走 RabbitMQ consumer + 独立事务，不受测试线程生命周期约束。
+- 队列开启时只会启用 `JudgeQueueConsumer`，`JudgeExecutionLocalListener` 带有 `@ConditionalOnProperty(... havingValue = "false")`，因此这次问题不是 Rabbit 和本地 `@Async` 同时消费同一条 job。
+- 真正的死锁风险来自测试清理与异步评测事务并发：`JudgeExecutionService.startJob/finishJob` 会在独立事务里读写 `judge_jobs`、`submission_answers`、`audit_logs`；而 `TRUNCATE ... CASCADE` 需要对这些表拿 `ACCESS EXCLUSIVE` 锁，若测试在前一条评测事务未完全收尾时直接清库，就可能形成锁环。
+- answer 级 job 的 8 秒轮询超时本质上是测试假设过强：没有先排空上一轮残留的 running / queued judge work，就假定当前 job 会在固定时间窗内自然收口，容易被真实 Rabbit consumer 的异步调度放大成偶发超时。
+- 失败分支当前只写 `submission_answers.feedback_text`，不会把 `grading_status` 从 `PENDING_PROGRAMMING_JUDGE` 切换到明确失败终态；这会让教师侧答案看起来仍像“还没判完”，削弱排障信号。
+- 最小闭环修复应同时覆盖测试和业务两侧：
+  - 测试侧先等待 in-flight judge work 结束并 purge 队列，再执行 `TRUNCATE`
+  - 业务侧给编程题失败增加显式失败终态和日志，便于判断是执行失败还是尚未消费
+
 ## 2026-04-16 成绩系统第二阶段补充发现
 
 - 成绩册排名和通过率最稳的实现边界是继续作为 `grading` 读模型派生结果，不新增独立成绩统计表；这样可以保持页面、导出和统计报告的一致性。

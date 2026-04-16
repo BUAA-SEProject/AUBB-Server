@@ -44,7 +44,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("""
+        resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
                     judge_jobs,

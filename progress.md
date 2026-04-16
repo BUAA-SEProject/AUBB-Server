@@ -1,5 +1,25 @@
 # 进度日志
 
+## Session: 2026-04-17 judge 死锁与终态超时修复
+
+### Phase 38：优先级 1 judge 稳定性收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `todo.md`、`StructuredProgrammingJudgeIntegrationTests`、`JudgeQueueConfiguration`、`JudgeApplicationService`、`JudgeExecutionService`、`SubmissionApplicationService`、`SubmissionAnswerApplicationService`
+  - 复核 Rabbit 队列和本地 `@Async` 监听条件，确认队列开启时不会发生双 listener 同时消费
+  - 定位当前风险为“测试清理策略与异步评测事务边界冲突 + 固定轮询窗口过强”，并识别失败分支缺少 answer 级显式失败终态
+  - 在 `AbstractRealJudgeIntegrationTest` 中新增 `resetJudgeTables(...)`，先 purge 测试队列、等待运行中 job 收口，并在检测到死锁时重试 `TRUNCATE`
+  - 将 `JudgeIntegrationTests`、`StructuredProgrammingJudgeIntegrationTests`、`ProgrammingWorkspaceIntegrationTests` 改为复用统一清理 helper，并增强超时时的诊断信息
+  - 为 `submission_answers.grading_status` 新增 `PROGRAMMING_JUDGE_FAILED`，并在 `JudgeExecutionService` 中把 job 终态提交与 answer / audit side effects 拆成两个事务，补充失败日志
+  - 新增 `SubmissionAnswerGradingStatusTests` 单元测试，以及 `judgeCleanupDrainsAsyncWorkBeforeTruncate` 回归集成测试
+  - 更新 `README.md`、`docs/product-specs/judge-system.md`、`docs/reliability.md`、`docs/generated/db-schema.md`、`docs/quality-score.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=SubmissionAnswerGradingStatusTests,JudgeIntegrationTests,StructuredProgrammingJudgeIntegrationTests,ProgrammingWorkspaceIntegrationTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `23` 个测试通过
+
 ## Session: 2026-04-16 成绩系统第二阶段
 
 ### Phase 35：成绩册排名与通过率第一阶段

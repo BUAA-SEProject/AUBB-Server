@@ -38,7 +38,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("""
+        resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
                     judge_jobs,
@@ -272,17 +272,29 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     private void waitForLatestJudgeJobTerminal(Long submissionId) throws Exception {
         long deadline = System.currentTimeMillis() + 8_000L;
+        String latestStatus = null;
+        String latestErrorMessage = null;
+        String latestResultSummary = null;
         while (System.currentTimeMillis() < deadline) {
-            String status = jdbcTemplate.query(
+            latestStatus = jdbcTemplate.query(
                     "SELECT status FROM judge_jobs WHERE submission_id = ? ORDER BY id DESC LIMIT 1",
                     rs -> rs.next() ? rs.getString(1) : null,
                     submissionId);
-            if ("SUCCEEDED".equals(status) || "FAILED".equals(status)) {
+            latestErrorMessage = jdbcTemplate.query(
+                    "SELECT error_message FROM judge_jobs WHERE submission_id = ? ORDER BY id DESC LIMIT 1",
+                    rs -> rs.next() ? rs.getString(1) : null,
+                    submissionId);
+            latestResultSummary = jdbcTemplate.query(
+                    "SELECT result_summary FROM judge_jobs WHERE submission_id = ? ORDER BY id DESC LIMIT 1",
+                    rs -> rs.next() ? rs.getString(1) : null,
+                    submissionId);
+            if ("SUCCEEDED".equals(latestStatus) || "FAILED".equals(latestStatus)) {
                 return;
             }
             Thread.sleep(100L);
         }
-        throw new AssertionError("评测任务未在预期时间内进入终态");
+        throw new AssertionError("评测任务未在预期时间内进入终态，status=%s, error=%s, summary=%s"
+                .formatted(latestStatus, latestErrorMessage, latestResultSummary));
     }
 
     private void waitForJudgeJobCount(Long submissionId, int expectedCount) throws Exception {

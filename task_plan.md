@@ -2,11 +2,22 @@
 
 ## 当前目标
 
-基于当前代码基线，继续补齐“已有但尚未收口”的真实能力。当前优先收口 `grading` 的第二段真实工作流：成绩册排名与通过率、成绩申诉与复核，以及 assignment 级批量成绩调整与 CSV 导入导出第一阶段，让成绩域从“能看、能单条批改”推进到“可直接支撑教师日常使用”。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 1“修复 `StructuredProgrammingJudgeIntegrationTests` 暴露的 `TRUNCATE` 死锁与 answer 级 judge job 终态超时”已完成，下一步进入优先级 2：去掉 JWT 默认密钥并建立密钥治理基线。
 
 ## 当前阶段
 
-Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 38：judge 死锁与终态超时修复
+
+- [x] 复核 `StructuredProgrammingJudgeIntegrationTests`、`JudgeIntegrationTests`、`ProgrammingWorkspaceIntegrationTests` 的清理策略与 RabbitMQ 队列路径
+- [x] 确认 `TRUNCATE` 死锁由测试清理与异步评测事务并发引起，而不是本地 `@Async` 与 Rabbit 双消费
+- [x] 用最小改动修复 judge 相关测试清理策略，避免残留队列消息或运行中事务与 `TRUNCATE` 冲突
+- [x] 为编程题评测失败补齐明确可诊断终态，避免 answer 长时间停留在 `PENDING_PROGRAMMING_JUDGE`
+- [x] 补齐回归测试，覆盖死锁不再复现、answer 级 job 成功/失败终态，以及失败诊断信息
+- [x] 同步更新 judge 规格、README / 可靠性说明、active 执行计划与工作记忆
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要 judge 集成测试
+- **Status:** completed
 
 ### Phase 37：assignment 级批量成绩调整与 CSV 导入导出第一阶段
 

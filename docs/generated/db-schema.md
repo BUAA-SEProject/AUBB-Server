@@ -536,7 +536,7 @@
 | `auto_score` | `integer` | 可空，`>= 0` |
 | `manual_score` | `integer` | 可空，`>= 0` |
 | `final_score` | `integer` | 可空，`>= 0` |
-| `grading_status` | `text` | 必填，`AUTO_GRADED / MANUALLY_GRADED / PROGRAMMING_JUDGED / PENDING_MANUAL / PENDING_PROGRAMMING_JUDGE` |
+| `grading_status` | `text` | 必填，`AUTO_GRADED / MANUALLY_GRADED / PROGRAMMING_JUDGED / PROGRAMMING_JUDGE_FAILED / PENDING_MANUAL / PENDING_PROGRAMMING_JUDGE` |
 | `feedback_text` | `text` | 可空，评分反馈 |
 | `graded_by_user_id` | `bigint` | 可空，最近人工批改人，外键到 `users.id`，删除置空 |
 | `graded_at` | `timestamptz` | 可空，最近人工批改时间 |
@@ -873,7 +873,7 @@
 - `assignment_sections / assignment_questions / assignment_question_options` 用于表达结构化试卷的快照，不再把题目结构塞进 assignment 单列字段。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
-- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕；成绩册排名、通过率和 batch-adjust 第一阶段都继续复用该表，不新增独立成绩明细表。
+- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕；编程题自动评测失败时会把 `grading_status` 标记为 `PROGRAMMING_JUDGE_FAILED`，便于与“仍在等待评测”的 `PENDING_PROGRAMMING_JUDGE` 区分。成绩册排名、通过率和 batch-adjust 第一阶段都继续复用该表，不新增独立成绩明细表。
 - `grade_appeals` 当前保存学生围绕非客观题答案发起的成绩申诉和复核结果，约束“同一答案同一时间最多一个活动申诉”。
 - `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`；当前还会记录目录列表与最近一次标准输入，便于断线恢复。
 - `programming_workspace_revisions` 以追加写方式保存工作区历史版本，用于模板重置、历史恢复和试运行复用，不单独引入复杂的增量补丁协议。

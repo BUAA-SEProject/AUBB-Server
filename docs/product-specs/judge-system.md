@@ -69,21 +69,26 @@
 6. 教师只能查看和重排队自己课程范围内的评测作业。
 7. 当前固定使用 `GO_JUDGE` 作为引擎代码；默认执行方式为 AFTER_COMMIT 发布事件，经 RabbitMQ consumer 拉起 go-judge `/run`，关闭队列时回退到应用内本地异步执行。
 8. `SUCCEEDED` 表示评测流程执行成功并拿到了结论，最终判定由 `verdict` 表达；`FAILED` 表示评测基础设施或配置失败。
-9. 结构化编程题当前支持 `STANDARD_IO` 和 `CUSTOM_SCRIPT` 两种真实执行模式；`CUSTOM_SCRIPT` 当前固定使用 Python checker，不支持教师自定义命令串。
-10. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
-11. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
-12. 样例试运行与正式评测的源码装配优先消费 `entryFilePath + files + directories`；旧 `codeText` 仅作为兼容路径保留。
-13. 样例试运行当前区分 `SAMPLE / CUSTOM` 两种输入模式；若请求带 `workspaceRevisionId`，则优先复用该修订快照，否则可按 `useWorkspaceSnapshot=true` 读取当前工作区。
-14. 编译失败、运行失败和资源超限当前统一视为“评测成功但结论非通过”：
+9. 结构化编程题 answer 的评测回写状态当前区分：
+  - `PENDING_PROGRAMMING_JUDGE`：已受理但尚未得到最终结果
+  - `PROGRAMMING_JUDGED`：评测完成并已回写得分
+  - `PROGRAMMING_JUDGE_FAILED`：评测流程已终止但未得到可用分数，需依据 `feedbackText / judge_jobs.error_message` 排障或重评
+10. 结构化编程题当前支持 `STANDARD_IO` 和 `CUSTOM_SCRIPT` 两种真实执行模式；`CUSTOM_SCRIPT` 当前固定使用 Python checker，不支持教师自定义命令串。
+11. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
+12. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
+13. 样例试运行与正式评测的源码装配优先消费 `entryFilePath + files + directories`；旧 `codeText` 仅作为兼容路径保留。
+14. 样例试运行当前区分 `SAMPLE / CUSTOM` 两种输入模式；若请求带 `workspaceRevisionId`，则优先复用该修订快照，否则可按 `useWorkspaceSnapshot=true` 读取当前工作区。
+15. 编译失败、运行失败和资源超限当前统一视为“评测成功但结论非通过”：
   - 编译失败当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“编译失败”
   - 运行时异常当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“程序运行失败”
   - 超时 / 超内存 / 超输出当前分别落成 `TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED`
-15. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
-16. `detail_report_json` 保存测试点级完整日志、执行命令和执行元数据；学生侧报告默认隐藏 `stdinText / expectedStdout`，教师侧保留。
-17. 对于存在编译阶段的语言，当前实现会拆成“编译 -> 运行”两个真实 go-judge `/run` 调用，并通过 `copyOut / copyIn` 回传编译产物，避免编译结果在第二阶段沙箱中丢失。
-18. 当前“支持文件”仅表示题目配置中的受控辅助文件，通过 go-judge `copyIn` 注入运行目录，不表示动态宿主目录挂载。
-19. 开课实例级 `judge_environment_profiles` 当前作为可复用模板存在；教师在题库题目或 assignment question 中通过 `profileId / profileCode` 引用时，平台会先解析模板，再把结果快照固化进题目配置。
-20. 编程题当前支持两种环境选择方式：
+16. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
+17. `detail_report_json` 保存测试点级完整日志、执行命令和执行元数据；学生侧报告默认隐藏 `stdinText / expectedStdout`，教师侧保留。
+18. 为降低终态卡在 `RUNNING` 的风险，当前实现会先独立提交 `judge_jobs` 终态，再回写 `submission_answers` 与审计日志；后续同步失败时保留终态和错误日志，避免“已执行但看不到终态”。
+19. 对于存在编译阶段的语言，当前实现会拆成“编译 -> 运行”两个真实 go-judge `/run` 调用，并通过 `copyOut / copyIn` 回传编译产物，避免编译结果在第二阶段沙箱中丢失。
+20. 当前“支持文件”仅表示题目配置中的受控辅助文件，通过 go-judge `copyIn` 注入运行目录，不表示动态宿主目录挂载。
+21. 开课实例级 `judge_environment_profiles` 当前作为可复用模板存在；教师在题库题目或 assignment question 中通过 `profileId / profileCode` 引用时，平台会先解析模板，再把结果快照固化进题目配置。
+22. 编程题当前支持两种环境选择方式：
   - `languageExecutionEnvironments`：按语言命中独立环境，优先级最高
   - `executionEnvironment`：旧单环境字段，作为未命中语言时的共享回退
 
@@ -200,6 +205,7 @@
 - 样例试运行当前不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果、详细报告和源码快照落到 `programming_sample_runs`；输入可来自题目样例或学生自定义标准输入。
 - 样例试运行当前可直接运行当前工作区或历史工作区修订，用来保证“断线恢复后的再次试运行”和“正式评测前最后一次自测”共享同一份源码快照。
 - 当前已支持 RabbitMQ 队列第一阶段，并保留本地异步回退路径；尚未拆分独立评测 worker 与重试编排。
+- 为避免真实 RabbitMQ 集成测试与残留评测事务互相干扰，judge 相关 Testcontainers 集成测试当前会在清理前先 drain 运行中 job 并 purge 测试队列，再执行 `TRUNCATE`。
 - 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
 - 当前失败态摘要已经做了第一阶段规范化：
   - legacy assignment 级评测、question-level judge 和样例试运行会统一输出“编译失败 / 程序运行失败 / 超出时间限制 / 超出内存限制 / 超出输出限制”等中文摘要
@@ -216,7 +222,8 @@
 - 正确提交会得到 `SUCCEEDED + ACCEPTED` 和正确得分。
 - 错误提交会得到 `SUCCEEDED + 非 ACCEPTED verdict`。
 - go-judge 不可用或配置异常时，提交受理不被阻断，但评测作业会回写 `FAILED + SYSTEM_ERROR`。
-- 结构化编程题自动评测成功后，会把结果回写到 `submission_answers`，使 grading 可继续发布成绩。
+- 结构化编程题自动评测成功后，会把结果回写到 `submission_answers.PROGRAMMING_JUDGED`，使 grading 可继续发布成绩。
+- 结构化编程题自动评测若基础设施失败，会把 answer 标记为 `PROGRAMMING_JUDGE_FAILED` 并保留失败反馈，便于教师区分“尚未评测”和“评测已失败”。
 - 教师重新排队后会新增一条新的评测作业历史。
 - 学生和教师都可以查询详细评测报告；学生侧默认看不到隐藏测试输入输出，教师侧可见。
 - RabbitMQ 队列开启时，legacy judge、question-level judge 和详细报告回归都能通过真实 go-judge + RabbitMQ Testcontainers 验证。

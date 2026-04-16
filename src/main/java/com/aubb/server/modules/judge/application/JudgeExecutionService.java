@@ -48,6 +48,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -58,6 +59,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
+@Slf4j
 public class JudgeExecutionService {
 
     private static final String ENGINE_JOB_REF = "GO_JUDGE_SYNC_RUN";
@@ -127,6 +129,8 @@ public class JudgeExecutionService {
     void executeJudgeJob(Long judgeJobId) {
         JudgeExecutionContext context = transactionTemplate.execute(status -> startJob(judgeJobId));
         if (context == null) {
+            log.debug(
+                    "Skip judge job execution because job is missing or no longer pending, judgeJobId={}", judgeJobId);
             return;
         }
 
@@ -140,7 +144,17 @@ public class JudgeExecutionService {
         }
 
         JudgeFinalization finalOutcome = outcome;
-        transactionTemplate.executeWithoutResult(status -> finishJob(judgeJobId, finalOutcome));
+        transactionTemplate.executeWithoutResult(status -> persistJobOutcome(judgeJobId, finalOutcome));
+        try {
+            transactionTemplate.executeWithoutResult(status -> finalizeJobSideEffects(judgeJobId, finalOutcome));
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Judge job side effects sync failed, judgeJobId={}, status={}, error={}",
+                    judgeJobId,
+                    finalOutcome.failed() ? JudgeJobStatus.FAILED : JudgeJobStatus.SUCCEEDED,
+                    safeMessage(exception),
+                    exception);
+        }
     }
 
     private JudgeExecutionContext startJob(Long judgeJobId) {
@@ -920,7 +934,7 @@ public class JudgeExecutionService {
         return resolved;
     }
 
-    private void finishJob(Long judgeJobId, JudgeFinalization outcome) {
+    private void persistJobOutcome(Long judgeJobId, JudgeFinalization outcome) {
         JudgeJobEntity job = judgeJobMapper.selectById(judgeJobId);
         if (job == null) {
             return;
@@ -945,6 +959,21 @@ public class JudgeExecutionService {
         job.setDetailReportJson(writeDetailReport(outcome.detailReport()));
         job.setStatus(outcome.failed() ? JudgeJobStatus.FAILED.name() : JudgeJobStatus.SUCCEEDED.name());
         judgeJobMapper.updateById(job);
+        if (outcome.failed()) {
+            log.warn(
+                    "Judge job finished with failure, judgeJobId={}, submissionId={}, answerId={}, error={}",
+                    judgeJobId,
+                    job.getSubmissionId(),
+                    job.getSubmissionAnswerId(),
+                    outcome.errorMessage());
+        }
+    }
+
+    private void finalizeJobSideEffects(Long judgeJobId, JudgeFinalization outcome) {
+        JudgeJobEntity job = judgeJobMapper.selectById(judgeJobId);
+        if (job == null) {
+            return;
+        }
         syncProgrammingAnswer(job, outcome);
 
         auditLogApplicationService.record(
@@ -965,6 +994,9 @@ public class JudgeExecutionService {
             return;
         }
         if (outcome.failed()) {
+            answer.setAutoScore(null);
+            answer.setFinalScore(null);
+            answer.setGradingStatus(SubmissionAnswerGradingStatus.PROGRAMMING_JUDGE_FAILED.name());
             answer.setFeedbackText("评测失败：" + outcome.errorMessage());
         } else {
             answer.setAutoScore(outcome.score());

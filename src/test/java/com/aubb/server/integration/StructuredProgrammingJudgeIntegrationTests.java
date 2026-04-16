@@ -43,7 +43,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("""
+        resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
                     judge_jobs,
@@ -831,13 +831,86 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PENDING_PROGRAMMING_JUDGE"))
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGE_FAILED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").doesNotExist())
                 .andExpect(jsonPath("$.answers[0].finalScore").doesNotExist())
                 .andExpect(jsonPath("$.answers[0].feedbackText").value(org.hamcrest.Matchers.containsString("评测失败")));
 
         assertThat(queryForString("SELECT grading_status FROM submission_answers WHERE id = ?", answerId))
-                .isEqualTo("PENDING_PROGRAMMING_JUDGE");
+                .isEqualTo("PROGRAMMING_JUDGE_FAILED");
+    }
+
+    @Test
+    void judgeCleanupDrainsAsyncWorkBeforeTruncate() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-RESET", "清理班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "answerText":"a, b = map(int, input().split())\\nprint(a + b)",
+                                      "programmingLanguage":"PYTHON3"
+                                    }
+                                  ]
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isCreated());
+
+        resetJudgeTables(jdbcTemplate, """
+                TRUNCATE TABLE
+                    audit_logs,
+                    judge_jobs,
+                    submission_answers,
+                    submission_artifacts,
+                    submissions,
+                    assignment_question_options,
+                    assignment_questions,
+                    assignment_sections,
+                    question_bank_question_options,
+                    question_bank_questions,
+                    assignment_judge_cases,
+                    assignment_judge_profiles,
+                    assignments,
+                    course_members,
+                    teaching_classes,
+                    course_offering_college_maps,
+                    course_offerings,
+                    academic_terms,
+                    course_catalogs,
+                    user_org_memberships,
+                    academic_profiles,
+                    user_scope_roles,
+                    platform_configs,
+                    users,
+                    org_units
+                RESTART IDENTITY CASCADE
+                """);
+
+        assertThat(queryForInt("SELECT COUNT(*) FROM judge_jobs")).isZero();
+        assertThat(queryForInt("SELECT COUNT(*) FROM submission_answers")).isZero();
     }
 
     @Test
@@ -907,27 +980,41 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
     private void waitForLatestAnswerJudgeJobTerminal(Long answerId) throws Exception {
         long deadline = System.currentTimeMillis() + 8_000L;
+        String latestStatus = null;
+        String answerStatus = null;
+        String errorMessage = null;
+        String resultSummary = null;
         while (System.currentTimeMillis() < deadline) {
-            String status = queryForString(
+            latestStatus = queryForString(
                     "SELECT status FROM judge_jobs WHERE submission_answer_id = ? ORDER BY id DESC LIMIT 1", answerId);
-            if ("SUCCEEDED".equals(status) || "FAILED".equals(status)) {
+            answerStatus = queryForString("SELECT grading_status FROM submission_answers WHERE id = ?", answerId);
+            errorMessage = queryForString(
+                    "SELECT error_message FROM judge_jobs WHERE submission_answer_id = ? ORDER BY id DESC LIMIT 1",
+                    answerId);
+            resultSummary = queryForString(
+                    "SELECT result_summary FROM judge_jobs WHERE submission_answer_id = ? ORDER BY id DESC LIMIT 1",
+                    answerId);
+            if (("SUCCEEDED".equals(latestStatus) || "FAILED".equals(latestStatus))
+                    && ("PROGRAMMING_JUDGED".equals(answerStatus) || "PROGRAMMING_JUDGE_FAILED".equals(answerStatus))) {
                 return;
             }
             Thread.sleep(100L);
         }
-        throw new AssertionError("题目级评测任务未在预期时间内进入终态");
+        throw new AssertionError("题目级评测任务未在预期时间内进入终态，jobStatus=%s, answerStatus=%s, error=%s, summary=%s"
+                .formatted(latestStatus, answerStatus, errorMessage, resultSummary));
     }
 
     private void waitForAnswerJudgeJobCount(Long answerId, int expectedCount) throws Exception {
         long deadline = System.currentTimeMillis() + 8_000L;
+        Integer latestCount = null;
         while (System.currentTimeMillis() < deadline) {
-            Integer count = queryForInt("SELECT COUNT(*) FROM judge_jobs WHERE submission_answer_id = ?", answerId);
-            if (count != null && count == expectedCount) {
+            latestCount = queryForInt("SELECT COUNT(*) FROM judge_jobs WHERE submission_answer_id = ?", answerId);
+            if (latestCount != null && latestCount == expectedCount) {
                 return;
             }
             Thread.sleep(100L);
         }
-        throw new AssertionError("题目级评测任务数量未在预期时间内达到 " + expectedCount);
+        throw new AssertionError("题目级评测任务数量未在预期时间内达到 %s，current=%s".formatted(expectedCount, latestCount));
     }
 
     private Long uploadArtifact(String token, Long assignmentId, String filename, String contentType, String content)
