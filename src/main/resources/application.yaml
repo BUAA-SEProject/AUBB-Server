@@ -46,3 +46,7 @@ aubb:
     go-judge:
       enabled: ${AUBB_GO_JUDGE_ENABLED:false}
       base-url: ${AUBB_GO_JUDGE_BASE_URL:http://localhost:5050}
+    queue:
+      enabled: ${AUBB_JUDGE_QUEUE_ENABLED:false}
+      queue-name: ${AUBB_JUDGE_QUEUE_NAME:aubb.judge.jobs}
+      concurrency: ${AUBB_JUDGE_QUEUE_CONCURRENCY:4}

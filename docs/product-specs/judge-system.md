@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志和 `CUSTOM_SCRIPT` 第一阶段闭环。当前样例试运行与正式评测都已复用目录树源码快照装配，为后续前端在线 IDE 和更复杂实验环境提供稳定链路。
+交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、通过 RabbitMQ 队列第一阶段异步调度 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志、详细评测报告和 `CUSTOM_SCRIPT` 第一阶段闭环。当前样例试运行与正式评测都已复用目录树源码快照装配，为后续前端在线 IDE 和更复杂实验环境提供稳定链路。
 
 ## 覆盖范围
 
@@ -11,12 +11,18 @@
 - assignment 已配置自动评测时，学生正式提交后自动创建一条 `PENDING` 评测作业
 - 评测作业在事务提交后异步进入 `RUNNING -> terminal`
 - 当前通过 go-judge `/run` 同步 HTTP API 执行，再由服务端异步回写结果；自动化测试当前已切到真实 go-judge Testcontainers
+- 当前已支持 RabbitMQ 队列第一阶段：
+  - 入队时在事务提交后发布 `judgeJobId`
+  - consumer 拉取后执行 go-judge
+  - 队列关闭时自动回退到应用内本地异步监听
 - 当前支持 legacy assignment 级 `PYTHON3 + submissions.content_text` 脚本型评测
 - 当前支持结构化编程题 question-level judge 第一阶段：
   - 编程题隐藏测试点
   - `submission_answer_id` 级 job 关联
   - 目录树源码快照 + 附件装配为多文件输入，并兼容 legacy `codeText`
   - 逐测试点结果明细回写到 `judge_jobs.case_results_json`
+  - 编程题配置 `compileArgs / runArgs`
+  - 详细评测报告回写到 `judge_jobs.detail_report_json`
 - 当前支持结构化编程题样例试运行：
   - 独立的 `programming_sample_runs` 历史
   - 单样例输入输出比对
@@ -39,7 +45,7 @@
 - 在线 IDE 工作区
 - 更复杂的 checker 断言库与评测产物对象存储
 - 评测产物对象存储留存
-- RabbitMQ worker、分布式调度和重试编排
+- 分布式 worker 横向扩展、重试编排和死信恢复
 - 人工批改和成绩发布（当前已由 grading 模块承担）
 
 ## 核心业务规则
@@ -50,7 +56,7 @@
 4. 教师手动重新排队不会修改历史评测作业，只会创建新的 `MANUAL_REJUDGE` 作业。
 5. 学生只能查看自己的评测作业。
 6. 教师只能查看和重排队自己课程范围内的评测作业。
-7. 当前固定使用 `GO_JUDGE` 作为引擎代码，当前执行方式是服务端 AFTER_COMMIT 异步触发 + go-judge `/run`。
+7. 当前固定使用 `GO_JUDGE` 作为引擎代码；默认执行方式为 AFTER_COMMIT 发布事件，经 RabbitMQ consumer 拉起 go-judge `/run`，关闭队列时回退到应用内本地异步执行。
 8. `SUCCEEDED` 表示评测流程执行成功并拿到了结论，最终判定由 `verdict` 表达；`FAILED` 表示评测基础设施或配置失败。
 9. 结构化编程题当前支持 `STANDARD_IO` 和 `CUSTOM_SCRIPT` 两种真实执行模式；`CUSTOM_SCRIPT` 当前固定使用 Python checker，不支持教师自定义命令串。
 10. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
@@ -61,6 +67,7 @@
   - 运行时异常当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“程序运行失败”
   - 超时 / 超内存 / 超输出当前分别落成 `TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED`
 14. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
+15. `detail_report_json` 保存测试点级完整日志、执行命令和执行元数据；学生侧报告默认隐藏 `stdinText / expectedStdout`，教师侧保留。
 
 ## 核心数据模型
 
@@ -93,6 +100,7 @@
   - `time_millis / memory_bytes`：聚合资源指标
   - `error_message`：基础设施失败信息
   - `case_results_json`：逐测试点明细摘要
+  - `detail_report_json`：详细评测报告 JSON，包含执行元数据与完整测试点日志
   - `result_summary`：用户可读摘要
   - `queued_at / started_at / finished_at`：状态时间戳
 - `programming_sample_runs`
@@ -117,6 +125,7 @@
 
 - `GET /api/v1/me/submissions/{submissionId}/judge-jobs`
 - `GET /api/v1/me/submission-answers/{answerId}/judge-jobs`
+- `GET /api/v1/me/judge-jobs/{judgeJobId}/report`
 - `POST /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
 - `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
 
@@ -126,11 +135,16 @@
 - `POST /api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue`
 - `GET /api/v1/teacher/submission-answers/{answerId}/judge-jobs`
 - `POST /api/v1/teacher/submission-answers/{answerId}/judge-jobs/requeue`
+- `GET /api/v1/teacher/judge-jobs/{judgeJobId}/report`
 
 ## 当前实现边界
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
 - 结构化编程题当前按语言装配 `PYTHON3 / JAVA21 / CPP17` 运行命令，并支持把目录树源码快照和附件一起写入运行目录；自动化验证当前已覆盖这三种语言的样例试运行与正式评测最小链路。
+- 结构化编程题当前支持 `compileArgs / runArgs`：
+  - `PYTHON3`：解释器参数走 `compileArgs`，脚本参数走 `runArgs`
+  - `JAVA21 / JAVA17`：编译参数追加到 `javac`，运行参数追加到 `java`
+  - `CPP17`：编译阶段会收集目录树中的全部 `.cpp / .cc / .cxx / .c`，并追加 `compileArgs` 与 `runArgs`
 - `JAVA21` 当前已固定为“编译全部 `.java` 源文件到当前工作目录，再按入口文件 package + 类名启动”的运行模板，因此已支持目录树场景下的多文件、嵌套路径和 package 化入口；`JAVA17` 仅作为兼容输入保留。
 - `CUSTOM_SCRIPT` 当前通过固定的 Python checker 执行，checker 读取保留文件：
   - `_aubb_stdin.txt`
@@ -139,9 +153,9 @@
   - `_aubb_actual_stderr.txt`
   - `_aubb_judge_context.json`
 - `CUSTOM_SCRIPT` 当前约定 checker 输出一段 JSON，例如 `{\"verdict\":\"ACCEPTED\",\"score\":60,\"message\":\"样例通过\"}`；非法 JSON、未知 verdict、越界分数或 checker 执行异常会落成 `SYSTEM_ERROR`。
-- 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回，但尚未把完整正式评测日志和产物持久化到对象存储。
+- 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回；同时补充 `detail_report_json` 保存完整测试点日志、执行命令和执行元数据，但正式评测产物尚未持久化到对象存储。
 - 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果和源码快照落到 `programming_sample_runs`。
-- 当前采用应用内异步执行，不走 RabbitMQ worker。
+- 当前已支持 RabbitMQ 队列第一阶段，并保留本地异步回退路径；尚未拆分独立评测 worker 与重试编排。
 - 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
 - 当前失败态摘要已经做了第一阶段规范化：
   - legacy assignment 级评测、question-level judge 和样例试运行会统一输出“编译失败 / 程序运行失败 / 超出时间限制 / 超出内存限制 / 超出输出限制”等中文摘要
@@ -149,7 +163,7 @@
 - 当前三种语言的 V1 运行模板约束为：
   - `PYTHON3`：直接执行入口脚本
   - `JAVA21`：编译全部 `.java` 文件，支持嵌套目录与 package 入口
-  - `CPP17`：以入口 `.cpp` 为编译入口，其他头文件随目录树装配
+  - `CPP17`：编译目录树内全部翻译单元，并按入口文件启动
 
 ## 验收标准
 
@@ -159,5 +173,7 @@
 - go-judge 不可用或配置异常时，提交受理不被阻断，但评测作业会回写 `FAILED + SYSTEM_ERROR`。
 - 结构化编程题自动评测成功后，会把结果回写到 `submission_answers`，使 grading 可继续发布成绩。
 - 教师重新排队后会新增一条新的评测作业历史。
+- 学生和教师都可以查询详细评测报告；学生侧默认看不到隐藏测试输入输出，教师侧可见。
+- RabbitMQ 队列开启时，legacy judge、question-level judge 和详细报告回归都能通过真实 go-judge + RabbitMQ Testcontainers 验证。
 - 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`。
 - `mvnd verify` 或 `bash ./mvnw verify` 提供自动化测试证据。

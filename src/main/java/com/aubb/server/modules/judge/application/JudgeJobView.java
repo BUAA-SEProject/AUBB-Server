@@ -31,6 +31,7 @@ public record JudgeJobView(
         Long memoryBytes,
         String errorMessage,
         java.util.List<JudgeJobCaseResultView> caseResults,
+        boolean detailReportAvailable,
         OffsetDateTime queuedAt,
         OffsetDateTime startedAt,
         OffsetDateTime finishedAt,

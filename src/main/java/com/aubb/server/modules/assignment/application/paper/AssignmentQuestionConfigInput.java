@@ -16,6 +16,8 @@ public record AssignmentQuestionConfigInput(
         Integer timeLimitMs,
         Integer memoryLimitMb,
         Integer outputLimitKb,
+        List<String> compileArgs,
+        List<String> runArgs,
         ProgrammingJudgeMode judgeMode,
         String customJudgeScript,
         String referenceAnswer,

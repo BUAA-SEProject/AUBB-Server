@@ -6,6 +6,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.lifecycle.Startables;
@@ -18,9 +19,11 @@ abstract class AbstractRealJudgeIntegrationTest {
 
     private static final DockerImageName MINIO_IMAGE =
             DockerImageName.parse("minio/minio:RELEASE.2025-09-07T16-13-09Z");
+    private static final DockerImageName RABBITMQ_IMAGE = DockerImageName.parse("rabbitmq:4.1.0-management");
     private static final String MINIO_ACCESS_KEY = "aubbminio";
     private static final String MINIO_SECRET_KEY = "aubbminio-secret";
     private static final String MINIO_BUCKET = "aubb-real-go-judge-test";
+    private static final String JUDGE_QUEUE_NAME = "aubb.judge.jobs.test";
     private static final String GO_JUDGE_TEST_DOCKERFILE = """
             FROM criyle/go-judge:v1.11.4 AS go-judge
             FROM eclipse-temurin:21.0.8_9-jdk-jammy AS java21
@@ -58,8 +61,11 @@ abstract class AbstractRealJudgeIntegrationTest {
             .withExposedPorts(9000, 9001)
             .waitingFor(Wait.forHttp("/minio/health/live").forPort(9000).forStatusCode(200));
 
+    protected static final RabbitMQContainer RABBITMQ_CONTAINER = new RabbitMQContainer(RABBITMQ_IMAGE);
+
     static {
-        Startables.deepStart(GO_JUDGE_CONTAINER, MINIO_CONTAINER).join();
+        Startables.deepStart(GO_JUDGE_CONTAINER, MINIO_CONTAINER, RABBITMQ_CONTAINER)
+                .join();
     }
 
     @DynamicPropertySource
@@ -68,6 +74,13 @@ abstract class AbstractRealJudgeIntegrationTest {
                 "aubb.judge.go-judge.base-url",
                 () -> "http://" + GO_JUDGE_CONTAINER.getHost() + ":" + GO_JUDGE_CONTAINER.getMappedPort(5050));
         registry.add("aubb.judge.go-judge.enabled", () -> "true");
+        registry.add("aubb.judge.queue.enabled", () -> "true");
+        registry.add("aubb.judge.queue.queue-name", () -> JUDGE_QUEUE_NAME);
+        registry.add("aubb.judge.queue.concurrency", () -> "2");
+        registry.add("spring.rabbitmq.host", RABBITMQ_CONTAINER::getHost);
+        registry.add("spring.rabbitmq.port", RABBITMQ_CONTAINER::getAmqpPort);
+        registry.add("spring.rabbitmq.username", RABBITMQ_CONTAINER::getAdminUsername);
+        registry.add("spring.rabbitmq.password", RABBITMQ_CONTAINER::getAdminPassword);
         registry.add("aubb.storage.minio.enabled", () -> "true");
         registry.add("aubb.storage.minio.auto-create-bucket", () -> "true");
         registry.add(

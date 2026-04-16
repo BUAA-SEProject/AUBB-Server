@@ -356,6 +356,67 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     }
 
     @Test
+    void studentSampleRunSupportsCompileAndRunArgs() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-ARGS", "参数班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createCppArgsProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.paper.sections[0].questions[0].config.compileArgs[0]")
+                                .value("-DANSWER=41"))
+                        .andExpect(jsonPath("$.paper.sections[0].questions[0].config.runArgs[0]")
+                                .value("1"))
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"src/main.cpp",
+                                  "files":[
+                                    {
+                                      "path":"src/main.cpp",
+                                      "content":"#include <cstdlib>\\n#include <iostream>\\n#include \\\"math_utils.h\\\"\\nint main(int argc, char** argv) {\\n  std::cout << add(ANSWER, std::atoi(argv[1])) << \\\"\\\\n\\\";\\n}\\n"
+                                    },
+                                    {
+                                      "path":"src/math_utils.cpp",
+                                      "content":"#include \\\"math_utils.h\\\"\\nint add(int left, int right) { return left + right; }\\n"
+                                    },
+                                    {
+                                      "path":"src/math_utils.h",
+                                      "content":"int add(int left, int right);\\n"
+                                    }
+                                  ],
+                                  "programmingLanguage":"CPP17"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.programmingLanguage").value("CPP17"))
+                .andExpect(jsonPath("$.entryFilePath").value("src/main.cpp"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.stdoutText").value("42\n"))
+                .andExpect(jsonPath("$.stderrText").isEmpty())
+                .andExpect(jsonPath("$.resultSummary").value(org.hamcrest.Matchers.containsString("ACCEPTED")));
+    }
+
+    @Test
     void studentSeesCompileFailureSummaryForJavaSampleRun() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -699,6 +760,63 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
                                         acceptedExtensionsJson,
                                         judgeMode,
                                         customJudgeScriptJson)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
+    private Long createCppArgsProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"编译参数编程题作业",
+                                  "description":"workspace compile and run args",
+                                  "teachingClassId":%s,
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
+                                  "maxSubmissions":1,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"编程题",
+                                        "questions":[
+                                          {
+                                            "title":"参数化 A+B",
+                                            "prompt":"编译参数与运行参数共同决定输出。",
+                                            "questionType":"PROGRAMMING",
+                                            "score":100,
+                                            "config":{
+                                              "supportedLanguages":["CPP17"],
+                                              "acceptedExtensions":["cpp","h"],
+                                              "allowMultipleFiles":true,
+                                              "allowSampleRun":true,
+                                              "sampleStdinText":"0\\n",
+                                              "sampleExpectedStdout":"42\\n",
+                                              "timeLimitMs":1000,
+                                              "memoryLimitMb":128,
+                                              "outputLimitKb":64,
+                                              "compileArgs":["-DANSWER=41"],
+                                              "runArgs":["1"],
+                                              "judgeMode":"STANDARD_IO",
+                                              "judgeCases":[
+                                                {"stdinText":"0\\n","expectedStdout":"42\\n","score":100}
+                                              ]
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(
+                                        classId,
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .minusDays(1)),
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .plusDays(3)))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();

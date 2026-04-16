@@ -47,11 +47,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
@@ -118,12 +115,6 @@ public class JudgeExecutionService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    @Async("judgeExecutionTaskExecutor")
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void handleJudgeExecutionRequested(JudgeExecutionRequestedEvent event) {
-        executeJudgeJob(event.judgeJobId());
-    }
-
     void executeJudgeJob(Long judgeJobId) {
         JudgeExecutionContext context = transactionTemplate.execute(status -> startJob(judgeJobId));
         if (context == null) {
@@ -149,8 +140,12 @@ public class JudgeExecutionService {
             return null;
         }
 
+        OffsetDateTime startedAt = OffsetDateTime.now();
+        if (job.getQueuedAt() != null && startedAt.isBefore(job.getQueuedAt())) {
+            startedAt = job.getQueuedAt();
+        }
         job.setStatus(JudgeJobStatus.RUNNING.name());
-        job.setStartedAt(OffsetDateTime.now());
+        job.setStartedAt(startedAt);
         job.setEngineJobRef(ENGINE_JOB_REF);
         judgeJobMapper.updateById(job);
 
@@ -230,16 +225,15 @@ public class JudgeExecutionService {
                     config.sampleStdinText(),
                     config.sampleExpectedStdout(),
                     null,
-                    false,
                     true);
             if (caseOutcome.verdict() == JudgeVerdict.SYSTEM_ERROR) {
                 return ProgrammingSampleRunOutcome.failed(
-                        caseOutcome.errorMessage(), caseOutcome.stdoutExcerpt(), caseOutcome.stderrExcerpt());
+                        caseOutcome.errorMessage(), caseOutcome.stdoutText(), caseOutcome.stderrText());
             }
             return ProgrammingSampleRunOutcome.completed(
                     caseOutcome.verdict(),
-                    caseOutcome.stdoutExcerpt(),
-                    caseOutcome.stderrExcerpt(),
+                    caseOutcome.stdoutText(),
+                    caseOutcome.stderrText(),
                     caseOutcome.timeMillis(),
                     caseOutcome.memoryBytes(),
                     sampleRunSummary(caseOutcome, config.sampleExpectedStdout()));
@@ -257,6 +251,7 @@ public class JudgeExecutionService {
         }
 
         List<JudgeJobCaseResultView> caseResults = new ArrayList<>();
+        List<JudgeJobCaseReportView> caseReports = new ArrayList<>();
         int passedCaseCount = 0;
         int totalCaseCount = context.legacyCases().size();
         int score = 0;
@@ -272,8 +267,10 @@ public class JudgeExecutionService {
         String stderrExcerpt = null;
 
         for (AssignmentJudgeCaseEntity testCase : context.legacyCases()) {
+            List<String> runCommand =
+                    List.of("/usr/bin/python3", context.legacyProfile().getEntryFileName());
             RunResult result = executeCase(
-                    List.of("/usr/bin/python3", context.legacyProfile().getEntryFileName()),
+                    runCommand,
                     Map.of(
                             context.legacyProfile().getEntryFileName(),
                             new CopyInFile(context.submission().getContentText())),
@@ -281,19 +278,30 @@ public class JudgeExecutionService {
                     context.legacyProfile().getTimeLimitMs(),
                     context.legacyProfile().getMemoryLimitMb(),
                     context.legacyProfile().getOutputLimitKb());
-            CaseOutcome caseOutcome = toCaseOutcome(result, testCase.getExpectedStdout());
+            CaseOutcome caseOutcome =
+                    toCaseOutcome(result, testCase.getStdinText(), testCase.getExpectedStdout(), null, runCommand);
             JudgeJobCaseResultView caseResult = toCaseResult(testCase.getCaseOrder(), testCase.getScore(), caseOutcome);
             caseResults.add(caseResult);
+            caseReports.add(toCaseReport(testCase.getCaseOrder(), testCase.getScore(), caseOutcome, true));
             timeMillis += caseOutcome.timeMillis();
             memoryBytes = Math.max(memoryBytes, caseOutcome.memoryBytes());
-            if (stdoutExcerpt == null && caseOutcome.stdoutExcerpt() != null) {
-                stdoutExcerpt = caseOutcome.stdoutExcerpt();
+            if (stdoutExcerpt == null && caseOutcome.stdoutText() != null) {
+                stdoutExcerpt = clip(caseOutcome.stdoutText());
             }
-            if (stderrExcerpt == null && caseOutcome.stderrExcerpt() != null) {
-                stderrExcerpt = caseOutcome.stderrExcerpt();
+            if (stderrExcerpt == null && caseOutcome.stderrText() != null) {
+                stderrExcerpt = clip(caseOutcome.stderrText());
             }
             if (caseOutcome.verdict() == JudgeVerdict.SYSTEM_ERROR) {
-                return JudgeFinalization.failed(caseOutcome.errorMessage(), stdoutExcerpt, stderrExcerpt, caseResults);
+                return JudgeFinalization.failed(
+                        caseOutcome.errorMessage(),
+                        stdoutExcerpt,
+                        stderrExcerpt,
+                        caseResults,
+                        new JudgeJobStoredReport(
+                                buildLegacyExecutionMetadata(context),
+                                caseReports,
+                                clip(caseOutcome.stdoutText()),
+                                clip(caseOutcome.stderrText())));
             }
             if (caseOutcome.verdict() == JudgeVerdict.ACCEPTED) {
                 passedCaseCount += 1;
@@ -316,7 +324,9 @@ public class JudgeExecutionService {
                 timeMillis,
                 memoryBytes,
                 summary,
-                caseResults);
+                caseResults,
+                new JudgeJobStoredReport(
+                        buildLegacyExecutionMetadata(context), caseReports, stdoutExcerpt, stderrExcerpt));
     }
 
     private JudgeFinalization runStructuredProgrammingJudge(JudgeExecutionContext context) {
@@ -347,6 +357,7 @@ public class JudgeExecutionService {
                 payload.artifactIds(),
                 payload.programmingLanguage());
         List<JudgeJobCaseResultView> caseResults = new ArrayList<>();
+        List<JudgeJobCaseReportView> caseReports = new ArrayList<>();
         int passedCaseCount = 0;
         int totalCaseCount = config.judgeCases().size();
         int score = 0;
@@ -368,20 +379,29 @@ public class JudgeExecutionService {
                     judgeCase.stdinText(),
                     judgeCase.expectedStdout(),
                     judgeCase.score(),
-                    true,
                     false);
             JudgeJobCaseResultView caseResult = toCaseResult(caseOrder, judgeCase.score(), caseOutcome);
             caseResults.add(caseResult);
+            caseReports.add(toCaseReport(caseOrder, judgeCase.score(), caseOutcome, true));
             timeMillis += caseOutcome.timeMillis();
             memoryBytes = Math.max(memoryBytes, caseOutcome.memoryBytes());
-            if (stdoutExcerpt == null && caseOutcome.stdoutExcerpt() != null) {
-                stdoutExcerpt = caseOutcome.stdoutExcerpt();
+            if (stdoutExcerpt == null && caseOutcome.stdoutText() != null) {
+                stdoutExcerpt = clip(caseOutcome.stdoutText());
             }
-            if (stderrExcerpt == null && caseOutcome.stderrExcerpt() != null) {
-                stderrExcerpt = caseOutcome.stderrExcerpt();
+            if (stderrExcerpt == null && caseOutcome.stderrText() != null) {
+                stderrExcerpt = clip(caseOutcome.stderrText());
             }
             if (caseOutcome.verdict() == JudgeVerdict.SYSTEM_ERROR) {
-                return JudgeFinalization.failed(caseOutcome.errorMessage(), stdoutExcerpt, stderrExcerpt, caseResults);
+                return JudgeFinalization.failed(
+                        caseOutcome.errorMessage(),
+                        stdoutExcerpt,
+                        stderrExcerpt,
+                        caseResults,
+                        new JudgeJobStoredReport(
+                                buildStructuredExecutionMetadata(context, payload, config, sourceBundle),
+                                caseReports,
+                                clip(caseOutcome.stdoutText()),
+                                clip(caseOutcome.stderrText())));
             }
             score += awardedScore(judgeCase.score(), caseOutcome);
             if (caseOutcome.verdict() == JudgeVerdict.ACCEPTED) {
@@ -405,7 +425,12 @@ public class JudgeExecutionService {
                 timeMillis,
                 memoryBytes,
                 summary,
-                caseResults);
+                caseResults,
+                new JudgeJobStoredReport(
+                        buildStructuredExecutionMetadata(context, payload, config, sourceBundle),
+                        caseReports,
+                        stdoutExcerpt,
+                        stderrExcerpt));
     }
 
     private CaseOutcome evaluateProgrammingCase(
@@ -415,10 +440,10 @@ public class JudgeExecutionService {
             String stdinText,
             String expectedStdout,
             Integer maxScore,
-            boolean clipOutput,
             boolean sampleRun) {
+        ProgramCommandPlan commandPlan = buildProgramCommand(programmingLanguage, sourceBundle, config);
         RunResult programResult = executeCase(
-                buildProgramCommand(programmingLanguage, sourceBundle),
+                commandPlan.shellArgs(),
                 sourceBundle.copyIn(),
                 stdinText,
                 safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS),
@@ -433,10 +458,11 @@ public class JudgeExecutionService {
                     stdinText,
                     expectedStdout,
                     maxScore,
-                    clipOutput,
+                    commandPlan,
                     sampleRun);
         }
-        return toCaseOutcome(programResult, expectedStdout, clipOutput);
+        return toCaseOutcome(
+                programResult, stdinText, expectedStdout, commandPlan.compileCommand(), commandPlan.runCommand());
     }
 
     // checker 只负责给出裁决和分数，学生看到的 stdout / stderr 仍然来自自己的程序运行结果。
@@ -448,12 +474,12 @@ public class JudgeExecutionService {
             String stdinText,
             String expectedStdout,
             Integer maxScore,
-            boolean clipOutput,
+            ProgramCommandPlan commandPlan,
             boolean sampleRun) {
-        String stdout = formatProgramOutput(
-                programResult.files() == null ? null : programResult.files().get("stdout"), clipOutput);
-        String stderr = formatProgramOutput(
-                programResult.files() == null ? null : programResult.files().get("stderr"), clipOutput);
+        String stdout = normalizeLineEndings(
+                programResult.files() == null ? null : programResult.files().get("stdout"));
+        String stderr = normalizeLineEndings(
+                programResult.files() == null ? null : programResult.files().get("stderr"));
         JudgeVerdict engineVerdict = mapEngineVerdict(programResult.status());
         long timeMillis = nanosToMillis(programResult.time());
         long memoryBytes = safeLong(programResult.memory());
@@ -466,7 +492,13 @@ public class JudgeExecutionService {
                     timeMillis,
                     memoryBytes,
                     null,
-                    "go-judge 返回系统错误状态: " + programResult.status());
+                    "go-judge 返回系统错误状态: " + programResult.status(),
+                    programResult.status(),
+                    programResult.exitStatus(),
+                    commandPlan.compileCommand(),
+                    commandPlan.runCommand(),
+                    stdinText,
+                    expectedStdout);
         }
         if (engineVerdict != JudgeVerdict.ACCEPTED) {
             return new CaseOutcome(
@@ -476,11 +508,29 @@ public class JudgeExecutionService {
                     timeMillis,
                     memoryBytes,
                     0,
-                    describeEngineFailure(engineVerdict, stderr));
+                    describeEngineFailure(engineVerdict, clip(stderr)),
+                    programResult.status(),
+                    programResult.exitStatus(),
+                    commandPlan.compileCommand(),
+                    commandPlan.runCommand(),
+                    stdinText,
+                    expectedStdout);
         }
         if (!StringUtils.hasText(config.customJudgeScript())) {
             return new CaseOutcome(
-                    JudgeVerdict.SYSTEM_ERROR, stdout, stderr, timeMillis, memoryBytes, null, "自定义评测脚本未配置");
+                    JudgeVerdict.SYSTEM_ERROR,
+                    stdout,
+                    stderr,
+                    timeMillis,
+                    memoryBytes,
+                    null,
+                    "自定义评测脚本未配置",
+                    programResult.status(),
+                    programResult.exitStatus(),
+                    commandPlan.compileCommand(),
+                    commandPlan.runCommand(),
+                    stdinText,
+                    expectedStdout);
         }
 
         RunResult judgeResult = executeCase(
@@ -508,21 +558,51 @@ public class JudgeExecutionService {
                     timeMillis,
                     memoryBytes,
                     null,
-                    "自定义评测脚本执行失败: " + formatCustomJudgeFailure(judgeResult));
+                    "自定义评测脚本执行失败: " + formatCustomJudgeFailure(judgeResult),
+                    programResult.status(),
+                    programResult.exitStatus(),
+                    commandPlan.compileCommand(),
+                    commandPlan.runCommand(),
+                    stdinText,
+                    expectedStdout);
         }
 
         String judgeStdout = normalizeLineEndings(
                 judgeResult.files() == null ? null : judgeResult.files().get("stdout"));
         if (!StringUtils.hasText(judgeStdout)) {
             return new CaseOutcome(
-                    JudgeVerdict.SYSTEM_ERROR, stdout, stderr, timeMillis, memoryBytes, null, "自定义评测脚本未返回裁决 JSON");
+                    JudgeVerdict.SYSTEM_ERROR,
+                    stdout,
+                    stderr,
+                    timeMillis,
+                    memoryBytes,
+                    null,
+                    "自定义评测脚本未返回裁决 JSON",
+                    programResult.status(),
+                    programResult.exitStatus(),
+                    commandPlan.compileCommand(),
+                    commandPlan.runCommand(),
+                    stdinText,
+                    expectedStdout);
         }
 
         CustomJudgeDecision decision = readCustomJudgeDecision(judgeStdout);
         JudgeVerdict verdict = readCustomJudgeVerdict(decision.verdict());
         Integer awardedScore = resolveCustomJudgeScore(decision.score(), maxScore, verdict);
         return new CaseOutcome(
-                verdict, stdout, stderr, timeMillis, memoryBytes, awardedScore, clip(decision.message()));
+                verdict,
+                stdout,
+                stderr,
+                timeMillis,
+                memoryBytes,
+                awardedScore,
+                clip(decision.message()),
+                programResult.status(),
+                programResult.exitStatus(),
+                commandPlan.compileCommand(),
+                commandPlan.runCommand(),
+                stdinText,
+                expectedStdout);
     }
 
     private Map<String, CopyInFile> buildCustomJudgeCopyIn(
@@ -664,15 +744,16 @@ public class JudgeExecutionService {
         return results.getFirst();
     }
 
-    private CaseOutcome toCaseOutcome(RunResult result, String expectedStdout) {
-        return toCaseOutcome(result, expectedStdout, true);
-    }
-
-    private CaseOutcome toCaseOutcome(RunResult result, String expectedStdout, boolean clipOutput) {
-        String stdout = formatProgramOutput(
-                result.files() == null ? null : result.files().get("stdout"), clipOutput);
-        String stderr = formatProgramOutput(
-                result.files() == null ? null : result.files().get("stderr"), clipOutput);
+    private CaseOutcome toCaseOutcome(
+            RunResult result,
+            String stdinText,
+            String expectedStdout,
+            List<String> compileCommand,
+            List<String> runCommand) {
+        String stdout = normalizeLineEndings(
+                result.files() == null ? null : result.files().get("stdout"));
+        String stderr = normalizeLineEndings(
+                result.files() == null ? null : result.files().get("stderr"));
         JudgeVerdict engineVerdict = mapEngineVerdict(result.status());
         if (engineVerdict == JudgeVerdict.SYSTEM_ERROR) {
             return new CaseOutcome(
@@ -682,13 +763,15 @@ public class JudgeExecutionService {
                     nanosToMillis(result.time()),
                     safeLong(result.memory()),
                     null,
-                    "go-judge 返回系统错误状态: " + result.status());
+                    "go-judge 返回系统错误状态: " + result.status(),
+                    result.status(),
+                    result.exitStatus(),
+                    compileCommand,
+                    runCommand,
+                    stdinText,
+                    expectedStdout);
         }
-        if (engineVerdict == JudgeVerdict.ACCEPTED
-                && !Objects.equals(
-                        normalizeLineEndings(
-                                result.files() == null ? null : result.files().get("stdout")),
-                        normalizeLineEndings(expectedStdout))) {
+        if (engineVerdict == JudgeVerdict.ACCEPTED && !Objects.equals(stdout, normalizeLineEndings(expectedStdout))) {
             return new CaseOutcome(
                     JudgeVerdict.WRONG_ANSWER,
                     stdout,
@@ -696,7 +779,13 @@ public class JudgeExecutionService {
                     nanosToMillis(result.time()),
                     safeLong(result.memory()),
                     null,
-                    null);
+                    null,
+                    result.status(),
+                    result.exitStatus(),
+                    compileCommand,
+                    runCommand,
+                    stdinText,
+                    expectedStdout);
         }
         return new CaseOutcome(
                 engineVerdict,
@@ -705,7 +794,13 @@ public class JudgeExecutionService {
                 nanosToMillis(result.time()),
                 safeLong(result.memory()),
                 null,
-                describeEngineFailure(engineVerdict, stderr));
+                describeEngineFailure(engineVerdict, clip(stderr)),
+                result.status(),
+                result.exitStatus(),
+                compileCommand,
+                runCommand,
+                stdinText,
+                expectedStdout);
     }
 
     private JudgeJobCaseResultView toCaseResult(int caseOrder, int maxScore, CaseOutcome caseOutcome) {
@@ -714,11 +809,31 @@ public class JudgeExecutionService {
                 caseOutcome.verdict(),
                 awardedScore(maxScore, caseOutcome),
                 maxScore,
-                caseOutcome.stdoutExcerpt(),
-                caseOutcome.stderrExcerpt(),
+                clip(caseOutcome.stdoutText()),
+                clip(caseOutcome.stderrText()),
                 caseOutcome.timeMillis(),
                 caseOutcome.memoryBytes(),
                 caseOutcome.errorMessage());
+    }
+
+    private JudgeJobCaseReportView toCaseReport(
+            int caseOrder, int maxScore, CaseOutcome caseOutcome, boolean revealSensitiveFields) {
+        return new JudgeJobCaseReportView(
+                caseOrder,
+                caseOutcome.verdict(),
+                awardedScore(maxScore, caseOutcome),
+                maxScore,
+                revealSensitiveFields ? caseOutcome.stdinText() : null,
+                revealSensitiveFields ? caseOutcome.expectedStdout() : null,
+                caseOutcome.stdoutText(),
+                caseOutcome.stderrText(),
+                caseOutcome.timeMillis(),
+                caseOutcome.memoryBytes(),
+                caseOutcome.errorMessage(),
+                caseOutcome.engineStatus(),
+                caseOutcome.exitStatus(),
+                caseOutcome.compileCommand(),
+                caseOutcome.runCommand());
     }
 
     private void finishJob(Long judgeJobId, JudgeFinalization outcome) {
@@ -726,7 +841,11 @@ public class JudgeExecutionService {
         if (job == null) {
             return;
         }
-        job.setFinishedAt(OffsetDateTime.now());
+        OffsetDateTime finishedAt = OffsetDateTime.now();
+        if (job.getStartedAt() != null && finishedAt.isBefore(job.getStartedAt())) {
+            finishedAt = job.getStartedAt();
+        }
+        job.setFinishedAt(finishedAt);
         job.setResultSummary(outcome.resultSummary());
         job.setVerdict(outcome.verdict() == null ? null : outcome.verdict().name());
         job.setTotalCaseCount(outcome.totalCaseCount());
@@ -739,6 +858,7 @@ public class JudgeExecutionService {
         job.setMemoryBytes(outcome.memoryBytes());
         job.setErrorMessage(outcome.errorMessage());
         job.setCaseResultsJson(writeCaseResults(outcome.caseResults()));
+        job.setDetailReportJson(writeDetailReport(outcome.detailReport()));
         job.setStatus(outcome.failed() ? JudgeJobStatus.FAILED.name() : JudgeJobStatus.SUCCEEDED.name());
         judgeJobMapper.updateById(job);
         syncProgrammingAnswer(job, outcome);
@@ -785,29 +905,58 @@ public class JudgeExecutionService {
         return metadata;
     }
 
-    private List<String> buildProgramCommand(ProgrammingLanguage language, SourceBundle sourceBundle) {
+    private ProgramCommandPlan buildProgramCommand(
+            ProgrammingLanguage language, SourceBundle sourceBundle, AssignmentQuestionConfigInput config) {
         String entryFileName = sourceBundle.entryFileName();
+        List<String> compileArgs = normalizeCommandArgs(config.compileArgs());
+        List<String> runArgs = normalizeCommandArgs(config.runArgs());
         return switch (language) {
-            case PYTHON3 -> List.of("/usr/bin/python3", entryFileName);
+            case PYTHON3 -> {
+                List<String> runCommand = new ArrayList<>();
+                runCommand.add("/usr/bin/python3");
+                runCommand.addAll(compileArgs);
+                runCommand.add(entryFileName);
+                runCommand.addAll(runArgs);
+                yield new ProgramCommandPlan(runCommand, List.of(), List.copyOf(runCommand));
+            }
             case JAVA21, JAVA17 -> {
                 List<String> javaSourceFiles = sourceBundle.copyIn().keySet().stream()
                         .filter(path -> path.endsWith(".java"))
                         .sorted()
                         .toList();
                 String launchClassName = resolveJavaLaunchClassName(entryFileName, sourceBundle.copyIn());
-                yield List.of(
-                        "/bin/sh",
-                        "-lc",
-                        "/opt/java/openjdk/bin/javac -encoding UTF-8 -d . "
-                                + String.join(" ", javaSourceFiles)
-                                + " && /opt/java/openjdk/bin/java -cp . "
-                                + launchClassName);
+                List<String> compileCommand =
+                        new ArrayList<>(List.of("/opt/java/openjdk/bin/javac", "-encoding", "UTF-8", "-d", "."));
+                compileCommand.addAll(compileArgs);
+                compileCommand.addAll(javaSourceFiles);
+                List<String> runCommand =
+                        new ArrayList<>(List.of("/opt/java/openjdk/bin/java", "-cp", ".", launchClassName));
+                runCommand.addAll(runArgs);
+                yield new ProgramCommandPlan(
+                        List.of("/bin/sh", "-lc", shellJoin(compileCommand) + " && " + shellJoin(runCommand)),
+                        List.copyOf(compileCommand),
+                        List.copyOf(runCommand));
             }
-            case CPP17 ->
-                List.of(
-                        "/bin/sh",
-                        "-lc",
-                        "/usr/bin/g++ -B/usr/bin -std=c++17 -O2 " + entryFileName + " -o main && ./main");
+            case CPP17 -> {
+                List<String> cppSourceFiles = sourceBundle.copyIn().keySet().stream()
+                        .filter(path -> path.endsWith(".cpp")
+                                || path.endsWith(".cc")
+                                || path.endsWith(".cxx")
+                                || path.endsWith(".c"))
+                        .sorted()
+                        .toList();
+                List<String> compileCommand =
+                        new ArrayList<>(List.of("/usr/bin/g++", "-B/usr/bin", "-std=c++17", "-O2"));
+                compileCommand.addAll(cppSourceFiles);
+                compileCommand.addAll(compileArgs);
+                compileCommand.addAll(List.of("-o", "main"));
+                List<String> runCommand = new ArrayList<>(List.of("./main"));
+                runCommand.addAll(runArgs);
+                yield new ProgramCommandPlan(
+                        List.of("/bin/sh", "-lc", shellJoin(compileCommand) + " && " + shellJoin(runCommand)),
+                        List.copyOf(compileCommand),
+                        List.copyOf(runCommand));
+            }
         };
     }
 
@@ -895,8 +1044,88 @@ public class JudgeExecutionService {
         }
     }
 
+    private String writeDetailReport(JudgeJobStoredReport detailReport) {
+        if (detailReport == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(detailReport);
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("评测详细报告无法序列化", exception);
+        }
+    }
+
+    private Map<String, Object> buildLegacyExecutionMetadata(JudgeExecutionContext context) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("mode", "LEGACY_ASSIGNMENT");
+        metadata.put("programmingLanguage", ProgrammingLanguage.PYTHON3.name());
+        metadata.put("entryFilePath", context.legacyProfile().getEntryFileName());
+        metadata.put("timeLimitMs", context.legacyProfile().getTimeLimitMs());
+        metadata.put("memoryLimitMb", context.legacyProfile().getMemoryLimitMb());
+        metadata.put("outputLimitKb", context.legacyProfile().getOutputLimitKb());
+        metadata.put("submissionId", context.job().getSubmissionId());
+        metadata.put("assignmentId", context.job().getAssignmentId());
+        metadata.put("assignmentQuestionId", context.job().getAssignmentQuestionId());
+        metadata.put("submissionAnswerId", context.job().getSubmissionAnswerId());
+        metadata.put("judgeCaseCount", context.legacyCases().size());
+        metadata.put("queueMode", "EVENT_OR_QUEUE");
+        return metadata;
+    }
+
+    private Map<String, Object> buildStructuredExecutionMetadata(
+            JudgeExecutionContext context,
+            ProgrammingAnswerPayload payload,
+            AssignmentQuestionConfigInput config,
+            SourceBundle sourceBundle) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("mode", "STRUCTURED_PROGRAMMING");
+        metadata.put(
+                "programmingLanguage",
+                payload.programmingLanguage() == null
+                        ? null
+                        : payload.programmingLanguage().name());
+        metadata.put("entryFilePath", sourceBundle.entryFileName());
+        metadata.put("sourceFiles", List.copyOf(sourceBundle.copyIn().keySet()));
+        metadata.put("artifactIds", payload.artifactIds());
+        metadata.put("compileArgs", normalizeCommandArgs(config.compileArgs()));
+        metadata.put("runArgs", normalizeCommandArgs(config.runArgs()));
+        metadata.put(
+                "judgeMode",
+                config.judgeMode() == null ? null : config.judgeMode().name());
+        metadata.put("timeLimitMs", safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS));
+        metadata.put("memoryLimitMb", safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB));
+        metadata.put("outputLimitKb", safeInt(config.outputLimitKb(), DEFAULT_OUTPUT_LIMIT_KB));
+        metadata.put("submissionId", context.job().getSubmissionId());
+        metadata.put("assignmentId", context.job().getAssignmentId());
+        metadata.put("assignmentQuestionId", context.job().getAssignmentQuestionId());
+        metadata.put("submissionAnswerId", context.job().getSubmissionAnswerId());
+        metadata.put(
+                "judgeCaseCount",
+                config.judgeCases() == null ? 0 : config.judgeCases().size());
+        metadata.put("queueMode", "EVENT_OR_QUEUE");
+        return metadata;
+    }
+
     private int safeInt(Integer value, int defaultValue) {
         return value == null ? defaultValue : value;
+    }
+
+    private List<String> normalizeCommandArgs(List<String> args) {
+        if (args == null || args.isEmpty()) {
+            return List.of();
+        }
+        return args.stream().filter(StringUtils::hasText).map(String::trim).toList();
+    }
+
+    private String shellJoin(List<String> args) {
+        return args.stream()
+                .map(this::shellQuote)
+                .reduce((left, right) -> left + " " + right)
+                .orElse("");
+    }
+
+    private String shellQuote(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private JudgeVerdict mapEngineVerdict(String status) {
@@ -1058,12 +1287,18 @@ public class JudgeExecutionService {
 
     private record CaseOutcome(
             JudgeVerdict verdict,
-            String stdoutExcerpt,
-            String stderrExcerpt,
+            String stdoutText,
+            String stderrText,
             long timeMillis,
             long memoryBytes,
             Integer awardedScore,
-            String errorMessage) {}
+            String errorMessage,
+            String engineStatus,
+            Integer exitStatus,
+            List<String> compileCommand,
+            List<String> runCommand,
+            String stdinText,
+            String expectedStdout) {}
 
     private record JudgeFinalization(
             boolean failed,
@@ -1078,7 +1313,8 @@ public class JudgeExecutionService {
             Long memoryBytes,
             String resultSummary,
             String errorMessage,
-            List<JudgeJobCaseResultView> caseResults) {
+            List<JudgeJobCaseResultView> caseResults,
+            JudgeJobStoredReport detailReport) {
 
         static JudgeFinalization completed(
                 JudgeVerdict verdict,
@@ -1091,7 +1327,8 @@ public class JudgeExecutionService {
                 Long timeMillis,
                 Long memoryBytes,
                 String resultSummary,
-                List<JudgeJobCaseResultView> caseResults) {
+                List<JudgeJobCaseResultView> caseResults,
+                JudgeJobStoredReport detailReport) {
             return new JudgeFinalization(
                     false,
                     verdict,
@@ -1105,18 +1342,20 @@ public class JudgeExecutionService {
                     memoryBytes,
                     resultSummary,
                     null,
-                    caseResults);
+                    caseResults,
+                    detailReport);
         }
 
         static JudgeFinalization failed(String errorMessage) {
-            return failed(errorMessage, null, null, List.of());
+            return failed(errorMessage, null, null, List.of(), null);
         }
 
         static JudgeFinalization failed(
                 String errorMessage,
                 String stdoutExcerpt,
                 String stderrExcerpt,
-                List<JudgeJobCaseResultView> caseResults) {
+                List<JudgeJobCaseResultView> caseResults,
+                JudgeJobStoredReport detailReport) {
             return new JudgeFinalization(
                     true,
                     JudgeVerdict.SYSTEM_ERROR,
@@ -1130,7 +1369,8 @@ public class JudgeExecutionService {
                     null,
                     "SYSTEM_ERROR，评测执行失败",
                     errorMessage,
-                    caseResults == null ? List.of() : caseResults);
+                    caseResults == null ? List.of() : caseResults,
+                    detailReport);
         }
     }
 
@@ -1141,6 +1381,8 @@ public class JudgeExecutionService {
             List<ProgrammingSourceFile> files) {}
 
     private record SourceBundle(String entryFileName, Map<String, CopyInFile> copyIn) {}
+
+    private record ProgramCommandPlan(List<String> shellArgs, List<String> compileCommand, List<String> runCommand) {}
 
     private record CustomJudgeDecision(String verdict, Integer score, String message) {}
 

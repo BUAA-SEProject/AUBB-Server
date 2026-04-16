@@ -259,6 +259,36 @@
   - `findings.md`
   - `progress.md`
 
+## Session: 2026-04-16 评测队列与详细报告第一阶段
+
+### Phase 23：RabbitMQ 队列、详细报告与参数化运行
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V16__judge_queue_and_reports_phase1.sql`，为 `judge_jobs` 补充 `detail_report_json`
+  - 新增 `JudgeQueueConfiguration`、RabbitMQ publisher / consumer 与本地异步回退监听器
+  - 调整 `JudgeExecutionService`，为 legacy judge 和 question-level judge 持久化测试点级详细报告、执行元数据、执行命令和 `compileArgs / runArgs`
+  - 为结构化编程题补齐 `compileArgs / runArgs` 配置透传，并让 `CPP17` 编译目录树中的全部翻译单元
+  - 新增学生 / 教师详细评测报告 API，并按角色脱敏隐藏测试数据
+  - 扩展真实 go-judge 集成测试，覆盖 RabbitMQ 队列路径、详细报告端点，以及 C++ 多文件正式评测和样例试运行的参数化执行
+- Files created/modified:
+  - `src/main/resources/db/migration/V16__judge_queue_and_reports_phase1.sql`
+  - `src/main/java/com/aubb/server/config/JudgeQueueConfiguration.java`
+  - `src/main/java/com/aubb/server/modules/assignment/**`
+  - `src/main/java/com/aubb/server/modules/judge/**`
+  - `src/main/resources/application.yaml`
+  - `src/test/java/com/aubb/server/integration/AbstractRealJudgeIntegrationTest.java`
+  - `src/test/java/com/aubb/server/integration/JudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `README.md`
+  - `docs/product-specs/judge-system.md`
+  - `docs/generated/db-schema.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
 ## Session: 2026-04-16 编程工作区目录树快照第一阶段
 
 ### Phase 15：工作区快照后端模型

@@ -16,17 +16,17 @@
 - 已支持开课实例内题库创建、列表、详情与引用组卷
 - 已支持正式提交、多次提交版本记录、附件上传、分题答案和客观题自动评分摘要
 - 已支持教师 / 助教人工批改、assignment 级成绩发布与教师侧成绩册第一阶段
-- 已支持 go-judge 驱动的样例试运行、question-level judge、`STANDARD_IO` 和第一阶段 `CUSTOM_SCRIPT`
+- 已支持 go-judge 驱动的样例试运行、question-level judge、`STANDARD_IO`、第一阶段 `CUSTOM_SCRIPT`、RabbitMQ 队列第一阶段和详细评测报告 API
 
 #### 部分完成
 
 - 题库管理已补齐更新、归档、标签和标签精确检索第一阶段，但仍缺分类与更完整组卷体验
 - 编程题后端已支持 `entryFilePath + files + artifactIds` 的目录树快照、样例试运行和正式评测复用，但前端目录树交互与逐文件操作尚未补齐
-- 多语言运行时已有 `PYTHON3 / JAVA21 / CPP17` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这三种语言，但日志一致性与更复杂工程布局仍不足；`JAVA17` 当前仅作为兼容输入保留
+- 多语言运行时已有 `PYTHON3 / JAVA21 / CPP17` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这三种语言，并已支持 `compileArgs / runArgs` 与 C++ 多文件工程，但日志一致性与更复杂工程布局仍不足；`JAVA17` 当前仅作为兼容输入保留
 - 编译失败、运行失败和资源超限的摘要口径已在 legacy judge、question-level judge 与样例试运行三条链路上完成第一阶段统一，但更复杂工程布局下的完整执行日志仍不足
 - `JAVA21` 运行模板已补齐为“编译全部 `.java` 文件 + 按 package 解析启动类”，目录树中的嵌套路径和 package 化入口已不再退化成 `WRONG_ANSWER`
 - 成绩发布、教师侧成绩册和学生侧成绩册已完成第一阶段，但成绩导出和多作业聚合未完成
-- 评测结果已有摘要、`stdout/stderr` 和用例级结果，但完整日志与可复现元数据仍不足
+- 评测结果现已补齐测试点级完整日志、执行命令、`compileArgs / runArgs` 和执行元数据持久化，但评测产物对象化与完整重放仍不足
 
 #### 当前缺口
 
@@ -76,6 +76,7 @@
 - judge 当前同时包含两条执行链：
   - legacy assignment 级执行任务继续依赖 `assignment_judge_profiles / cases`
   - 结构化编程题 question-level judge 通过 `judge_jobs.submission_answer_id` 下沉到答案级
+- judge 当前已支持 RabbitMQ 队列第一阶段与本地异步回退，详细报告先持久化到 `judge_jobs.detail_report_json`
 - 题库题目当前已支持更新与软归档：
   - 默认列表只展示未归档题目
   - 已归档题目仍可按详情回溯，但不能继续被新的 assignment 引用
@@ -148,12 +149,15 @@
 ## 风险记录
 
 - 现有 `assignment_judge_profiles` 是 legacy assignment 级配置；结构化编程题当前已通过 `assignment_questions.config_json` 挂题目级隐藏测试点。
-- `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与产物对象仍未持久化。
+- `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要、详细报告和执行元数据；完整评测产物对象仍未持久化。
 - `programming_workspaces` 已支持 `entryFilePath + sourceFilesJson + artifactIdsJson` 的目录树快照，并兼容 legacy `codeText` 语义；前端目录树交互和逐文件操作仍未实现。
 - `programming_sample_runs` 已支持保存样例试运行时的入口文件与文件树快照，并已支持 `CUSTOM_SCRIPT`；正式评测与试运行的评测产物对象存储仍未落地。
 - 真实 go-judge 集成测试已经替换 fake judge：legacy judge、question-level judge 和样例试运行都改为通过 Testcontainers 启动真实引擎验证。
+- 真实 go-judge 集成测试当前已同时覆盖 RabbitMQ 队列路径，不再只验证应用内事件直连执行。
 - 真实 go-judge `/run` 会返回 `Nonzero Exit Status`，不能再沿用 fake judge 时代的 `Non Zero Exit Status` 字符串。
 - 真实 go-judge 对 `files` 使用联合类型校验，stdin/stdout/stderr 需要按真实对象类型序列化，不能发送带 `null` 字段的混合描述符。
+- 正式评测与样例试运行现在都支持 `compileArgs / runArgs`，并已经由真实 go-judge Testcontainers 覆盖到 C++ 多文件工程。
+- `judge_jobs.detail_report_json` 当前包含测试点级 `stdin / expectedStdout / stdout / stderr / compileCommand / runCommand` 和执行元数据；学生侧报告会脱敏隐藏测试输入输出。
 - 编译失败当前继续映射到 `RUNTIME_ERROR`，通过稳定中文摘要区分“编译失败”和“程序运行失败”；如后续要新增独立 verdict，需要评估 API 兼容和历史数据迁移。
 - 结构化作业一旦落地，旧版“整份文本提交”不能误用于新型作业，必须在业务层显式区分。
 - 学生详情接口不能泄露题库正确答案或 assignment 快照中的 `isCorrect` 信息。

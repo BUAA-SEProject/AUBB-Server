@@ -226,6 +226,50 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
                 .andExpect(jsonPath("$[0].resultSummary").value(org.hamcrest.Matchers.containsString("编译失败")));
     }
 
+    @Test
+    void legacyJudgeJobReportIsAvailableToStudentAndTeacher() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "报告接口实验");
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentToken, assignmentId, "print(input()[::-1])");
+        waitForLatestJudgeJobTerminal(submissionId);
+
+        MvcResult listResult = mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].detailReportAvailable").value(true))
+                .andReturn();
+        Long judgeJobId = readLong(listResult, "$[0].id");
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executionMetadata.mode").value("LEGACY_ASSIGNMENT"))
+                .andExpect(jsonPath("$.executionMetadata.programmingLanguage").value("PYTHON3"))
+                .andExpect(jsonPath("$.caseReports.length()").value(2))
+                .andExpect(jsonPath("$.caseReports[0].stdoutText").value("cba\n"))
+                .andExpect(jsonPath("$.caseReports[0].expectedStdout").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/teacher/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executionMetadata.mode").value("LEGACY_ASSIGNMENT"))
+                .andExpect(jsonPath("$.caseReports[0].expectedStdout").value("cba\n"))
+                .andExpect(jsonPath("$.caseReports[0].runCommand[0]").value("/usr/bin/python3"));
+    }
+
     private void waitForLatestJudgeJobTerminal(Long submissionId) throws Exception {
         long deadline = System.currentTimeMillis() + 8_000L;
         while (System.currentTimeMillis() < deadline) {

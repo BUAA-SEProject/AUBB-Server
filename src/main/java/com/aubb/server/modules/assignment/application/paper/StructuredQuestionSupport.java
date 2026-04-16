@@ -102,7 +102,8 @@ public class StructuredQuestionSupport {
     public String writeConfigJson(AssignmentQuestionConfigInput config) {
         AssignmentQuestionConfigInput safeConfig = config == null
                 ? new AssignmentQuestionConfigInput(
-                        null, null, null, null, null, null, null, null, null, null, null, null, null, null, null)
+                        null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                        null)
                 : config;
         try {
             return objectMapper.writeValueAsString(safeConfig);
@@ -114,7 +115,8 @@ public class StructuredQuestionSupport {
     public AssignmentQuestionConfigInput readConfigInput(String configJson) {
         if (!StringUtils.hasText(configJson)) {
             return new AssignmentQuestionConfigInput(
-                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                    null);
         }
         try {
             return objectMapper.readValue(configJson, AssignmentQuestionConfigInput.class);
@@ -127,7 +129,8 @@ public class StructuredQuestionSupport {
             AssignmentQuestionConfigInput config, boolean revealSensitiveFields) {
         if (config == null) {
             return new AssignmentQuestionConfigView(
-                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                    null, null);
         }
         return new AssignmentQuestionConfigView(
                 config.supportedLanguages(),
@@ -141,6 +144,8 @@ public class StructuredQuestionSupport {
                 config.timeLimitMs(),
                 config.memoryLimitMb(),
                 config.outputLimitKb(),
+                config.compileArgs(),
+                config.runArgs(),
                 config.judgeCases() == null ? 0 : config.judgeCases().size(),
                 config.judgeMode(),
                 revealSensitiveFields ? blankToNull(config.customJudgeScript()) : null,
@@ -235,6 +240,8 @@ public class StructuredQuestionSupport {
         if (config.outputLimitKb() != null && config.outputLimitKb() <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_OUTPUT_LIMIT_INVALID", "编程题输出限制必须大于 0");
         }
+        validateCommandArgs(config.compileArgs(), prefix + "_COMPILE_ARGS_INVALID", "编译参数不能为空白字符串");
+        validateCommandArgs(config.runArgs(), prefix + "_RUN_ARGS_INVALID", "运行参数不能为空白字符串");
         if (ProgrammingJudgeMode.CUSTOM_SCRIPT.equals(config.judgeMode())
                 && !StringUtils.hasText(config.customJudgeScript())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_CUSTOM_SCRIPT_REQUIRED", "自定义脚本模式必须提供评测脚本");
@@ -272,5 +279,16 @@ public class StructuredQuestionSupport {
 
     private String blankToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private void validateCommandArgs(List<String> args, String errorCode, String message) {
+        if (args == null) {
+            return;
+        }
+        for (String arg : args) {
+            if (!StringUtils.hasText(arg)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, errorCode, message);
+            }
+        }
     }
 }

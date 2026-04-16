@@ -17,6 +17,7 @@
 - `src/main/resources/db/migration/V13__programming_workspace_file_tree_phase1.sql`
 - `src/main/resources/db/migration/V14__question_bank_lifecycle_phase2.sql`
 - `src/main/resources/db/migration/V15__question_bank_tags_phase1.sql`
+- `src/main/resources/db/migration/V16__judge_queue_and_reports_phase1.sql`
 
 ## 总览
 
@@ -540,6 +541,7 @@
 | `memory_bytes` | `bigint` | 可空，聚合内存峰值，`>= 0` |
 | `error_message` | `text` | 可空，基础设施失败信息 |
 | `case_results_json` | `text` | 可空，逐测试点摘要 JSON |
+| `detail_report_json` | `text` | 可空，详细评测报告 JSON |
 | `queued_at` | `timestamptz` | 必填，默认 `now()` |
 | `started_at` | `timestamptz` | 可空 |
 | `finished_at` | `timestamptz` | 可空 |
@@ -738,7 +740,7 @@
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
-- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与评测产物对象仍未持久化。
+- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要与详细报告；完整评测产物对象仍未持久化。
 - `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会同时持久化入口文件与目录树源码快照。
 - `assignment_questions.config_json.customJudgeScript` 当前按“脚本内容”语义保存，由 judge 模块固定落盘为 Python checker 执行，不额外引入新表。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。

@@ -380,6 +380,94 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
     }
 
     @Test
+    void programmingAnswerSupportsCompileAndRunArgsAndExposesDetailedReport() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-ARGS", "参数班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createCppArgsProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.compileArgs[0]")
+                        .value("-DANSWER=41"))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.runArgs[0]")
+                        .value("1"))
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        MvcResult submissionResult = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "entryFilePath":"src/main.cpp",
+                                      "files":[
+                                        {
+                                          "path":"src/main.cpp",
+                                          "content":"#include <cstdlib>\\n#include <iostream>\\n#include \\\"math_utils.h\\\"\\nint main(int argc, char** argv) {\\n  std::cout << add(ANSWER, std::atoi(argv[1])) << \\\"\\\\n\\\";\\n}\\n"
+                                        },
+                                        {
+                                          "path":"src/math_utils.cpp",
+                                          "content":"#include \\\"math_utils.h\\\"\\nint add(int left, int right) { return left + right; }\\n"
+                                        },
+                                        {
+                                          "path":"src/math_utils.h",
+                                          "content":"int add(int left, int right);\\n"
+                                        }
+                                      ],
+                                      "programmingLanguage":"CPP17"
+                                    }
+                                  ]
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long answerId = readLong(submissionResult, "$.answers[0].id");
+        waitForLatestAnswerJudgeJobTerminal(answerId);
+
+        MvcResult jobsResult = mockMvc.perform(get("/api/v1/me/submission-answers/{answerId}/judge-jobs", answerId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].score").value(100))
+                .andExpect(jsonPath("$[0].detailReportAvailable").value(true))
+                .andReturn();
+        Long judgeJobId = readLong(jobsResult, "$[0].id");
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executionMetadata.programmingLanguage").value("CPP17"))
+                .andExpect(jsonPath("$.executionMetadata.compileArgs[0]").value("-DANSWER=41"))
+                .andExpect(jsonPath("$.executionMetadata.runArgs[0]").value("1"))
+                .andExpect(jsonPath("$.caseReports[0].stdoutText").value("42\n"))
+                .andExpect(jsonPath("$.caseReports[0].expectedStdout").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/teacher/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.caseReports[0].expectedStdout").value("42\n"))
+                .andExpect(jsonPath("$.caseReports[0].compileCommand").isArray())
+                .andExpect(jsonPath("$.caseReports[0].compileCommand", org.hamcrest.Matchers.hasItem("-DANSWER=41")))
+                .andExpect(jsonPath("$.caseReports[0].runCommand[1]").value("1"));
+    }
+
+    @Test
     void programmingAnswerRunsCustomJudgeScriptAndUsesReturnedCaseScores() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -791,6 +879,63 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 token, offeringId, classId, "[\"PYTHON3\"]", "[\"py\"]", "CUSTOM_SCRIPT", """
                 print("not-json")
                 """);
+    }
+
+    private Long createCppArgsProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"编译参数编程题作业",
+                                  "description":"compile and run args",
+                                  "teachingClassId":%s,
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
+                                  "maxSubmissions":3,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"编程题",
+                                        "questions":[
+                                          {
+                                            "title":"参数化 A+B",
+                                            "prompt":"编译参数与运行参数共同决定输出。",
+                                            "questionType":"PROGRAMMING",
+                                            "score":100,
+                                            "config":{
+                                              "supportedLanguages":["CPP17"],
+                                              "acceptedExtensions":["cpp","h"],
+                                              "allowMultipleFiles":true,
+                                              "allowSampleRun":true,
+                                              "sampleStdinText":"0\\n",
+                                              "sampleExpectedStdout":"42\\n",
+                                              "timeLimitMs":1000,
+                                              "memoryLimitMb":128,
+                                              "outputLimitKb":64,
+                                              "compileArgs":["-DANSWER=41"],
+                                              "runArgs":["1"],
+                                              "judgeMode":"STANDARD_IO",
+                                              "judgeCases":[
+                                                {"stdinText":"0\\n","expectedStdout":"42\\n","score":100}
+                                              ]
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(
+                                        classId,
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .minusDays(1)),
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .plusDays(3)))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn();
+        return readLong(result, "$.id");
     }
 
     private Long createProgrammingAssignment(

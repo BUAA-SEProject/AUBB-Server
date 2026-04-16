@@ -120,6 +120,30 @@ public class JudgeApplicationService {
         return listAnswerJobs(answerId);
     }
 
+    @Transactional(readOnly = true)
+    public JudgeJobReportView getMyJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
+        JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
+        SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
+        if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
+        }
+        if (!courseAuthorizationService.canViewAssignment(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
+        }
+        return toReportView(judgeJob, false);
+    }
+
+    @Transactional(readOnly = true)
+    public JudgeJobReportView getTeacherJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
+        JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
+        SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
+        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        return toReportView(judgeJob, true);
+    }
+
     @Transactional
     public JudgeJobView requeueJudge(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
@@ -221,6 +245,8 @@ public class JudgeApplicationService {
                 entity.getMemoryBytes(),
                 entity.getErrorMessage(),
                 readCaseResults(entity.getCaseResultsJson()),
+                entity.getDetailReportJson() != null
+                        && !entity.getDetailReportJson().isBlank(),
                 entity.getQueuedAt(),
                 entity.getStartedAt(),
                 entity.getFinishedAt(),
@@ -252,6 +278,14 @@ public class JudgeApplicationService {
         return assignment;
     }
 
+    private JudgeJobEntity requireJudgeJob(Long judgeJobId) {
+        JudgeJobEntity judgeJob = judgeJobMapper.selectById(judgeJobId);
+        if (judgeJob == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "JUDGE_JOB_NOT_FOUND", "评测任务不存在");
+        }
+        return judgeJob;
+    }
+
     private void assertJudgeConfigured(Long assignmentId) {
         if (!isJudgeConfigured(assignmentId)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_NOT_CONFIGURED", "当前任务未配置自动评测");
@@ -281,6 +315,64 @@ public class JudgeApplicationService {
         } catch (JacksonException exception) {
             throw new BusinessException(
                     HttpStatus.INTERNAL_SERVER_ERROR, "JUDGE_JOB_CASE_RESULTS_BROKEN", "评测结果详情无法读取");
+        }
+    }
+
+    private JudgeJobReportView toReportView(JudgeJobEntity entity, boolean revealSensitiveFields) {
+        if (entity.getDetailReportJson() == null || entity.getDetailReportJson().isBlank()) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "JUDGE_JOB_REPORT_NOT_READY", "当前评测任务尚未生成详细报告");
+        }
+        JudgeJobStoredReport storedReport = readDetailReport(entity.getDetailReportJson());
+        List<JudgeJobCaseReportView> caseReports = revealSensitiveFields
+                ? storedReport.caseReports()
+                : storedReport.caseReports().stream()
+                        .map(caseReport -> new JudgeJobCaseReportView(
+                                caseReport.caseOrder(),
+                                caseReport.verdict(),
+                                caseReport.score(),
+                                caseReport.maxScore(),
+                                null,
+                                null,
+                                caseReport.stdoutText(),
+                                caseReport.stderrText(),
+                                caseReport.timeMillis(),
+                                caseReport.memoryBytes(),
+                                caseReport.errorMessage(),
+                                caseReport.engineStatus(),
+                                caseReport.exitStatus(),
+                                caseReport.compileCommand(),
+                                caseReport.runCommand()))
+                        .toList();
+        return new JudgeJobReportView(
+                entity.getId(),
+                entity.getSubmissionId(),
+                entity.getSubmissionAnswerId(),
+                entity.getAssignmentId(),
+                entity.getAssignmentQuestionId(),
+                JudgeJobStatus.valueOf(entity.getStatus()),
+                entity.getVerdict() == null ? null : JudgeVerdict.valueOf(entity.getVerdict()),
+                entity.getResultSummary(),
+                entity.getErrorMessage(),
+                storedReport.stdoutText(),
+                storedReport.stderrText(),
+                entity.getScore(),
+                entity.getMaxScore(),
+                entity.getPassedCaseCount(),
+                entity.getTotalCaseCount(),
+                entity.getTimeMillis(),
+                entity.getMemoryBytes(),
+                storedReport.executionMetadata(),
+                caseReports,
+                entity.getQueuedAt(),
+                entity.getStartedAt(),
+                entity.getFinishedAt());
+    }
+
+    private JudgeJobStoredReport readDetailReport(String detailReportJson) {
+        try {
+            return objectMapper.readValue(detailReportJson, JudgeJobStoredReport.class);
+        } catch (JacksonException exception) {
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "JUDGE_JOB_REPORT_BROKEN", "评测详细报告无法读取");
         }
     }
 

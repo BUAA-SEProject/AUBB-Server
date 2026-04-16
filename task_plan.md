@@ -2,11 +2,11 @@
 
 ## 当前目标
 
-根据 `todo.md` 与最新需求，重新核对作业模块当前实现，明确“已完成 / 部分完成 / 尚未开始”的边界，并把后续路线收敛为可持续提交的小切片。当前仓库已经完成课程级与班级级作业发布、结构化试卷快照、分题提交、客观题自动评分、人工批改、assignment 级成绩发布、教师侧成绩册第一阶段、go-judge 题目级自动评测、样例试运行与最小工作区。本轮重点是在不扩散范围的前提下，把真实 go-judge 引擎验证、`JAVA21` 运行时，以及“下一位开发者可直接接手”的仓库口径同步收口。
+根据 `todo.md` 与最新需求，重新核对作业模块当前实现，明确“已完成 / 部分完成 / 尚未开始”的边界，并把后续路线收敛为可持续提交的小切片。当前仓库已经完成课程级与班级级作业发布、结构化试卷快照、分题提交、客观题自动评分、人工批改、assignment 级成绩发布、教师侧成绩册第一阶段、go-judge 题目级自动评测、样例试运行与最小工作区。本轮重点是在不扩散范围的前提下，把真实 go-judge 引擎验证、`JAVA21` 运行时、RabbitMQ 队列第一阶段、详细评测报告，以及“下一位开发者可直接接手”的仓库口径同步收口。
 
 ## 当前阶段
 
-Phases 15 / 16 / 17 / 18 in progress，Phases 20 / 21 / 22 completed
+Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 completed
 
 ## Skills 选择
 
@@ -75,10 +75,21 @@ Phases 15 / 16 / 17 / 18 in progress，Phases 20 / 21 / 22 completed
 
 ### Phase 19：判题可复现性与日志第二阶段
 
-- [ ] 持久化更完整的评测日志与执行元数据
+- [x] 持久化测试点级详细评测日志与执行元数据到 `judge_jobs.detail_report_json`
+- [x] 提供学生 / 教师详细评测报告 API，并按角色脱敏隐藏测试数据
+- [x] 为正式评测补充 `compileArgs / runArgs` 与执行命令可见性
 - [ ] 为正式评测和样例试运行补充更可回放的结果模型
 - [ ] 在受控边界内扩展 `CUSTOM_SCRIPT` 的脚本打包与执行上下文
-- **Status:** pending
+- **Status:** in_progress
+
+### Phase 23：评测队列与详细报告第一阶段
+
+- [x] 新增 RabbitMQ 驱动的评测入队与 consumer 执行链路
+- [x] 保留队列关闭时的应用内异步回退路径
+- [x] 为 legacy judge 和 question-level judge 持久化详细评测报告
+- [x] 新增学生 / 教师详细评测报告接口与真实集成测试
+- [x] 补齐 `compileArgs / runArgs` 与 C++ 多文件正式评测、样例试运行验证
+- **Status:** completed
 
 ### Phase 20：仓库状态检查与文档整理
 
@@ -116,6 +127,8 @@ Phases 15 / 16 / 17 / 18 in progress，Phases 20 / 21 / 22 completed
 | 编译失败继续映射到 `RUNTIME_ERROR` 而不是新增 verdict | 现有 API 和存储枚举已被学生侧、教师侧与样例试运行复用，先稳定摘要口径比扩枚举更稳 |
 | 题库生命周期与成绩导出排在 IDE / 运行时之后 | 这两块重要，但不会阻断学生完成编程题主链路 |
 | 文档入口优先集中到 README / docs/index / repository-structure 三处 | 继续开发时应先解决入口失真，而不是继续新增重复说明文档 |
+| 评测详细报告先落库到 `judge_jobs.detail_report_json`，暂不直接落对象存储 | 先稳定 API 与权限脱敏边界，再决定日志产物对象化策略 |
+| RabbitMQ 队列先做单队列单 consumer 入口，并保留本地异步回退 | 先验证真实引擎与消息链路闭环，避免一次性引入独立 worker 与重试编排 |
 
 ## 错误记录
 
@@ -125,3 +138,4 @@ Phases 15 / 16 / 17 / 18 in progress，Phases 20 / 21 / 22 completed
 | `./mvnw` 在当前环境返回 `Permission denied` | 1 | 改用 `bash ./mvnw ...` 完成格式化与验证，无需修改仓库权限位 |
 | 真实 go-judge 返回 `Nonzero Exit Status` 未被正确映射 | 1 | 扩展 `mapEngineVerdict(...)` 兼容官方状态值，避免把用户代码失败误判为 `SYSTEM_ERROR` |
 | go-judge 对 `files` 数组执行联合类型校验，`null` 字段会触发 400 | 1 | 将 `GoJudgeClient` 的 stdin/stdout/stderr 文件描述符拆成真实联合模型，并为空 stdin 发送空内容而不是 `null` |
+| 评测任务在 RabbitMQ 路径下可能出现 `finished_at < started_at` 约束冲突 | 1 | 在 `JudgeExecutionService` 中将 `startedAt / finishedAt` 归一到不早于排队时间与开始时间，避免时序抖动触发表约束 |

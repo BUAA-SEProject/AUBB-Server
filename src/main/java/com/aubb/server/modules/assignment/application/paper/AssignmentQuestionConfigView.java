@@ -18,6 +18,8 @@ public record AssignmentQuestionConfigView(
         Integer timeLimitMs,
         Integer memoryLimitMb,
         Integer outputLimitKb,
+        List<String> compileArgs,
+        List<String> runArgs,
         Integer judgeCaseCount,
         ProgrammingJudgeMode judgeMode,
         String customJudgeScript,

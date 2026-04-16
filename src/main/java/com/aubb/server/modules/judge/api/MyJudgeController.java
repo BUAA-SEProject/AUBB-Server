@@ -2,6 +2,7 @@ package com.aubb.server.modules.judge.api;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.judge.application.JudgeApplicationService;
+import com.aubb.server.modules.judge.application.JudgeJobReportView;
 import com.aubb.server.modules.judge.application.JudgeJobView;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -31,5 +32,12 @@ public class MyJudgeController {
     public List<JudgeJobView> listAnswerJudgeJobs(
             @PathVariable Long answerId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return judgeApplicationService.listMyAnswerJudgeJobs(answerId, principal);
+    }
+
+    @GetMapping("/judge-jobs/{judgeJobId}/report")
+    @PreAuthorize("isAuthenticated()")
+    public JudgeJobReportView getJudgeJobReport(
+            @PathVariable Long judgeJobId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return judgeApplicationService.getMyJudgeJobReport(judgeJobId, principal);
     }
 }
