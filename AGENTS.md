@@ -17,7 +17,7 @@
 - 当前真实业务进度：Phase 2 平台治理已完成，并已进入课程系统第一切片
 - 公共健康检查端点：`/actuator/health`
 - 默认验证入口：`mvnd verify`
-- 未预装 `mvnd` 时，可使用 `.\mvnw.cmd verify` 或 `./mvnw verify` 通过仓库 wrapper 自动引导对应平台的 `mvnd`
+- 未预装 `mvnd` 时，可使用 `.\mvnw.cmd verify`；当前仓库在 Unix 环境中若 wrapper 无执行位，统一使用 `bash ./mvnw verify` 通过仓库 wrapper 自动引导对应平台的 `mvnd`
 - 项目级 skills 清单： [docs/project-skills.md](docs/project-skills.md)
 
 ## 需求与设计输入
@@ -45,7 +45,7 @@
 10. 默认将平台级权限和课程级权限分开建模，避免在平台治理阶段提前耦合课程域。
 11. 复杂或不直观的业务逻辑应补充简洁中文注释，注释说明“为什么”，不要复述显而易见的代码动作。
 12. 实现前后都要合理使用项目级 Skills，并在计划、执行说明或相关文档中体现技能选择依据。
-13. Java 代码格式化统一使用 `spotless`；提交前至少执行一次 `./mvnw spotless:apply`，验证时由 `./mvnw verify` 兜底。
+13. Java 代码格式化统一使用 `spotless`；提交前至少执行一次 `bash ./mvnw spotless:apply`，验证时由 `mvnd verify` 或 `bash ./mvnw verify` 兜底。
 14. `docs/` 目录只保留长期有效的规范、设计、规格和说明；过程性内容只允许放在仓库根目录工作记忆文件和 `docs/exec-plans/` 中。
 
 ## 变更流程
@@ -85,8 +85,8 @@
 
 ## 验证清单
 
-- 执行 `./mvnw spotless:apply` 或等效格式化命令
-- 执行 `mvnd verify`
+- 执行 `bash ./mvnw spotless:apply` 或等效格式化命令
+- 执行 `mvnd verify`，或在 Unix 环境下使用 `bash ./mvnw verify`
 - 保持 `/actuator/health` 可被公开读取
 - 保持文档链接有效、结构清晰
 - 将非显而易见的决策记录到仓库中

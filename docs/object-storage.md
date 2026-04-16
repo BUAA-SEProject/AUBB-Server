@@ -47,7 +47,7 @@ export AUBB_MINIO_ACCESS_KEY=aubbminio
 export AUBB_MINIO_SECRET_KEY=aubbminio-secret
 export AUBB_MINIO_BUCKET=aubb-assets
 export AUBB_MINIO_AUTO_CREATE_BUCKET=true
-./mvnw spring-boot:run
+bash ./mvnw spring-boot:run
 ```
 
 ## 代码入口

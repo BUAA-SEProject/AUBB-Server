@@ -11,7 +11,7 @@
 - 仓库采用模块优先、模块内分层的结构，后续功能继续挂到 `modules.<module>`
 - PostgreSQL + Flyway 已承接真实业务持久化；MinIO 已提供共享对象存储接入；RabbitMQ、Redis 保留为后续扩展位
 - 仓库文档、执行计划和数据库结构说明能够支撑持续开发
-- `./mvnw verify` 可作为统一验证入口
+- `mvnd verify` 可作为统一验证入口；当前仓库在 Unix 环境下可稳定使用 `bash ./mvnw verify`
 
 ## 非目标
 

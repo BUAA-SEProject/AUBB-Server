@@ -55,9 +55,9 @@
 ## 验证路径
 
 - 每个后续切片都必须先补失败的集成测试，再做最小实现
-- 每个切片至少执行一次 `./mvnw spotless:apply`
+- 每个切片至少执行一次 `bash ./mvnw spotless:apply`
 - 每个切片至少执行对应专项测试
-- 阶段收口执行 `./mvnw clean verify`
+- 阶段收口执行 `bash ./mvnw clean verify`
 - 相关产品规格、数据库结构、架构文档与 `todo.md` 必须同步
 
 ## 决策记录

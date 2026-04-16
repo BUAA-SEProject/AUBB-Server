@@ -160,4 +160,4 @@
 - 结构化编程题自动评测成功后，会把结果回写到 `submission_answers`，使 grading 可继续发布成绩。
 - 教师重新排队后会新增一条新的评测作业历史。
 - 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`。
-- `./mvnw verify` 提供自动化测试证据。
+- `mvnd verify` 或 `bash ./mvnw verify` 提供自动化测试证据。

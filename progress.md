@@ -509,3 +509,31 @@
   - `bash ./mvnw spotless:apply`
   - `bash ./mvnw clean verify`
   - 当前结果：专项均 `BUILD SUCCESS`，全量 `71` 个测试通过
+
+## Session: 2026-04-16 仓库现状检查与接手入口整理
+
+### Phase 22：接手入口与验证路径收口
+
+- **Status:** completed
+- Actions taken:
+  - 重新核对 `README.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/exec-plans/active/README.md`、`ARCHITECTURE.md` 与当前 active 计划是否仍反映真实代码状态
+  - 复查 `todo.md`、`task_plan.md`、`findings.md` 与 `progress.md`，确认下一步优先级仍为在线 IDE、多语言稳定化、题库组卷和成绩导出
+  - 统一主入口文档中的验证命令，显式写明当前 Unix 环境应使用 `bash ./mvnw ...`，避免接手者在 wrapper 执行位上卡住
+  - 保持 `docs/exec-plans/completed/` 作为历史记录，不追溯重写旧计划中的命令示例
+- Files created/modified:
+  - `README.md`
+  - `AGENTS.md`
+  - `docs/development-workflow.md`
+  - `docs/object-storage.md`
+  - `docs/product-specs/platform-baseline.md`
+  - `docs/product-specs/course-system.md`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/product-specs/submission-system.md`
+  - `docs/product-specs/grading-system.md`
+  - `docs/product-specs/judge-system.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - 本轮代码状态复核沿用同日已完成的 `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `71` 个测试通过

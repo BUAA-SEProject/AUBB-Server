@@ -172,3 +172,5 @@
 - `docs/repository-structure.md` 原先的模块列表少了 `grading / judge`，不利于快速定位作业主链路的完整代码入口。
 - `docs/index.md` 原先存在重复入口，且对当前状态的概括少了 `grading` 与学生侧成绩能力。
 - `docs/exec-plans/active/` 中保留已完成计划会误导下一轮开发优先级；活动计划目录应只保留仍在推进的路线图。
+- 当前仓库 Unix 环境下 `./mvnw` 没有稳定执行位，主入口文档应统一显式给出 `bash ./mvnw ...`，否则接手者会在第一步验证上遇到 `Permission denied`。
+- 已完成的 `docs/exec-plans/completed/` 历史计划保留原命令记录即可；真正需要对齐的是 README、AGENTS、开发流程、当前规格和 active 计划这类“面向下一位开发者”的入口文档。
