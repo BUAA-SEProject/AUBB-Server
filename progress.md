@@ -470,3 +470,42 @@
   - `bash ./mvnw spotless:apply`
   - `bash ./mvnw -Dtest=RepositoryStructureTests test`
   - 当前结果：`BUILD SUCCESS`
+
+## Session: 2026-04-16 真实 go-judge 引擎验证与 fake judge 清理
+
+### Phase 21：真实引擎专项回归
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `AbstractRealJudgeIntegrationTest`，统一用 Testcontainers 启动真实 go-judge 与 MinIO，不再使用内存假服务器
+  - 清理 `JudgeIntegrationTests`、`ProgrammingWorkspaceIntegrationTests`、`StructuredProgrammingJudgeIntegrationTests` 中的 fake go-judge 服务器、请求形状断言与 `#FAIL_HTTP` 等旧标记
+  - 将 Java 运行时主矩阵切到 `JAVA21`，保留 `JAVA17` 作为兼容输入
+  - 更新 go-judge 运行镜像与挂载配置，实测 `PYTHON3 / JAVA21 / CPP17` 的真实 `/run` 可执行
+  - 修复真实 go-judge 接入中暴露的问题：
+    - 兼容官方状态值 `Nonzero Exit Status`
+    - `files` 请求体改为真实联合模型，避免带 `null` 字段的伪描述符触发 400
+    - custom judge 无 stdin 时改为空输入，避免协议层拒绝
+    - 扩展编译失败摘要识别，覆盖真实 `javac / g++` 报错样式
+- Files created/modified:
+  - `docker/go-judge/Dockerfile`
+  - `docker/go-judge/mount.yaml`
+  - `src/main/java/com/aubb/server/common/programming/ProgrammingSourceSnapshot.java`
+  - `src/main/java/com/aubb/server/modules/assignment/domain/question/ProgrammingLanguage.java`
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/main/java/com/aubb/server/modules/judge/infrastructure/gojudge/GoJudgeClient.java`
+  - `src/test/java/com/aubb/server/integration/AbstractRealJudgeIntegrationTest.java`
+  - `src/test/java/com/aubb/server/integration/JudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `docker build -t aubb-go-judge-realtest -f docker/go-judge/Dockerfile .`
+  - 真实 `/run` 冒烟：`PYTHON3 / JAVA21 / CPP17` 都返回正确输出
+  - `bash ./mvnw -Dtest=JudgeIntegrationTests test`
+  - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests test`
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw clean verify`
+  - 当前结果：专项均 `BUILD SUCCESS`，全量 `71` 个测试通过

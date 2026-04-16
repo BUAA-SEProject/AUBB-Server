@@ -2,11 +2,11 @@
 
 ## 当前目标
 
-根据 `todo.md` 与最新需求，重新核对作业模块当前实现，明确“已完成 / 部分完成 / 尚未开始”的边界，并把后续路线收敛为可持续提交的小切片。当前仓库已经完成课程级与班级级作业发布、结构化试卷快照、分题提交、客观题自动评分、人工批改、assignment 级成绩发布、教师侧成绩册第一阶段、go-judge 题目级自动评测、样例试运行与最小工作区。本轮重点不是继续堆功能，而是先冻结合理的模块边界和推进顺序。
+根据 `todo.md` 与最新需求，重新核对作业模块当前实现，明确“已完成 / 部分完成 / 尚未开始”的边界，并把后续路线收敛为可持续提交的小切片。当前仓库已经完成课程级与班级级作业发布、结构化试卷快照、分题提交、客观题自动评分、人工批改、assignment 级成绩发布、教师侧成绩册第一阶段、go-judge 题目级自动评测、样例试运行与最小工作区。本轮重点是在不扩散范围的前提下，把真实 go-judge 引擎验证、`JAVA21` 运行时和仓库口径同步收口。
 
 ## 当前阶段
 
-Phases 15 / 16 / 17 / 18 in progress，Phase 20 completed
+Phases 15 / 16 / 17 / 18 in progress，Phases 20 / 21 completed
 
 ## Skills 选择
 
@@ -50,7 +50,8 @@ Phases 15 / 16 / 17 / 18 in progress，Phase 20 completed
 ### Phase 16：多语言运行时稳定化
 
 - [x] 补齐三种语言的样例试运行与正式评测集成测试
-- [x] 固化 `PYTHON3 / JAVA17 / CPP17` 的源码装配与运行模板
+- [x] 固化 `PYTHON3 / JAVA21 / CPP17` 的源码装配与运行模板
+- [x] 保留 `JAVA17` 作为兼容输入，统一映射到现有 Java 运行模板
 - [x] 统一编译失败、运行失败与资源超限的日志摘要格式
 - [ ] 明确当前 V1 支持矩阵与后续扩展语言入口
 - **Status:** in_progress
@@ -87,6 +88,14 @@ Phases 15 / 16 / 17 / 18 in progress，Phase 20 completed
 - [x] 同步根目录接手入口，方便后续直接继续开发
 - **Status:** completed
 
+### Phase 21：真实 go-judge 验证与 fake judge 清理
+
+- [x] 用真实 go-judge Testcontainers 运行 legacy judge、question-level judge 和样例试运行
+- [x] 清理测试中的 fake go-judge 服务器与旧标记断言
+- [x] 修正真实 go-judge 状态映射与 HTTP 请求模型兼容问题
+- [x] 将仓库文档和计划统一到 `JAVA21` 与真实引擎验证口径
+- **Status:** completed
+
 ## 已做决策
 
 | Decision | Rationale |
@@ -96,7 +105,7 @@ Phases 15 / 16 / 17 / 18 in progress，Phase 20 completed
 | `judge` 只负责样例试运行、正式评测和日志产物 | 执行型系统应与题库、人工批改和成绩发布解耦 |
 | `grading` 继续负责人工批改、成绩发布和成绩册 | 评分可见性、反馈和统计应集中在一个域内演进 |
 | 下一优先级先补在线 IDE，再补多语言稳定化 | 当前最显著的产品缺口是“能评测但不像真正 IDE”，先补工作区模型最稳 |
-| 多语言 V1 先收敛为 `PYTHON3 / JAVA17 / CPP17` | 代码和配置已具备这三种语言的基础能力，继续扩语言会放大验证成本 |
+| 多语言 V1 先收敛为 `PYTHON3 / JAVA21 / CPP17` | 代码和配置已具备这三种语言的基础能力，继续扩语言会放大验证成本；`JAVA17` 仅作为兼容输入保留 |
 | 编译失败继续映射到 `RUNTIME_ERROR` 而不是新增 verdict | 现有 API 和存储枚举已被学生侧、教师侧与样例试运行复用，先稳定摘要口径比扩枚举更稳 |
 | 题库生命周期与成绩导出排在 IDE / 运行时之后 | 这两块重要，但不会阻断学生完成编程题主链路 |
 | 文档入口优先集中到 README / docs/index / repository-structure 三处 | 继续开发时应先解决入口失真，而不是继续新增重复说明文档 |
@@ -107,3 +116,5 @@ Phases 15 / 16 / 17 / 18 in progress，Phase 20 completed
 |-------|---------|------------|
 | 暂无本轮实现错误 | 当前阶段以重规划与文档同步为主 | 后续进入实现切片时继续追加 |
 | `./mvnw` 在当前环境返回 `Permission denied` | 1 | 改用 `bash ./mvnw ...` 完成格式化与验证，无需修改仓库权限位 |
+| 真实 go-judge 返回 `Nonzero Exit Status` 未被正确映射 | 1 | 扩展 `mapEngineVerdict(...)` 兼容官方状态值，避免把用户代码失败误判为 `SYSTEM_ERROR` |
+| go-judge 对 `files` 数组执行联合类型校验，`null` 字段会触发 400 | 1 | 将 `GoJudgeClient` 的 stdin/stdout/stderr 文件描述符拆成真实联合模型，并为空 stdin 发送空内容而不是 `null` |

@@ -1,26 +1,13 @@
 package com.aubb.server.integration;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,45 +16,28 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
+@Testcontainers
 @SpringBootTest(properties = {"spring.docker.compose.enabled=false", "aubb.judge.go-judge.enabled=true"})
 @AutoConfigureMockMvc
 @Import(com.aubb.server.TestcontainersConfiguration.class)
-class JudgeIntegrationTests {
-
-    private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
-    private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
-    private static final FakeGoJudgeServer GO_JUDGE_SERVER = new FakeGoJudgeServer();
-
-    static {
-        GO_JUDGE_SERVER.start();
-    }
-
+class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @DynamicPropertySource
-    static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("aubb.judge.go-judge.base-url", GO_JUDGE_SERVER::baseUrl);
-        registry.add("aubb.judge.go-judge.enabled", () -> "true");
-    }
-
     @AfterAll
     static void stopServer() {
-        GO_JUDGE_SERVER.stop();
+        // 真实 go-judge 由 Testcontainers 生命周期管理，这里保留钩子便于后续扩展。
     }
 
     @BeforeEach
     void setUp() {
-        GO_JUDGE_SERVER.reset();
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
@@ -147,14 +117,6 @@ class JudgeIntegrationTests {
                 .andExpect(jsonPath("$[0].maxScore").value(100))
                 .andExpect(jsonPath("$[0].resultSummary").value(org.hamcrest.Matchers.containsString("2/2")));
 
-        assertThat(GO_JUDGE_SERVER.requestCount()).isEqualTo(2);
-        JsonNode firstRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(firstRequest.at("/cmd/0/args/0").asText()).isEqualTo("/usr/bin/python3");
-        assertThat(firstRequest.at("/cmd/0/args/1").asText()).isEqualTo("main.py");
-        assertThat(firstRequest.at("/cmd/0/cpuLimit").asLong()).isEqualTo(1_000_000_000L);
-        assertThat(firstRequest.at("/cmd/0/memoryLimit").asLong()).isEqualTo(134_217_728L);
-        assertThat(firstRequest.at("/cmd/0/files/0/content").asText()).isEqualTo("abc\n");
-
         mockMvc.perform(post("/api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue", submissionId)
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isCreated())
@@ -220,7 +182,7 @@ class JudgeIntegrationTests {
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "运行失败实验");
         publishAssignment(teacherToken, assignmentId);
 
-        Long submissionId = createSubmission(studentToken, assignmentId, "#RUNTIME_ERROR\nprint('boom')");
+        Long submissionId = createSubmission(studentToken, assignmentId, "raise RuntimeError('boom')");
         waitForLatestJudgeJobTerminal(submissionId);
 
         mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
@@ -236,7 +198,7 @@ class JudgeIntegrationTests {
     }
 
     @Test
-    void goJudgeFailureDoesNotBlockSubmissionAndMarksJudgeJobFailed() throws Exception {
+    void syntaxErrorBecomesSuccessfulJudgeJobWithCompileFailureSummary() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -251,16 +213,17 @@ class JudgeIntegrationTests {
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "失败场景实验");
         publishAssignment(teacherToken, assignmentId);
 
-        Long submissionId = createSubmission(studentToken, assignmentId, "#FAIL_HTTP\nprint('boom')");
+        Long submissionId = createSubmission(studentToken, assignmentId, "print(input()[::-1]");
         waitForLatestJudgeJobTerminal(submissionId);
 
         mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].status").value("FAILED"))
-                .andExpect(jsonPath("$[0].verdict").value("SYSTEM_ERROR"))
-                .andExpect(jsonPath("$[0].errorMessage").isNotEmpty());
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[0].verdict").value("RUNTIME_ERROR"))
+                .andExpect(jsonPath("$[0].stderrExcerpt").value(org.hamcrest.Matchers.containsString("SyntaxError")))
+                .andExpect(jsonPath("$[0].resultSummary").value(org.hamcrest.Matchers.containsString("编译失败")));
     }
 
     private void waitForLatestJudgeJobTerminal(Long submissionId) throws Exception {
@@ -499,124 +462,5 @@ class JudgeIntegrationTests {
 
     private String escapeJson(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
-    }
-
-    private static final class FakeGoJudgeServer {
-
-        private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
-        private HttpServer server;
-        private final List<JsonNode> requests = new ArrayList<>();
-
-        void start() {
-            if (server != null) {
-                return;
-            }
-            try {
-                server = HttpServer.create(new InetSocketAddress(0), 0);
-            } catch (IOException exception) {
-                throw new IllegalStateException("无法启动测试 go-judge 服务器", exception);
-            }
-            server.createContext("/run", this::handleRun);
-            server.setExecutor(Executors.newCachedThreadPool());
-            server.start();
-        }
-
-        void stop() {
-            if (server != null) {
-                server.stop(0);
-            }
-        }
-
-        void reset() {
-            synchronized (requests) {
-                requests.clear();
-            }
-        }
-
-        String baseUrl() {
-            return "http://127.0.0.1:" + server.getAddress().getPort();
-        }
-
-        int requestCount() {
-            synchronized (requests) {
-                return requests.size();
-            }
-        }
-
-        List<JsonNode> requests() {
-            synchronized (requests) {
-                return List.copyOf(requests);
-            }
-        }
-
-        private void handleRun(HttpExchange exchange) throws IOException {
-            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writePlain(exchange, 405, "method not allowed");
-                return;
-            }
-            JsonNode request = OBJECT_MAPPER.readTree(exchange.getRequestBody());
-            synchronized (requests) {
-                requests.add(request);
-            }
-
-            String source = request.at("/cmd/0/copyIn/main.py/content").asText();
-            if (source.contains("#FAIL_HTTP")) {
-                writePlain(exchange, 500, "judge unavailable");
-                return;
-            }
-
-            String stdin = request.at("/cmd/0/files/0/content").asText();
-            SimulatedExecution execution = simulateExecution(source, stdin);
-            byte[] response = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
-                    "status",
-                    execution.status(),
-                    "exitStatus",
-                    execution.exitStatus(),
-                    "time",
-                    1_000_000,
-                    "memory",
-                    65_536,
-                    "runTime",
-                    1_000_000,
-                    "files",
-                    Map.of("stdout", execution.stdout(), "stderr", execution.stderr()))));
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, response.length);
-            exchange.getResponseBody().write(response);
-            exchange.close();
-        }
-
-        private SimulatedExecution simulateExecution(String source, String stdin) {
-            if (source.contains("#RUNTIME_ERROR")) {
-                return new SimulatedExecution(
-                        "Non Zero Exit Status", 1, "", "Traceback (most recent call last):\nboom\n");
-            }
-            if (source.contains("#TIME_LIMIT")) {
-                return new SimulatedExecution("Time Limit Exceeded", 1, "", "");
-            }
-            if (source.contains("#MEMORY_LIMIT")) {
-                return new SimulatedExecution("Memory Limit Exceeded", 1, "", "");
-            }
-            if (source.contains("#OUTPUT_LIMIT")) {
-                return new SimulatedExecution("Output Limit Exceeded", 1, "", "");
-            }
-            String stdout =
-                    source.contains("[::-1]") ? new StringBuilder(stripTrailingNewline(stdin)).reverse() + "\n" : stdin;
-            return new SimulatedExecution("Accepted", 0, stdout, "");
-        }
-
-        private void writePlain(HttpExchange exchange, int statusCode, String body) throws IOException {
-            byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(statusCode, payload.length);
-            exchange.getResponseBody().write(payload);
-            exchange.close();
-        }
-
-        private static String stripTrailingNewline(String value) {
-            return value != null && value.endsWith("\n") ? value.substring(0, value.length() - 1) : value;
-        }
-
-        private record SimulatedExecution(String status, int exitStatus, String stdout, String stderr) {}
     }
 }

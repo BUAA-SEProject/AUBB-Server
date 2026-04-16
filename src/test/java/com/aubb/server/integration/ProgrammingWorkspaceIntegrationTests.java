@@ -8,21 +8,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,43 +21,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @SpringBootTest(properties = {"spring.docker.compose.enabled=false", "aubb.judge.go-judge.enabled=true"})
 @AutoConfigureMockMvc
 @Import(com.aubb.server.TestcontainersConfiguration.class)
-class ProgrammingWorkspaceIntegrationTests {
-
-    private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
-    private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
-    private static final FakeGoJudgeServer GO_JUDGE_SERVER = new FakeGoJudgeServer();
-    private static final DockerImageName MINIO_IMAGE =
-            DockerImageName.parse("minio/minio:RELEASE.2025-09-07T16-13-09Z");
-    private static final String MINIO_ACCESS_KEY = "aubbminio";
-    private static final String MINIO_SECRET_KEY = "aubbminio-secret";
-    private static final String MINIO_BUCKET = "aubb-programming-workspace-test";
-
-    @Container
-    static final GenericContainer<?> MINIO_CONTAINER = new GenericContainer<>(MINIO_IMAGE)
-            .withEnv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
-            .withEnv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
-            .withCommand("server", "/data", "--console-address", ":9001")
-            .withExposedPorts(9000, 9001)
-            .waitingFor(Wait.forHttp("/minio/health/live").forPort(9000).forStatusCode(200));
-
-    static {
-        GO_JUDGE_SERVER.start();
-    }
+class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -76,28 +37,13 @@ class ProgrammingWorkspaceIntegrationTests {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @DynamicPropertySource
-    static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("aubb.judge.go-judge.base-url", GO_JUDGE_SERVER::baseUrl);
-        registry.add("aubb.judge.go-judge.enabled", () -> "true");
-        registry.add("aubb.storage.minio.enabled", () -> "true");
-        registry.add("aubb.storage.minio.auto-create-bucket", () -> "true");
-        registry.add(
-                "aubb.storage.minio.endpoint",
-                () -> "http://" + MINIO_CONTAINER.getHost() + ":" + MINIO_CONTAINER.getMappedPort(9000));
-        registry.add("aubb.storage.minio.access-key", () -> MINIO_ACCESS_KEY);
-        registry.add("aubb.storage.minio.secret-key", () -> MINIO_SECRET_KEY);
-        registry.add("aubb.storage.minio.bucket", () -> MINIO_BUCKET);
-    }
-
     @AfterAll
     static void stopServer() {
-        GO_JUDGE_SERVER.stop();
+        // 真实 go-judge 与 MinIO 由 Testcontainers 生命周期管理。
     }
 
     @BeforeEach
     void setUp() {
-        GO_JUDGE_SERVER.reset();
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
@@ -288,12 +234,6 @@ class ProgrammingWorkspaceIntegrationTests {
                 .isEqualTo("main.py");
         assertThat(queryForString("SELECT source_files_json FROM programming_workspaces WHERE user_id = 4"))
                 .contains("helpers/math_utils.py");
-
-        JsonNode request = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(request.at("/cmd/0/copyIn/main.py/content").asText()).contains("from helpers.math_utils import add");
-        assertThat(request.at("/cmd/0/copyIn/helpers~1math_utils.py/content").asText())
-                .contains("def add");
-        assertThat(request.at("/cmd/0/files/0/content").asText()).isEqualTo("1 2\n");
     }
 
     @Test
@@ -318,7 +258,6 @@ class ProgrammingWorkspaceIntegrationTests {
                         .andReturn(),
                 "$.paper.sections[0].questions[0].id");
 
-        GO_JUDGE_SERVER.reset();
         mockMvc.perform(post(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
                                 javaAssignmentId,
@@ -338,23 +277,16 @@ class ProgrammingWorkspaceIntegrationTests {
                                       "content":"final class Calculator {\\n  private Calculator() {}\\n  static int add(int left, int right) {\\n    return left + right;\\n  }\\n}"
                                     }
                                   ],
-                                  "programmingLanguage":"JAVA17"
+                                  "programmingLanguage":"JAVA21"
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.programmingLanguage").value("JAVA17"))
+                .andExpect(jsonPath("$.programmingLanguage").value("JAVA21"))
                 .andExpect(jsonPath("$.entryFilePath").value("Main.java"))
                 .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.stdoutText").value("3\n"))
                 .andExpect(jsonPath("$.files[1].path").value("Calculator.java"));
 
-        JsonNode javaRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(javaRequest.at("/cmd/0/args/2").asText())
-                .contains("/usr/bin/javac -encoding UTF-8 -d . Calculator.java Main.java && /usr/bin/java -cp . Main");
-        assertThat(javaRequest.at("/cmd/0/copyIn/Main.java/content").asText()).contains("Calculator.add(a, b)");
-        assertThat(javaRequest.at("/cmd/0/copyIn/Calculator.java/content").asText())
-                .contains("static int add");
-
-        GO_JUDGE_SERVER.reset();
         mockMvc.perform(post(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
                                 javaAssignmentId,
@@ -374,27 +306,15 @@ class ProgrammingWorkspaceIntegrationTests {
                                       "content":"package solutions;\\nfinal class Calculator {\\n  private Calculator() {}\\n  static int add(int left, int right) {\\n    return left + right;\\n  }\\n}"
                                     }
                                   ],
-                                  "programmingLanguage":"JAVA17"
+                                  "programmingLanguage":"JAVA21"
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.programmingLanguage").value("JAVA17"))
+                .andExpect(jsonPath("$.programmingLanguage").value("JAVA21"))
                 .andExpect(jsonPath("$.entryFilePath").value("solutions/Main.java"))
                 .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.stdoutText").value("3\n"))
                 .andExpect(jsonPath("$.files[1].path").value("solutions/Calculator.java"));
-
-        JsonNode nestedJavaRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(nestedJavaRequest.at("/cmd/0/args/2").asText())
-                .contains("/usr/bin/javac -encoding UTF-8 -d . solutions/Calculator.java solutions/Main.java"
-                        + " && /usr/bin/java -cp . solutions.Main");
-        assertThat(nestedJavaRequest
-                        .at("/cmd/0/copyIn/solutions~1Main.java/content")
-                        .asText())
-                .contains("package solutions;");
-        assertThat(nestedJavaRequest
-                        .at("/cmd/0/copyIn/solutions~1Calculator.java/content")
-                        .asText())
-                .contains("static int add");
 
         Long cppAssignmentId = createCppProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, cppAssignmentId);
@@ -405,7 +325,6 @@ class ProgrammingWorkspaceIntegrationTests {
                         .andReturn(),
                 "$.paper.sections[0].questions[0].id");
 
-        GO_JUDGE_SERVER.reset();
         mockMvc.perform(post(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
                                 cppAssignmentId,
@@ -432,13 +351,8 @@ class ProgrammingWorkspaceIntegrationTests {
                 .andExpect(jsonPath("$.programmingLanguage").value("CPP17"))
                 .andExpect(jsonPath("$.entryFilePath").value("main.cpp"))
                 .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.stdoutText").value("3\n"))
                 .andExpect(jsonPath("$.files[1].path").value("calc.h"));
-
-        JsonNode cppRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(cppRequest.at("/cmd/0/args/2").asText())
-                .contains("/usr/bin/g++ -std=c++17 -O2 main.cpp -o main && ./main");
-        assertThat(cppRequest.at("/cmd/0/copyIn/main.cpp/content").asText()).contains("#include \"calc.h\"");
-        assertThat(cppRequest.at("/cmd/0/copyIn/calc.h/content").asText()).contains("inline int add");
     }
 
     @Test
@@ -463,7 +377,6 @@ class ProgrammingWorkspaceIntegrationTests {
                         .andReturn(),
                 "$.paper.sections[0].questions[0].id");
 
-        GO_JUDGE_SERVER.reset();
         mockMvc.perform(post(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
                                 assignmentId,
@@ -479,13 +392,13 @@ class ProgrammingWorkspaceIntegrationTests {
                                       "content":"// #COMPILE_ERROR\\npublic class Main {\\n  public static void main(String[] args) {\\n    System.out.println(1)\\n  }\\n}"
                                     }
                                   ],
-                                  "programmingLanguage":"JAVA17"
+                                  "programmingLanguage":"JAVA21"
                                 }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.verdict").value("RUNTIME_ERROR"))
-                .andExpect(jsonPath("$.stderrText").value(org.hamcrest.Matchers.containsString("Compilation failed")))
+                .andExpect(jsonPath("$.stderrText").value(org.hamcrest.Matchers.containsString("error:")))
                 .andExpect(jsonPath("$.resultSummary").value(org.hamcrest.Matchers.containsString("编译失败")));
     }
 
@@ -552,19 +465,6 @@ class ProgrammingWorkspaceIntegrationTests {
         assertThat(queryForInt("SELECT COUNT(*) FROM submissions")).isZero();
         assertThat(queryForInt("SELECT COUNT(*) FROM judge_jobs")).isZero();
         assertThat(queryForInt("SELECT COUNT(*) FROM programming_sample_runs")).isEqualTo(1);
-        assertThat(GO_JUDGE_SERVER.requests()).hasSize(2);
-        assertThat(GO_JUDGE_SERVER
-                        .requests()
-                        .get(1)
-                        .at("/cmd/0/copyIn/_aubb_custom_judge.py/content")
-                        .asText())
-                .contains("#ALLOW_OFF_BY_ONE");
-        assertThat(GO_JUDGE_SERVER
-                        .requests()
-                        .get(1)
-                        .at("/cmd/0/copyIn/_aubb_judge_context.json/content")
-                        .asText())
-                .contains("\"sampleRun\":true");
     }
 
     private Long uploadArtifact(String token, Long assignmentId, String filename, String contentType, String content)
@@ -708,7 +608,7 @@ class ProgrammingWorkspaceIntegrationTests {
 
     private Long createJavaProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
         return createProgrammingAssignment(
-                token, offeringId, classId, "[\"JAVA17\"]", "[\"java\"]", "STANDARD_IO", null);
+                token, offeringId, classId, "[\"JAVA21\"]", "[\"java\"]", "STANDARD_IO", null);
     }
 
     private Long createCppProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
@@ -840,206 +740,5 @@ class ProgrammingWorkspaceIntegrationTests {
 
     private String queryForString(String sql, Object... args) {
         return jdbcTemplate.query(sql, rs -> rs.next() ? rs.getString(1) : null, args);
-    }
-
-    private static final class FakeGoJudgeServer {
-
-        private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
-        private HttpServer server;
-        private final List<JsonNode> requests = new ArrayList<>();
-
-        void start() {
-            try {
-                server = HttpServer.create(new InetSocketAddress(0), 0);
-                server.createContext("/run", this::handleRun);
-                server.setExecutor(Executors.newSingleThreadExecutor());
-                server.start();
-            } catch (IOException exception) {
-                throw new IllegalStateException("无法启动 fake go-judge", exception);
-            }
-        }
-
-        void stop() {
-            if (server != null) {
-                server.stop(0);
-            }
-        }
-
-        void reset() {
-            requests.clear();
-        }
-
-        String baseUrl() {
-            return "http://127.0.0.1:" + server.getAddress().getPort();
-        }
-
-        List<JsonNode> requests() {
-            return requests;
-        }
-
-        private void handleRun(HttpExchange exchange) throws IOException {
-            byte[] requestBytes = exchange.getRequestBody().readAllBytes();
-            JsonNode request = OBJECT_MAPPER.readTree(requestBytes);
-            requests.add(request);
-
-            if ("_aubb_custom_judge.py".equals(request.at("/cmd/0/args/1").asText())) {
-                handleCustomJudge(exchange, request);
-                return;
-            }
-
-            String stdin = request.at("/cmd/0/files/0/content").asText();
-            SimulatedExecution execution = simulateProgramExecution(request, stdin);
-            byte[] responseBytes = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
-                    "status",
-                    execution.status(),
-                    "exitStatus",
-                    execution.exitStatus(),
-                    "time",
-                    1_500_000L,
-                    "memory",
-                    4_096L,
-                    "runTime",
-                    1_700_000L,
-                    "files",
-                    Map.of("stdout", execution.stdout(), "stderr", execution.stderr()))));
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, responseBytes.length);
-            exchange.getResponseBody().write(responseBytes);
-            exchange.close();
-        }
-
-        private SimulatedExecution simulateProgramExecution(JsonNode request, String stdin) {
-            String markerSource = readMarkerSource(request);
-            if (markerSource.contains("#RUNTIME_ERROR")) {
-                return new SimulatedExecution(
-                        "Non Zero Exit Status", 1, "", "Traceback (most recent call last):\nboom\n");
-            }
-            if (markerSource.contains("#TIME_LIMIT")) {
-                return new SimulatedExecution("Time Limit Exceeded", 1, "", "");
-            }
-            if (markerSource.contains("#MEMORY_LIMIT")) {
-                return new SimulatedExecution("Memory Limit Exceeded", 1, "", "");
-            }
-            if (markerSource.contains("#OUTPUT_LIMIT")) {
-                return new SimulatedExecution("Output Limit Exceeded", 1, "", "");
-            }
-            if (markerSource.contains("#COMPILE_ERROR")) {
-                return new SimulatedExecution(
-                        "Non Zero Exit Status", 1, "", "Compilation failed: simulated compiler error\n");
-            }
-            return new SimulatedExecution("Accepted", 0, simulateProgramStdout(request, stdin), "");
-        }
-
-        private String simulateProgramStdout(JsonNode request, String stdin) {
-            String pythonSource = readCopyInContentBySuffix(request, "main.py");
-            if (!pythonSource.isEmpty()) {
-                if (pythonSource.contains("print(a + b - 1)")) {
-                    return addFromStdin(stdin, -1);
-                }
-                String helper = readCopyInContentBySuffix(request, "helpers/math_utils.py");
-                if (pythonSource.contains("from helpers.math_utils import add") && helper.contains("def add")) {
-                    return addFromStdin(stdin, 0);
-                }
-            }
-
-            String javaSource = readCopyInContentBySuffix(request, "Main.java");
-            if (!javaSource.isEmpty()) {
-                String helper = readCopyInContentBySuffix(request, "Calculator.java");
-                if (javaSource.contains("Calculator.add(a, b)") && helper.contains("static int add")) {
-                    return addFromStdin(stdin, 0);
-                }
-            }
-
-            String cppSource = readCopyInContentBySuffix(request, "main.cpp");
-            if (!cppSource.isEmpty()) {
-                String helper = readCopyInContentBySuffix(request, "calc.h");
-                if (cppSource.contains("#include \"calc.h\"") && helper.contains("inline int add")) {
-                    return addFromStdin(stdin, 0);
-                }
-            }
-            return "0\n";
-        }
-
-        private String readMarkerSource(JsonNode request) {
-            for (String path : List.of("main.py", "Main.java", "main.cpp")) {
-                String source = readCopyInContentBySuffix(request, path);
-                if (!source.isEmpty()) {
-                    return source;
-                }
-            }
-            return "";
-        }
-
-        private String readCopyInContentBySuffix(JsonNode request, String suffix) {
-            JsonNode copyIn = request.at("/cmd/0/copyIn");
-            if (!copyIn.isObject()) {
-                return "";
-            }
-            java.util.Iterator<String> fieldNames = copyIn.fieldNames();
-            while (fieldNames.hasNext()) {
-                String path = fieldNames.next();
-                if (path.equals(suffix) || path.endsWith("/" + suffix)) {
-                    return copyIn.path(path).path("content").asText();
-                }
-            }
-            return "";
-        }
-
-        private String readCopyInContent(JsonNode request, String path) {
-            return request.at("/cmd/0/copyIn/" + escapeJsonPointer(path) + "/content")
-                    .asText();
-        }
-
-        private String addFromStdin(String stdin, int delta) {
-            String[] parts = stdin.strip().split("\\s+");
-            return (Integer.parseInt(parts[0]) + Integer.parseInt(parts[1]) + delta) + "\n";
-        }
-
-        private String escapeJsonPointer(String path) {
-            return path.replace("~", "~0").replace("/", "~1");
-        }
-
-        private void handleCustomJudge(HttpExchange exchange, JsonNode request) throws IOException {
-            String script =
-                    request.at("/cmd/0/copyIn/_aubb_custom_judge.py/content").asText();
-            String actual =
-                    request.at("/cmd/0/copyIn/_aubb_actual_stdout.txt/content").asText();
-            String expected = request.at("/cmd/0/copyIn/_aubb_expected_stdout.txt/content")
-                    .asText();
-
-            String stdout;
-            if (script.contains("#ALLOW_OFF_BY_ONE")) {
-                int actualValue = Integer.parseInt(actual.strip());
-                int expectedValue = Integer.parseInt(expected.strip());
-                if (Math.abs(actualValue - expectedValue) <= 1) {
-                    stdout = "{\"verdict\":\"ACCEPTED\",\"message\":\"允许 1 的误差\"}";
-                } else {
-                    stdout = "{\"verdict\":\"WRONG_ANSWER\",\"message\":\"超出允许误差\"}";
-                }
-            } else {
-                stdout = "{\"verdict\":\"WRONG_ANSWER\",\"message\":\"未知脚本\"}";
-            }
-
-            byte[] responseBytes = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
-                    "status",
-                    "Accepted",
-                    "exitStatus",
-                    0,
-                    "time",
-                    1_500_000L,
-                    "memory",
-                    4_096L,
-                    "runTime",
-                    1_700_000L,
-                    "files",
-                    Map.of("stdout", stdout, "stderr", ""))));
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, responseBytes.length);
-            exchange.getResponseBody().write(responseBytes);
-            exchange.close();
-        }
-
-        private record SimulatedExecution(String status, int exitStatus, String stdout, String stderr) {}
     }
 }

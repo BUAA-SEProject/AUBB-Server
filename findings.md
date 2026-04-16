@@ -22,16 +22,16 @@
 
 - 题库管理已补齐更新、归档、标签和标签精确检索第一阶段，但仍缺分类与更完整组卷体验
 - 编程题后端已支持 `entryFilePath + files + artifactIds` 的目录树快照、样例试运行和正式评测复用，但前端目录树交互与逐文件操作尚未补齐
-- 多语言运行时已有 `PYTHON3 / JAVA17 / CPP17` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这三种语言，但日志一致性与更复杂工程布局仍不足
+- 多语言运行时已有 `PYTHON3 / JAVA21 / CPP17` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这三种语言，但日志一致性与更复杂工程布局仍不足；`JAVA17` 当前仅作为兼容输入保留
 - 编译失败、运行失败和资源超限的摘要口径已在 legacy judge、question-level judge 与样例试运行三条链路上完成第一阶段统一，但更复杂工程布局下的完整执行日志仍不足
-- `JAVA17` 运行模板已补齐为“编译全部 `.java` 文件 + 按 package 解析启动类”，目录树中的嵌套路径和 package 化入口已不再退化成 `WRONG_ANSWER`
+- `JAVA21` 运行模板已补齐为“编译全部 `.java` 文件 + 按 package 解析启动类”，目录树中的嵌套路径和 package 化入口已不再退化成 `WRONG_ANSWER`
 - 成绩发布、教师侧成绩册和学生侧成绩册已完成第一阶段，但成绩导出和多作业聚合未完成
 - 评测结果已有摘要、`stdout/stderr` 和用例级结果，但完整日志与可复现元数据仍不足
 
 #### 当前缺口
 
 - 目录树工作区、多文件编辑、入口文件选择和工作区快照
-- `PYTHON3 / JAVA17 / CPP17` 三语言完整验证矩阵
+- `PYTHON3 / JAVA21 / CPP17` 三语言完整验证矩阵
 - 题库分类与更稳定的组卷编辑能力
 - 成绩导出和后续多作业总评
 - 更可回放的评测日志、执行元数据与产物对象
@@ -151,6 +151,9 @@
 - `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与产物对象仍未持久化。
 - `programming_workspaces` 已支持 `entryFilePath + sourceFilesJson + artifactIdsJson` 的目录树快照，并兼容 legacy `codeText` 语义；前端目录树交互和逐文件操作仍未实现。
 - `programming_sample_runs` 已支持保存样例试运行时的入口文件与文件树快照，并已支持 `CUSTOM_SCRIPT`；正式评测与试运行的评测产物对象存储仍未落地。
+- 真实 go-judge 集成测试已经替换 fake judge：legacy judge、question-level judge 和样例试运行都改为通过 Testcontainers 启动真实引擎验证。
+- 真实 go-judge `/run` 会返回 `Nonzero Exit Status`，不能再沿用 fake judge 时代的 `Non Zero Exit Status` 字符串。
+- 真实 go-judge 对 `files` 使用联合类型校验，stdin/stdout/stderr 需要按真实对象类型序列化，不能发送带 `null` 字段的混合描述符。
 - 编译失败当前继续映射到 `RUNTIME_ERROR`，通过稳定中文摘要区分“编译失败”和“程序运行失败”；如后续要新增独立 verdict，需要评估 API 兼容和历史数据迁移。
 - 结构化作业一旦落地，旧版“整份文本提交”不能误用于新型作业，必须在业务层显式区分。
 - 学生详情接口不能泄露题库正确答案或 assignment 快照中的 `isCorrect` 信息。

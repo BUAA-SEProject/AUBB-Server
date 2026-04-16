@@ -18,7 +18,11 @@ public interface GoJudgeClient {
             int procLimit,
             Map<String, CopyInFile> copyIn) {}
 
-    record FileDescriptor(String content, String name, Long max) {}
+    sealed interface FileDescriptor permits MemoryFileDescriptor, CollectorFileDescriptor {}
+
+    record MemoryFileDescriptor(String content) implements FileDescriptor {}
+
+    record CollectorFileDescriptor(String name, long max) implements FileDescriptor {}
 
     record CopyInFile(String content) {}
 

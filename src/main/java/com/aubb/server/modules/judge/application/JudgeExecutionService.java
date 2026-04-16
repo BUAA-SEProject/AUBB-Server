@@ -23,9 +23,10 @@ import com.aubb.server.modules.judge.domain.JudgeVerdict;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobEntity;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobMapper;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient;
+import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.CollectorFileDescriptor;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.Command;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.CopyInFile;
-import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.FileDescriptor;
+import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.MemoryFileDescriptor;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.RunRequest;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.RunResult;
 import com.aubb.server.modules.submission.domain.answer.SubmissionAnswerGradingStatus;
@@ -648,9 +649,9 @@ public class JudgeExecutionService {
         RunRequest request = new RunRequest(List.of(new Command(
                 args,
                 List.of(
-                        new FileDescriptor(stdinText, null, null),
-                        new FileDescriptor(null, "stdout", outputLimitBytes),
-                        new FileDescriptor(null, "stderr", outputLimitBytes)),
+                        new MemoryFileDescriptor(safeContent(stdinText)),
+                        new CollectorFileDescriptor("stdout", outputLimitBytes),
+                        new CollectorFileDescriptor("stderr", outputLimitBytes)),
                 cpuLimitNanos,
                 clockLimitNanos,
                 memoryLimitBytes,
@@ -788,7 +789,7 @@ public class JudgeExecutionService {
         String entryFileName = sourceBundle.entryFileName();
         return switch (language) {
             case PYTHON3 -> List.of("/usr/bin/python3", entryFileName);
-            case JAVA17 -> {
+            case JAVA21, JAVA17 -> {
                 List<String> javaSourceFiles = sourceBundle.copyIn().keySet().stream()
                         .filter(path -> path.endsWith(".java"))
                         .sorted()
@@ -797,13 +798,16 @@ public class JudgeExecutionService {
                 yield List.of(
                         "/bin/sh",
                         "-lc",
-                        "/usr/bin/javac -encoding UTF-8 -d . "
+                        "/opt/java/openjdk/bin/javac -encoding UTF-8 -d . "
                                 + String.join(" ", javaSourceFiles)
-                                + " && /usr/bin/java -cp . "
+                                + " && /opt/java/openjdk/bin/java -cp . "
                                 + launchClassName);
             }
             case CPP17 ->
-                List.of("/bin/sh", "-lc", "/usr/bin/g++ -std=c++17 -O2 " + entryFileName + " -o main && ./main");
+                List.of(
+                        "/bin/sh",
+                        "-lc",
+                        "/usr/bin/g++ -B/usr/bin -std=c++17 -O2 " + entryFileName + " -o main && ./main");
         };
     }
 
@@ -904,7 +908,8 @@ public class JudgeExecutionService {
             case "Time Limit Exceeded" -> JudgeVerdict.TIME_LIMIT_EXCEEDED;
             case "Memory Limit Exceeded" -> JudgeVerdict.MEMORY_LIMIT_EXCEEDED;
             case "Output Limit Exceeded" -> JudgeVerdict.OUTPUT_LIMIT_EXCEEDED;
-            case "Non Zero Exit Status", "Signalled", "Dangerous Syscall" -> JudgeVerdict.RUNTIME_ERROR;
+            case "Nonzero Exit Status", "Non Zero Exit Status", "Signalled", "Dangerous Syscall" ->
+                JudgeVerdict.RUNTIME_ERROR;
             case "Internal Error", "File Error" -> JudgeVerdict.SYSTEM_ERROR;
             default -> JudgeVerdict.SYSTEM_ERROR;
         };
@@ -974,7 +979,14 @@ public class JudgeExecutionService {
                 || normalized.contains("compile error")
                 || normalized.contains("syntaxerror")
                 || normalized.contains("javac")
-                || normalized.contains("g++");
+                || normalized.contains("g++")
+                || (normalized.contains(" error:")
+                        && (normalized.contains(".java:")
+                                || normalized.contains(".cpp:")
+                                || normalized.contains(".cc:")
+                                || normalized.contains(".cxx:")
+                                || normalized.contains(".h:")
+                                || normalized.contains(".hpp:")));
     }
 
     private long nanosToMillis(Long nanos) {

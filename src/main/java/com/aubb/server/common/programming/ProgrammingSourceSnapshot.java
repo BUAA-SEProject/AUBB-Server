@@ -41,7 +41,7 @@ public record ProgrammingSourceSnapshot(String entryFilePath, List<ProgrammingSo
         }
         return switch (programmingLanguage) {
             case PYTHON3 -> "main.py";
-            case JAVA17 -> "Main.java";
+            case JAVA21, JAVA17 -> "Main.java";
             case CPP17 -> "main.cpp";
         };
     }

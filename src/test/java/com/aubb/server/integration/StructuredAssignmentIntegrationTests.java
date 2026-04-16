@@ -650,7 +650,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                             "questionType":"PROGRAMMING",
                                             "score":20,
                                             "config":{
-                                              "supportedLanguages":["PYTHON3","JAVA17"],
+                                              "supportedLanguages":["PYTHON3","JAVA21"],
                                               "allowMultipleFiles":true,
                                               "allowSampleRun":true,
                                               "sampleStdinText":"1 2\\n",
