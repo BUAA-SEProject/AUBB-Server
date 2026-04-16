@@ -1,6 +1,8 @@
 package com.aubb.server.modules.assignment.application.paper;
 
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.common.programming.ProgrammingSourceFile;
+import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingJudgeMode;
 import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankQuestionOptionEntity;
@@ -8,6 +10,7 @@ import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentQuestio
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -19,6 +22,12 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 @RequiredArgsConstructor
 public class StructuredQuestionSupport {
+
+    private static final int MAX_CODE_TEXT_LENGTH = 50_000;
+    private static final int MAX_TEMPLATE_FILE_COUNT = 20;
+    private static final int MAX_TEMPLATE_DIRECTORY_COUNT = 40;
+    private static final int MAX_SOURCE_FILE_PATH_LENGTH = 200;
+    private static final Pattern SAFE_SOURCE_FILE_PATH = Pattern.compile("^[A-Za-z0-9._/-]+$");
 
     private final ObjectMapper objectMapper;
 
@@ -103,7 +112,7 @@ public class StructuredQuestionSupport {
         AssignmentQuestionConfigInput safeConfig = config == null
                 ? new AssignmentQuestionConfigInput(
                         null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                        null)
+                        null, null, null, null)
                 : config;
         try {
             return objectMapper.writeValueAsString(safeConfig);
@@ -116,7 +125,7 @@ public class StructuredQuestionSupport {
         if (!StringUtils.hasText(configJson)) {
             return new AssignmentQuestionConfigInput(
                     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                    null);
+                    null, null, null, null);
         }
         try {
             return objectMapper.readValue(configJson, AssignmentQuestionConfigInput.class);
@@ -130,7 +139,7 @@ public class StructuredQuestionSupport {
         if (config == null) {
             return new AssignmentQuestionConfigView(
                     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                    null, null);
+                    null, null, null, null, null);
         }
         return new AssignmentQuestionConfigView(
                 config.supportedLanguages(),
@@ -141,6 +150,9 @@ public class StructuredQuestionSupport {
                 config.allowSampleRun(),
                 config.sampleStdinText(),
                 config.sampleExpectedStdout(),
+                config.templateEntryFilePath(),
+                config.templateDirectories(),
+                config.templateFiles(),
                 config.timeLimitMs(),
                 config.memoryLimitMb(),
                 config.outputLimitKb(),
@@ -242,6 +254,7 @@ public class StructuredQuestionSupport {
         }
         validateCommandArgs(config.compileArgs(), prefix + "_COMPILE_ARGS_INVALID", "编译参数不能为空白字符串");
         validateCommandArgs(config.runArgs(), prefix + "_RUN_ARGS_INVALID", "运行参数不能为空白字符串");
+        validateProgrammingTemplate(config, prefix);
         if (ProgrammingJudgeMode.CUSTOM_SCRIPT.equals(config.judgeMode())
                 && !StringUtils.hasText(config.customJudgeScript())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_CUSTOM_SCRIPT_REQUIRED", "自定义脚本模式必须提供评测脚本");
@@ -290,5 +303,138 @@ public class StructuredQuestionSupport {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, errorCode, message);
             }
         }
+    }
+
+    private void validateProgrammingTemplate(AssignmentQuestionConfigInput config, String prefix) {
+        List<ProgrammingSourceFile> templateFiles = config.templateFiles() == null ? List.of() : config.templateFiles();
+        List<String> templateDirectories =
+                config.templateDirectories() == null ? List.of() : normalizeDirectories(config.templateDirectories());
+        boolean hasTemplate = StringUtils.hasText(config.templateEntryFilePath())
+                || !templateFiles.isEmpty()
+                || !templateDirectories.isEmpty();
+        if (!hasTemplate) {
+            return;
+        }
+        ProgrammingSourceSnapshot templateSnapshot = ProgrammingSourceSnapshot.fromInput(
+                config.supportedLanguages().getFirst(), null, config.templateEntryFilePath(), templateFiles);
+        validateTemplateFiles(templateSnapshot, prefix);
+        validateTemplateDirectories(templateDirectories, prefix);
+        int totalFileCount = templateFiles.size();
+        if (config.maxFileCount() != null && totalFileCount > config.maxFileCount()) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_FILE_LIMIT_EXCEEDED", "模板源码文件数量超过题目限制");
+        }
+        if (!Boolean.TRUE.equals(config.allowMultipleFiles()) && totalFileCount > 1) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_MULTIPLE_FILES_DISABLED", "当前题目不允许模板包含多个源码文件");
+        }
+        LinkedHashSet<String> acceptedExtensions = normalizeExtensions(config.acceptedExtensions());
+        if (!acceptedExtensions.isEmpty()) {
+            for (ProgrammingSourceFile file : templateFiles) {
+                if (!acceptedExtensions.contains(extensionOf(file.path()))) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_FILE_EXTENSION_INVALID", "模板源码文件扩展名不符合题目限制");
+                }
+            }
+        }
+        if (config.maxFileSizeMb() != null) {
+            long maxFileSizeBytes = config.maxFileSizeMb() * 1024L * 1024L;
+            for (ProgrammingSourceFile file : templateFiles) {
+                if (safeContent(file.content()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                        > maxFileSizeBytes) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_FILE_SIZE_EXCEEDED", "模板源码文件大小超过题目限制");
+                }
+            }
+        }
+    }
+
+    private void validateTemplateFiles(ProgrammingSourceSnapshot sourceSnapshot, String prefix) {
+        if (sourceSnapshot.files().size() > MAX_TEMPLATE_FILE_COUNT) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_FILE_LIMIT_EXCEEDED", "模板源码文件数量超过限制");
+        }
+        LinkedHashSet<String> normalizedPaths = new LinkedHashSet<>();
+        for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+            if (!isSafePath(file.path())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_SOURCE_PATH_INVALID", "模板源码文件路径不合法");
+            }
+            if (!normalizedPaths.add(file.path())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_SOURCE_PATH_DUPLICATED", "模板源码文件路径不能重复");
+            }
+            if (safeContent(file.content()).length() > MAX_CODE_TEXT_LENGTH) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_CODE_TOO_LONG", "模板源码正文长度超过限制");
+            }
+        }
+        if (!sourceSnapshot.files().isEmpty() && !normalizedPaths.contains(sourceSnapshot.entryFilePath())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_ENTRY_FILE_INVALID", "模板入口文件必须出现在模板源码列表中");
+        }
+    }
+
+    private void validateTemplateDirectories(List<String> directories, String prefix) {
+        if (directories.size() > MAX_TEMPLATE_DIRECTORY_COUNT) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_DIRECTORY_LIMIT_EXCEEDED", "模板目录数量超过限制");
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String directory : directories) {
+            if (!isSafePath(directory)) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_DIRECTORY_INVALID", "模板目录路径不合法");
+            }
+            if (!normalized.add(directory)) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_DIRECTORY_DUPLICATED", "模板目录路径不能重复");
+            }
+        }
+    }
+
+    private List<String> normalizeDirectories(List<String> directories) {
+        if (directories == null || directories.isEmpty()) {
+            return List.of();
+        }
+        return directories.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .toList();
+    }
+
+    private LinkedHashSet<String> normalizeExtensions(List<String> extensions) {
+        if (extensions == null || extensions.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return extensions.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .map(extension -> extension.startsWith(".") ? extension.substring(1) : extension)
+                .map(String::toLowerCase)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private String extensionOf(String filename) {
+        if (!StringUtils.hasText(filename) || !filename.contains(".")) {
+            return "";
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    private boolean isSafePath(String path) {
+        return StringUtils.hasText(path)
+                && path.length() <= MAX_SOURCE_FILE_PATH_LENGTH
+                && !path.startsWith("/")
+                && !path.endsWith("/")
+                && !path.contains("\\")
+                && !path.contains("//")
+                && !path.contains("/./")
+                && !path.startsWith("./")
+                && !path.contains("../")
+                && SAFE_SOURCE_FILE_PATH.matcher(path).matches();
+    }
+
+    private String safeContent(String content) {
+        return content == null ? "" : content;
     }
 }

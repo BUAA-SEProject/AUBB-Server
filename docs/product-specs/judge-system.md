@@ -25,8 +25,9 @@
   - 详细评测报告回写到 `judge_jobs.detail_report_json`
 - 当前支持结构化编程题样例试运行：
   - 独立的 `programming_sample_runs` 历史
-  - 单样例输入输出比对
-  - 完整 `stdout / stderr` 记录
+  - 单样例或自定义标准输入运行
+  - 可直接使用显式源码快照、当前工作区或历史工作区修订
+  - 完整 `stdout / stderr` 记录和详细报告
 - 当前支持结构化编程题 `CUSTOM_SCRIPT`：
   - 教师配置脚本内容
   - 平台固定落盘为 Python checker 执行
@@ -61,13 +62,14 @@
 9. 结构化编程题当前支持 `STANDARD_IO` 和 `CUSTOM_SCRIPT` 两种真实执行模式；`CUSTOM_SCRIPT` 当前固定使用 Python checker，不支持教师自定义命令串。
 10. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
 11. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
-12. 样例试运行与正式评测的源码装配优先消费 `entryFilePath + files`；旧 `codeText` 仅作为兼容路径保留。
-13. 编译失败、运行失败和资源超限当前统一视为“评测成功但结论非通过”：
+12. 样例试运行与正式评测的源码装配优先消费 `entryFilePath + files + directories`；旧 `codeText` 仅作为兼容路径保留。
+13. 样例试运行当前区分 `SAMPLE / CUSTOM` 两种输入模式；若请求带 `workspaceRevisionId`，则优先复用该修订快照，否则可按 `useWorkspaceSnapshot=true` 读取当前工作区。
+14. 编译失败、运行失败和资源超限当前统一视为“评测成功但结论非通过”：
   - 编译失败当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“编译失败”
   - 运行时异常当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“程序运行失败”
   - 超时 / 超内存 / 超输出当前分别落成 `TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED`
-14. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
-15. `detail_report_json` 保存测试点级完整日志、执行命令和执行元数据；学生侧报告默认隐藏 `stdinText / expectedStdout`，教师侧保留。
+15. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
+16. `detail_report_json` 保存测试点级完整日志、执行命令和执行元数据；学生侧报告默认隐藏 `stdinText / expectedStdout`，教师侧保留。
 
 ## 核心数据模型
 
@@ -105,12 +107,15 @@
   - `queued_at / started_at / finished_at`：状态时间戳
 - `programming_sample_runs`
   - `assignment_id + assignment_question_id + user_id`：运行范围与归属
-  - `programming_language / code_text / entry_file_path / source_files_json / artifact_ids_json`：本次样例运行的代码快照
+  - `programming_language / code_text / entry_file_path / source_files_json / source_directories_json / artifact_ids_json`：本次样例运行的代码快照
   - `stdin_text / expected_stdout`：样例输入输出快照
+  - `workspace_revision_id`：可空，引用本次运行所基于的工作区修订
+  - `input_mode`：`SAMPLE / CUSTOM`
   - `status`：`RUNNING / SUCCEEDED / FAILED`
   - `verdict`：样例运行的最终判定
   - `stdout_text / stderr_text`：完整运行日志
   - `result_summary / error_message`：摘要与失败信息
+  - `detail_report_json`：样例运行详细报告
   - `time_millis / memory_bytes`：资源指标
   - `started_at / finished_at`：执行时间戳
 - `audit_logs`
@@ -128,6 +133,7 @@
 - `GET /api/v1/me/judge-jobs/{judgeJobId}/report`
 - `POST /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
 - `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
+- `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs/{sampleRunId}`
 
 ### 教师侧
 
@@ -154,7 +160,8 @@
   - `_aubb_judge_context.json`
 - `CUSTOM_SCRIPT` 当前约定 checker 输出一段 JSON，例如 `{\"verdict\":\"ACCEPTED\",\"score\":60,\"message\":\"样例通过\"}`；非法 JSON、未知 verdict、越界分数或 checker 执行异常会落成 `SYSTEM_ERROR`。
 - 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回；同时补充 `detail_report_json` 保存完整测试点日志、执行命令和执行元数据，但正式评测产物尚未持久化到对象存储。
-- 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果和源码快照落到 `programming_sample_runs`。
+- 样例试运行当前不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果、详细报告和源码快照落到 `programming_sample_runs`；输入可来自题目样例或学生自定义标准输入。
+- 样例试运行当前可直接运行当前工作区或历史工作区修订，用来保证“断线恢复后的再次试运行”和“正式评测前最后一次自测”共享同一份源码快照。
 - 当前已支持 RabbitMQ 队列第一阶段，并保留本地异步回退路径；尚未拆分独立评测 worker 与重试编排。
 - 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
 - 当前失败态摘要已经做了第一阶段规范化：
@@ -175,5 +182,5 @@
 - 教师重新排队后会新增一条新的评测作业历史。
 - 学生和教师都可以查询详细评测报告；学生侧默认看不到隐藏测试输入输出，教师侧可见。
 - RabbitMQ 队列开启时，legacy judge、question-level judge 和详细报告回归都能通过真实 go-judge + RabbitMQ Testcontainers 验证。
-- 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`。
+- 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`，但会保留目录树快照、工作区修订引用和详细日志。
 - `mvnd verify` 或 `bash ./mvnw verify` 提供自动化测试证据。

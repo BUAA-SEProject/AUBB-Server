@@ -2,6 +2,34 @@
 
 ## Session: 2026-04-16 作业模块能力重规划
 
+## Session: 2026-04-16 在线 IDE 第二阶段后端
+
+### Phase 25：模板工作区、修订历史与自定义试运行
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 新增 `V17__online_ide_phase2.sql`，为工作区补充目录列表、最近标准输入、工作区修订表，以及样例试运行的输入模式 / 工作区修订引用 / 详细报告字段
+  - 重写 `ProgrammingWorkspaceApplicationService`，补齐模板工作区加载、目录树操作、历史修订列表 / 详情 / 恢复、模板重置和保存种类
+  - 重写 `ProgrammingSampleRunApplicationService`，支持从显式快照、当前工作区或历史修订发起样例 / 自定义标准输入试运行，并提供单次运行详情
+  - 扩展题目配置，使编程题可携带模板入口文件、模板目录和模板源码文件
+  - 扩展 `ProgrammingWorkspaceIntegrationTests`，覆盖模板工作区、历史恢复、自定义输入试运行与详细日志回读
+  - 已执行 `bash ./mvnw spotless:apply`
+  - 已执行 `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests,SubmissionIntegrationTests test`
+- Files created/modified:
+  - `src/main/resources/db/migration/V17__online_ide_phase2.sql`
+  - `src/main/java/com/aubb/server/modules/assignment/**`
+  - `src/main/java/com/aubb/server/modules/submission/**/workspace/**`
+  - `src/main/java/com/aubb/server/modules/submission/domain/workspace/**`
+  - `src/main/java/com/aubb/server/modules/judge/**/sample/**`
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `README.md`
+  - `ARCHITECTURE.md`
+  - `docs/product-specs/*.md`
+  - `docs/generated/db-schema.md`
+  - `todo.md`
+
 ### Phase 14：现状核对与路线重排
 
 - **Status:** completed

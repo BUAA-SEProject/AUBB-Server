@@ -33,6 +33,12 @@ public class ProgrammingSampleRunEntity {
 
     private String sourceFilesJson;
 
+    private String sourceDirectoriesJson;
+
+    private Long workspaceRevisionId;
+
+    private String inputMode;
+
     private String stdinText;
 
     private String expectedStdout;
@@ -52,6 +58,8 @@ public class ProgrammingSampleRunEntity {
     private Long timeMillis;
 
     private Long memoryBytes;
+
+    private String detailReportJson;
 
     private OffsetDateTime startedAt;
 

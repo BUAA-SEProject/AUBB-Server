@@ -2,7 +2,9 @@ package com.aubb.server.modules.judge.application.sample;
 
 import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
+import com.aubb.server.modules.judge.application.JudgeJobStoredReport;
 import com.aubb.server.modules.judge.domain.JudgeVerdict;
+import com.aubb.server.modules.judge.domain.ProgrammingSampleRunInputMode;
 import com.aubb.server.modules.judge.domain.ProgrammingSampleRunStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.OffsetDateTime;
@@ -16,7 +18,10 @@ public record ProgrammingSampleRunView(
         ProgrammingLanguage programmingLanguage,
         String entryFilePath,
         List<ProgrammingSourceFile> files,
+        List<String> directories,
         List<Long> artifactIds,
+        Long workspaceRevisionId,
+        ProgrammingSampleRunInputMode stdinMode,
         ProgrammingSampleRunStatus status,
         JudgeVerdict verdict,
         String stdinText,
@@ -27,5 +32,6 @@ public record ProgrammingSampleRunView(
         String errorMessage,
         Long timeMillis,
         Long memoryBytes,
+        JudgeJobStoredReport detailReport,
         OffsetDateTime createdAt,
         OffsetDateTime finishedAt) {}

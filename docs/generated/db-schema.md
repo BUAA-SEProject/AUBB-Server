@@ -18,6 +18,7 @@
 - `src/main/resources/db/migration/V14__question_bank_lifecycle_phase2.sql`
 - `src/main/resources/db/migration/V15__question_bank_tags_phase1.sql`
 - `src/main/resources/db/migration/V16__judge_queue_and_reports_phase1.sql`
+- `src/main/resources/db/migration/V17__online_ide_phase2.sql`
 
 ## 总览
 
@@ -49,6 +50,7 @@
 - `submission_artifacts`：提交附件元数据
 - `submission_answers`：分题答案、人工批改与题目级评测回写状态
 - `programming_workspaces`：编程题工作区草稿
+- `programming_workspace_revisions`：工作区历史修订与恢复点
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
 - `programming_sample_runs`：样例试运行日志
 - `audit_logs`：关键治理与认证审计日志
@@ -503,7 +505,9 @@
 | `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
 | `entry_file_path` | `text` | 可空，当前入口文件路径 |
 | `source_files_json` | `text` | 必填，默认 `[]`，保存目录树源码快照 |
+| `source_directories_json` | `text` | 必填，默认 `[]`，保存目录树目录列表 |
 | `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
+| `last_stdin_text` | `text` | 可空，最近一次试运行输入 |
 | `created_at` | `timestamptz` | 必填，默认 `now()` |
 | `updated_at` | `timestamptz` | 必填，默认 `now()` |
 
@@ -511,6 +515,32 @@
 
 - `uk_programming_workspaces_question_user`
 - `ix_programming_workspaces_assignment_user_updated_at`
+
+### `programming_workspace_revisions`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `workspace_id` | `bigint` | 必填，外键到 `programming_workspaces.id`，级联删除 |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
+| `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `revision_no` | `bigint` | 必填，工作区内递增版本号 |
+| `revision_kind` | `text` | 必填，`MANUAL_SAVE / AUTO_SAVE / FILE_OPERATION / RESET_TO_TEMPLATE / RESTORE_REVISION` |
+| `revision_message` | `text` | 可空，最长 255 |
+| `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17`（兼容接受 `JAVA17`） |
+| `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
+| `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
+| `entry_file_path` | `text` | 可空，当前入口文件路径 |
+| `source_files_json` | `text` | 必填，默认 `[]`，保存目录树源码快照 |
+| `source_directories_json` | `text` | 必填，默认 `[]`，保存目录树目录列表 |
+| `last_stdin_text` | `text` | 可空，最近一次试运行输入 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_programming_workspace_revisions_workspace_revision_no`
+- `ix_programming_workspace_revisions_question_user_created_at`
 
 ### `judge_jobs`
 
@@ -572,15 +602,19 @@
 | `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
 | `entry_file_path` | `text` | 可空，本次样例运行入口文件路径 |
 | `source_files_json` | `text` | 必填，默认 `[]`，保存本次样例运行的目录树源码快照 |
+| `source_directories_json` | `text` | 必填，默认 `[]`，保存本次样例运行的目录树目录列表 |
 | `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
 | `stdin_text` | `text` | 必填，样例输入快照 |
 | `expected_stdout` | `text` | 可空，样例预期输出快照 |
+| `workspace_revision_id` | `bigint` | 可空，外键到 `programming_workspace_revisions.id`，删除置空 |
+| `input_mode` | `text` | 必填，默认 `SAMPLE`，`SAMPLE / CUSTOM` |
 | `status` | `text` | 必填，`RUNNING / SUCCEEDED / FAILED` |
 | `verdict` | `text` | 可空，沿用 judge verdict 语义 |
 | `stdout_text` | `text` | 可空，完整标准输出 |
 | `stderr_text` | `text` | 可空，完整标准错误 |
 | `result_summary` | `text` | 可空，用户可读摘要 |
 | `error_message` | `text` | 可空，执行失败信息 |
+| `detail_report_json` | `text` | 可空，样例试运行详细报告 JSON |
 | `time_millis` | `bigint` | 可空，`>= 0` |
 | `memory_bytes` | `bigint` | 可空，`>= 0` |
 | `started_at` | `timestamptz` | 可空 |
@@ -710,6 +744,10 @@
 - `programming_workspaces.assignment_id -> assignments.id`
 - `programming_workspaces.assignment_question_id -> assignment_questions.id`
 - `programming_workspaces.user_id -> users.id`
+- `programming_workspace_revisions.workspace_id -> programming_workspaces.id`
+- `programming_workspace_revisions.assignment_id -> assignments.id`
+- `programming_workspace_revisions.assignment_question_id -> assignment_questions.id`
+- `programming_workspace_revisions.user_id -> users.id`
 - `judge_jobs.submission_id -> submissions.id`
 - `judge_jobs.submission_answer_id -> submission_answers.id`
 - `judge_jobs.assignment_id -> assignments.id`
@@ -721,6 +759,7 @@
 - `programming_sample_runs.assignment_id -> assignments.id`
 - `programming_sample_runs.assignment_question_id -> assignment_questions.id`
 - `programming_sample_runs.user_id -> users.id`
+- `programming_sample_runs.workspace_revision_id -> programming_workspace_revisions.id`
 - `audit_logs.actor_user_id -> users.id`
 
 ## 设计说明
@@ -736,12 +775,13 @@
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
 - `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕。
-- `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`。
+- `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`；当前还会记录目录列表与最近一次标准输入，便于断线恢复。
+- `programming_workspace_revisions` 以追加写方式保存工作区历史版本，用于模板重置、历史恢复和试运行复用，不单独引入复杂的增量补丁协议。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
 - `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要与详细报告；完整评测产物对象仍未持久化。
-- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会同时持久化入口文件与目录树源码快照。
+- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会同时持久化入口文件、目录树源码快照、输入模式和详细报告，并可回指工作区修订。
 - `assignment_questions.config_json.customJudgeScript` 当前按“脚本内容”语义保存，由 judge 模块固定落盘为 Python checker 执行，不额外引入新表。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。

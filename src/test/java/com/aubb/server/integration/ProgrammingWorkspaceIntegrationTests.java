@@ -356,6 +356,260 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     }
 
     @Test
+    void studentLoadsTemplateWorkspaceAndCanRestoreWorkspaceRevision() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-IDE", "IDE 班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.templateEntryFilePath")
+                        .value("src/main.py"))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.templateFiles[0].path")
+                        .value("src/main.py"))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.templateDirectories[0]")
+                        .value("src"))
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entryFilePath").value("src/main.py"))
+                .andExpect(jsonPath("$.directories[0]").value("src"))
+                .andExpect(jsonPath("$.files[0].path").value("src/main.py"))
+                .andExpect(jsonPath("$.files[1].path").value("src/lib/math_utils.py"))
+                .andExpect(jsonPath("$.latestRevisionId").doesNotExist())
+                .andExpect(jsonPath("$.latestRevisionNo").doesNotExist())
+                .andExpect(jsonPath("$.lastStdinText").doesNotExist());
+
+        MvcResult operationResult = mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/operations",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "revisionMessage":"create helper",
+                                  "operations":[
+                                    {
+                                      "type":"CREATE_DIRECTORY",
+                                      "path":"src/helpers"
+                                    },
+                                    {
+                                      "type":"CREATE_FILE",
+                                      "path":"src/helpers/runtime.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    },
+                                    {
+                                      "type":"UPDATE_FILE",
+                                      "path":"src/main.py",
+                                      "content":"from src.helpers.runtime import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entryFilePath").value("src/main.py"))
+                .andExpect(jsonPath("$.directories[1]").value("src/helpers"))
+                .andExpect(jsonPath("$.files[2].path").value("src/helpers/runtime.py"))
+                .andExpect(jsonPath("$.latestRevisionNo").value(1))
+                .andReturn();
+        Long firstRevisionId = readLong(operationResult, "$.latestRevisionId");
+
+        MvcResult saveResult = mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"src/main.py",
+                                  "directories":["src","src/helpers","src/lib"],
+                                  "files":[
+                                    {
+                                      "path":"src/main.py",
+                                      "content":"from src.helpers.runtime import add\\na, b = map(int, input().split())\\nprint(add(a, b) - 1)"
+                                    },
+                                    {
+                                      "path":"src/lib/math_utils.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    },
+                                    {
+                                      "path":"src/helpers/runtime.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    }
+                                  ],
+                                  "programmingLanguage":"PYTHON3",
+                                  "lastStdinText":"7 8\\n",
+                                  "saveKind":"MANUAL",
+                                  "revisionMessage":"broken version"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastStdinText").value("7 8\n"))
+                .andExpect(jsonPath("$.latestRevisionNo").value(2))
+                .andReturn();
+        Long secondRevisionId = readLong(saveResult, "$.latestRevisionId");
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/revisions",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(secondRevisionId))
+                .andExpect(jsonPath("$[0].revisionNo").value(2))
+                .andExpect(jsonPath("$[1].id").value(firstRevisionId))
+                .andExpect(jsonPath("$[1].revisionNo").value(1));
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/revisions/{revisionId}",
+                                assignmentId,
+                                questionId,
+                                firstRevisionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revisionNo").value(1))
+                .andExpect(jsonPath("$.entryFilePath").value("src/main.py"))
+                .andExpect(jsonPath("$.files[0].content")
+                        .value(org.hamcrest.Matchers.containsString("from src.helpers.runtime import add")));
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/revisions/{revisionId}/restore",
+                                assignmentId,
+                                questionId,
+                                firstRevisionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "revisionMessage":"restore stable version"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestRevisionNo").value(3))
+                .andExpect(jsonPath("$.lastStdinText").doesNotExist())
+                .andExpect(
+                        jsonPath("$.files[0].content").value(org.hamcrest.Matchers.containsString("print(add(a, b))")));
+
+        assertThat(queryForInt("SELECT COUNT(*) FROM programming_workspace_revisions"))
+                .isEqualTo(3);
+        assertThat(queryForString("SELECT last_stdin_text FROM programming_workspaces WHERE user_id = 4"))
+                .isNull();
+    }
+
+    @Test
+    void studentRunsWorkspaceSnapshotWithCustomInputAndCanReadDetailedRunLog() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-RUN", "试运行班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"src/main.py",
+                                  "directories":["src","src/helpers"],
+                                  "files":[
+                                    {
+                                      "path":"src/main.py",
+                                      "content":"from runtime import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                    },
+                                    {
+                                      "path":"src/runtime.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    }
+                                  ],
+                                  "programmingLanguage":"PYTHON3",
+                                  "lastStdinText":"7 8\\n"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestRevisionNo").value(1));
+
+        MvcResult sampleRunResult = mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "useWorkspaceSnapshot":true,
+                                  "stdinText":"7 8\\n",
+                                  "expectedStdout":"15\\n"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.entryFilePath").value("src/main.py"))
+                .andExpect(jsonPath("$.directories[1]").value("src/helpers"))
+                .andExpect(jsonPath("$.stdinMode").value("CUSTOM"))
+                .andExpect(jsonPath("$.stdinText").value("7 8\n"))
+                .andExpect(jsonPath("$.expectedStdout").value("15\n"))
+                .andExpect(jsonPath("$.stdoutText").value("15\n"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.detailReport.executionMetadata.mode").value("PROGRAMMING_SAMPLE_RUN"))
+                .andExpect(jsonPath("$.detailReport.caseReports[0].stdinText").value("7 8\n"))
+                .andReturn();
+        Long sampleRunId = readLong(sampleRunResult, "$.id");
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs/{sampleRunId}",
+                                assignmentId,
+                                questionId,
+                                sampleRunId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sampleRunId))
+                .andExpect(jsonPath("$.workspaceRevisionId").value(1))
+                .andExpect(jsonPath("$.detailReport.caseReports[0].stdoutText").value("15\n"))
+                .andExpect(
+                        jsonPath("$.detailReport.caseReports[0].runCommand[0]").value("/usr/bin/python3"));
+
+        assertThat(queryForString("SELECT detail_report_json FROM programming_sample_runs WHERE id = ?", sampleRunId))
+                .contains("PROGRAMMING_SAMPLE_RUN")
+                .contains("15\\n");
+    }
+
+    @Test
     void studentSampleRunSupportsCompileAndRunArgs() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -803,6 +1057,73 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
                                               "judgeMode":"STANDARD_IO",
                                               "judgeCases":[
                                                 {"stdinText":"0\\n","expectedStdout":"42\\n","score":100}
+                                              ]
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(
+                                        classId,
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .minusDays(1)),
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .plusDays(3)))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
+    private Long createTemplatedProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"模板工作区作业",
+                                  "description":"workspace template and history",
+                                  "teachingClassId":%s,
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
+                                  "maxSubmissions":1,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"编程题",
+                                        "questions":[
+                                          {
+                                            "title":"A+B IDE",
+                                            "prompt":"读取两个整数并输出和。",
+                                            "questionType":"PROGRAMMING",
+                                            "score":100,
+                                            "config":{
+                                              "supportedLanguages":["PYTHON3"],
+                                              "acceptedExtensions":["py"],
+                                              "allowMultipleFiles":true,
+                                              "allowSampleRun":true,
+                                              "sampleStdinText":"1 2\\n",
+                                              "sampleExpectedStdout":"3\\n",
+                                              "timeLimitMs":1000,
+                                              "memoryLimitMb":128,
+                                              "outputLimitKb":64,
+                                              "templateEntryFilePath":"src/main.py",
+                                              "templateDirectories":["src","src/lib"],
+                                              "templateFiles":[
+                                                {
+                                                  "path":"src/main.py",
+                                                  "content":"from src.lib.math_utils import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                                },
+                                                {
+                                                  "path":"src/lib/math_utils.py",
+                                                  "content":"def add(left, right):\\n    return left + right"
+                                                }
+                                              ],
+                                              "judgeMode":"STANDARD_IO",
+                                              "judgeCases":[
+                                                {"stdinText":"2 3\\n","expectedStdout":"5\\n","score":100}
                                               ]
                                             }
                                           }

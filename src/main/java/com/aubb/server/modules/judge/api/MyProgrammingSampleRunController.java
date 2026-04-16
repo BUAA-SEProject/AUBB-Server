@@ -44,6 +44,11 @@ public class MyProgrammingSampleRunController {
                 request.programmingLanguage(),
                 request.entryFilePath(),
                 request.files(),
+                request.directories(),
+                request.stdinText(),
+                request.expectedStdout(),
+                request.useWorkspaceSnapshot(),
+                request.workspaceRevisionId(),
                 principal);
     }
 
@@ -56,10 +61,25 @@ public class MyProgrammingSampleRunController {
         return programmingSampleRunApplicationService.listMySampleRuns(assignmentId, questionId, principal);
     }
 
+    @GetMapping("/sample-runs/{sampleRunId}")
+    @PreAuthorize("isAuthenticated()")
+    public ProgrammingSampleRunView getSampleRun(
+            @PathVariable Long assignmentId,
+            @PathVariable Long questionId,
+            @PathVariable Long sampleRunId,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return programmingSampleRunApplicationService.getMySampleRun(assignmentId, questionId, sampleRunId, principal);
+    }
+
     public record CreateProgrammingSampleRunRequest(
             String codeText,
             List<Long> artifactIds,
             ProgrammingLanguage programmingLanguage,
             String entryFilePath,
-            List<ProgrammingSourceFile> files) {}
+            List<ProgrammingSourceFile> files,
+            List<String> directories,
+            String stdinText,
+            String expectedStdout,
+            Boolean useWorkspaceSnapshot,
+            Long workspaceRevisionId) {}
 }

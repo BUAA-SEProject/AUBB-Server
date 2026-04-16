@@ -1,6 +1,7 @@
 package com.aubb.server.modules.assignment.api;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankApplicationService;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankQuestionView;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
@@ -140,6 +141,9 @@ public class QuestionBankTeacherController {
             Boolean allowSampleRun,
             String sampleStdinText,
             String sampleExpectedStdout,
+            String templateEntryFilePath,
+            List<String> templateDirectories,
+            List<ProgrammingSourceFile> templateFiles,
             Integer timeLimitMs,
             Integer memoryLimitMb,
             Integer outputLimitKb,
@@ -160,6 +164,9 @@ public class QuestionBankTeacherController {
                     allowSampleRun,
                     sampleStdinText,
                     sampleExpectedStdout,
+                    templateEntryFilePath,
+                    templateDirectories,
+                    templateFiles,
                     timeLimitMs,
                     memoryLimitMb,
                     outputLimitKb,

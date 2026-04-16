@@ -20,6 +20,7 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.judge.domain.JudgeJobStatus;
 import com.aubb.server.modules.judge.domain.JudgeVerdict;
+import com.aubb.server.modules.judge.domain.ProgrammingSampleRunInputMode;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobEntity;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobMapper;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient;
@@ -199,7 +200,11 @@ public class JudgeExecutionService {
             AssignmentQuestionSnapshot question,
             ProgrammingSourceSnapshot sourceSnapshot,
             List<Long> artifactIds,
-            ProgrammingLanguage programmingLanguage) {
+            ProgrammingLanguage programmingLanguage,
+            String stdinText,
+            String expectedStdout,
+            ProgrammingSampleRunInputMode inputMode,
+            Long workspaceRevisionId) {
         if (!goJudgeProperties.enabled()) {
             return ProgrammingSampleRunOutcome.failed("go-judge 未启用", null, null);
         }
@@ -213,22 +218,28 @@ public class JudgeExecutionService {
         if (config.supportedLanguages() != null && !config.supportedLanguages().contains(programmingLanguage)) {
             return ProgrammingSampleRunOutcome.failed("提交语言不在题目支持范围内", null, null);
         }
-        if (!StringUtils.hasText(config.sampleStdinText())) {
-            return ProgrammingSampleRunOutcome.failed("当前编程题未配置样例输入", null, null);
+        if (!StringUtils.hasText(stdinText)) {
+            return ProgrammingSampleRunOutcome.failed("编程题试运行缺少标准输入", null, null);
         }
         try {
             SourceBundle sourceBundle = buildSourceBundle(sourceSnapshot, artifactIds, programmingLanguage);
             CaseOutcome caseOutcome = evaluateProgrammingCase(
-                    sourceBundle,
-                    programmingLanguage,
-                    config,
-                    config.sampleStdinText(),
-                    config.sampleExpectedStdout(),
-                    null,
-                    true);
+                    sourceBundle, programmingLanguage, config, stdinText, expectedStdout, null, true);
+            JudgeJobStoredReport detailReport = new JudgeJobStoredReport(
+                    buildSampleRunExecutionMetadata(
+                            question,
+                            sourceBundle,
+                            config,
+                            artifactIds,
+                            programmingLanguage,
+                            inputMode,
+                            workspaceRevisionId),
+                    List.of(toCaseReport(1, 0, caseOutcome, true)),
+                    clip(caseOutcome.stdoutText()),
+                    clip(caseOutcome.stderrText()));
             if (caseOutcome.verdict() == JudgeVerdict.SYSTEM_ERROR) {
                 return ProgrammingSampleRunOutcome.failed(
-                        caseOutcome.errorMessage(), caseOutcome.stdoutText(), caseOutcome.stderrText());
+                        caseOutcome.errorMessage(), caseOutcome.stdoutText(), caseOutcome.stderrText(), detailReport);
             }
             return ProgrammingSampleRunOutcome.completed(
                     caseOutcome.verdict(),
@@ -236,7 +247,8 @@ public class JudgeExecutionService {
                     caseOutcome.stderrText(),
                     caseOutcome.timeMillis(),
                     caseOutcome.memoryBytes(),
-                    sampleRunSummary(caseOutcome, config.sampleExpectedStdout()));
+                    sampleRunSummary(caseOutcome, expectedStdout),
+                    detailReport);
         } catch (RuntimeException exception) {
             return ProgrammingSampleRunOutcome.failed("样例试运行执行失败：" + safeMessage(exception), null, null);
         }
@@ -771,7 +783,9 @@ public class JudgeExecutionService {
                     stdinText,
                     expectedStdout);
         }
-        if (engineVerdict == JudgeVerdict.ACCEPTED && !Objects.equals(stdout, normalizeLineEndings(expectedStdout))) {
+        if (engineVerdict == JudgeVerdict.ACCEPTED
+                && expectedStdout != null
+                && !Objects.equals(stdout, normalizeLineEndings(expectedStdout))) {
             return new CaseOutcome(
                     JudgeVerdict.WRONG_ANSWER,
                     stdout,
@@ -1106,6 +1120,34 @@ public class JudgeExecutionService {
         return metadata;
     }
 
+    private Map<String, Object> buildSampleRunExecutionMetadata(
+            AssignmentQuestionSnapshot question,
+            SourceBundle sourceBundle,
+            AssignmentQuestionConfigInput config,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage,
+            ProgrammingSampleRunInputMode inputMode,
+            Long workspaceRevisionId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("mode", "PROGRAMMING_SAMPLE_RUN");
+        metadata.put("assignmentQuestionId", question.id());
+        metadata.put("programmingLanguage", programmingLanguage == null ? null : programmingLanguage.name());
+        metadata.put("entryFilePath", sourceBundle.entryFileName());
+        metadata.put("sourceFiles", List.copyOf(sourceBundle.copyIn().keySet()));
+        metadata.put("artifactIds", artifactIds);
+        metadata.put("compileArgs", normalizeCommandArgs(config.compileArgs()));
+        metadata.put("runArgs", normalizeCommandArgs(config.runArgs()));
+        metadata.put("inputMode", inputMode == null ? null : inputMode.name());
+        metadata.put("workspaceRevisionId", workspaceRevisionId);
+        metadata.put(
+                "judgeMode",
+                config.judgeMode() == null ? null : config.judgeMode().name());
+        metadata.put("timeLimitMs", safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS));
+        metadata.put("memoryLimitMb", safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB));
+        metadata.put("outputLimitKb", safeInt(config.outputLimitKb(), DEFAULT_OUTPUT_LIMIT_KB));
+        return metadata;
+    }
+
     private int safeInt(Integer value, int defaultValue) {
         return value == null ? defaultValue : value;
     }
@@ -1233,6 +1275,9 @@ public class JudgeExecutionService {
         if (JudgeVerdict.ACCEPTED.equals(caseOutcome.verdict()) && StringUtils.hasText(expectedStdout)) {
             return "ACCEPTED，样例输出与预期一致";
         }
+        if (JudgeVerdict.ACCEPTED.equals(caseOutcome.verdict())) {
+            return "ACCEPTED，程序运行成功";
+        }
         if (JudgeVerdict.WRONG_ANSWER.equals(caseOutcome.verdict())) {
             return "WRONG_ANSWER，样例输出与预期不一致";
         }
@@ -1251,7 +1296,8 @@ public class JudgeExecutionService {
             Long timeMillis,
             Long memoryBytes,
             String resultSummary,
-            String errorMessage) {
+            String errorMessage,
+            JudgeJobStoredReport detailReport) {
 
         public static ProgrammingSampleRunOutcome completed(
                 JudgeVerdict verdict,
@@ -1259,12 +1305,14 @@ public class JudgeExecutionService {
                 String stderrText,
                 Long timeMillis,
                 Long memoryBytes,
-                String resultSummary) {
+                String resultSummary,
+                JudgeJobStoredReport detailReport) {
             return new ProgrammingSampleRunOutcome(
-                    false, verdict, stdoutText, stderrText, timeMillis, memoryBytes, resultSummary, null);
+                    false, verdict, stdoutText, stderrText, timeMillis, memoryBytes, resultSummary, null, detailReport);
         }
 
-        public static ProgrammingSampleRunOutcome failed(String errorMessage, String stdoutText, String stderrText) {
+        public static ProgrammingSampleRunOutcome failed(
+                String errorMessage, String stdoutText, String stderrText, JudgeJobStoredReport detailReport) {
             return new ProgrammingSampleRunOutcome(
                     true,
                     null,
@@ -1273,7 +1321,12 @@ public class JudgeExecutionService {
                     0L,
                     0L,
                     errorMessage == null ? "样例试运行失败" : errorMessage,
-                    errorMessage);
+                    errorMessage,
+                    detailReport);
+        }
+
+        public static ProgrammingSampleRunOutcome failed(String errorMessage, String stdoutText, String stderrText) {
+            return failed(errorMessage, stdoutText, stderrText, null);
         }
     }
 

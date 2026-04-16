@@ -21,7 +21,7 @@
 #### 部分完成
 
 - 题库管理已补齐更新、归档、标签和标签精确检索第一阶段，但仍缺分类与更完整组卷体验
-- 编程题后端已支持 `entryFilePath + files + artifactIds` 的目录树快照、样例试运行和正式评测复用，但前端目录树交互与逐文件操作尚未补齐
+- 编程题后端已支持 `entryFilePath + files + directories + artifactIds` 的目录树快照、模板工作区、工作区目录操作、历史修订、模板重置、最近标准输入回填，以及样例试运行 / 正式评测复用；当前剩余缺口主要是前端目录树交互、编辑器能力和更实时同步协议
 - 多语言运行时已有 `PYTHON3 / JAVA21 / CPP17` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这三种语言，并已支持 `compileArgs / runArgs` 与 C++ 多文件工程，但日志一致性与更复杂工程布局仍不足；`JAVA17` 当前仅作为兼容输入保留
 - 编译失败、运行失败和资源超限的摘要口径已在 legacy judge、question-level judge 与样例试运行三条链路上完成第一阶段统一，但更复杂工程布局下的完整执行日志仍不足
 - `JAVA21` 运行模板已补齐为“编译全部 `.java` 文件 + 按 package 解析启动类”，目录树中的嵌套路径和 package 化入口已不再退化成 `WRONG_ANSWER`
@@ -30,7 +30,7 @@
 
 #### 当前缺口
 
-- 目录树工作区、多文件编辑、入口文件选择和工作区快照
+- 浏览器侧目录树 IDE、语法高亮 / 自动补全 / 格式化，以及更实时的自动保存协议
 - `PYTHON3 / JAVA21 / CPP17` 三语言完整验证矩阵
 - 题库分类与更稳定的组卷编辑能力
 - 成绩导出和后续多作业总评
@@ -150,8 +150,8 @@
 
 - 现有 `assignment_judge_profiles` 是 legacy assignment 级配置；结构化编程题当前已通过 `assignment_questions.config_json` 挂题目级隐藏测试点。
 - `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要、详细报告和执行元数据；完整评测产物对象仍未持久化。
-- `programming_workspaces` 已支持 `entryFilePath + sourceFilesJson + artifactIdsJson` 的目录树快照，并兼容 legacy `codeText` 语义；前端目录树交互和逐文件操作仍未实现。
-- `programming_sample_runs` 已支持保存样例试运行时的入口文件与文件树快照，并已支持 `CUSTOM_SCRIPT`；正式评测与试运行的评测产物对象存储仍未落地。
+- `programming_workspaces` 已支持 `entryFilePath + sourceFilesJson + sourceDirectoriesJson + artifactIdsJson` 的目录树快照，并通过 `programming_workspace_revisions` 保留工作区历史版本、模板重置和恢复点；当前仍未覆盖前端目录树交互和协同协议。
+- `programming_sample_runs` 已支持保存样例试运行时的目录树快照、目录列表、输入模式、详细报告和工作区修订引用，并已支持从当前工作区或历史修订发起自定义标准输入试运行；正式评测与试运行的评测产物对象存储仍未落地。
 - 真实 go-judge 集成测试已经替换 fake judge：legacy judge、question-level judge 和样例试运行都改为通过 Testcontainers 启动真实引擎验证。
 - 真实 go-judge 集成测试当前已同时覆盖 RabbitMQ 队列路径，不再只验证应用内事件直连执行。
 - 真实 go-judge `/run` 会返回 `Nonzero Exit Status`，不能再沿用 fake judge 时代的 `Non Zero Exit Status` 字符串。

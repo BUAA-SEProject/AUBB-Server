@@ -3,12 +3,15 @@ package com.aubb.server.modules.submission.application.workspace;
 import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
-import com.fasterxml.jackson.annotation.JsonInclude;
+import com.aubb.server.modules.submission.domain.workspace.ProgrammingWorkspaceRevisionKind;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
-public record ProgrammingWorkspaceView(
+public record ProgrammingWorkspaceRevisionView(
+        Long id,
+        Long revisionNo,
+        ProgrammingWorkspaceRevisionKind revisionKind,
+        String revisionMessage,
         Long assignmentId,
         Long assignmentQuestionId,
         ProgrammingLanguage programmingLanguage,
@@ -19,6 +22,4 @@ public record ProgrammingWorkspaceView(
         List<Long> artifactIds,
         List<SubmissionArtifactView> artifacts,
         String lastStdinText,
-        Long latestRevisionId,
-        Long latestRevisionNo,
-        OffsetDateTime updatedAt) {}
+        OffsetDateTime createdAt) {}
