@@ -162,3 +162,10 @@
   - class 级视图额外允许具备班级责任的 TA
   - 默认按每个学生每个作业最新正式提交聚合
   - 第一阶段只覆盖结构化作业
+
+## 2026-04-16 仓库整理补充发现
+
+- `README.md`、`docs/index.md`、`docs/repository-structure.md` 是当前最关键的接手入口；其中任一口径漂移，后续开发者都很容易先读到过期状态。
+- `docs/repository-structure.md` 原先的模块列表少了 `grading / judge`，不利于快速定位作业主链路的完整代码入口。
+- `docs/index.md` 原先存在重复入口，且对当前状态的概括少了 `grading` 与学生侧成绩能力。
+- `docs/exec-plans/active/` 中保留已完成计划会误导下一轮开发优先级；活动计划目录应只保留仍在推进的路线图。

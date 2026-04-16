@@ -443,3 +443,30 @@
   - `bash ./mvnw -Dtest=StructuredAssignmentIntegrationTests test`
   - `bash ./mvnw clean verify`
   - `BUILD SUCCESS`，全量 `67` 个测试通过
+
+## Session: 2026-04-16 仓库状态检查与文档整理
+
+### Phase 20：入口、结构说明与 active 计划收口
+
+- **Status:** completed
+- Actions taken:
+  - 重新盘点 `README.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/product-sense.md`、`docs/product-specs/index.md`、`docs/quality-score.md`
+  - 修正文档入口重复、模块列表缺项、成绩能力口径滞后和下一步开发优先级说明
+  - 将已完成的 `2026-04-15-repository-audit-remediation.md` 从 `docs/exec-plans/active/` 归档到 `docs/exec-plans/completed/`
+  - 保持当前进行中的计划目录只承载真实 active 路线
+- Files created/modified:
+  - `README.md`
+  - `docs/index.md`
+  - `docs/repository-structure.md`
+  - `docs/product-sense.md`
+  - `docs/product-specs/index.md`
+  - `docs/quality-score.md`
+  - `docs/exec-plans/active/README.md`
+  - `docs/exec-plans/completed/2026-04-15-repository-audit-remediation.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=RepositoryStructureTests test`
+  - 当前结果：`BUILD SUCCESS`

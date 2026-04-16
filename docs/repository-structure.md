@@ -9,7 +9,8 @@
 1. 先看 [README.md](../README.md) 了解当前阶段与验证入口。
 2. 再看 [ARCHITECTURE.md](../ARCHITECTURE.md) 和 [design.md](design.md) 了解模块边界。
 3. 接着看 [product-specs/index.md](product-specs/index.md) 与 [generated/db-schema.md](generated/db-schema.md) 了解当前业务与数据模型。
-4. 开始开发前，再看 [development-workflow.md](development-workflow.md) 和 `AGENTS.md`。
+4. 如果要继续做功能开发，再看 [exec-plans/active/README.md](exec-plans/active/README.md) 和 [../todo.md](../todo.md) 了解当前推进优先级。
+5. 开始开发前，再看 [development-workflow.md](development-workflow.md) 和 `AGENTS.md`。
 
 ## 顶层目录
 
@@ -27,6 +28,8 @@ Java 生产代码根目录。
     - `course`
     - `assignment`
     - `submission`
+    - `grading`
+    - `judge`
   - 模块内先维持 `api / application / domain / infrastructure` 四层；当某一层开始混入大量不同职责文件时，再继续按职责细分子目录。
   - 当前已采用的细分模式包括：
     - `application/view`、`application/command`、`application/result`
@@ -53,6 +56,9 @@ Java 生产代码根目录。
 - `integration/`
   - 面向 HTTP API 和跨模块链路的集成测试。
   - 这里承载登录、平台治理、课程系统、assignment、submission 等真实业务回归。
+- `domain/`
+  - 早期平台治理阶段遗留的仓库级领域测试目录。
+  - 当前仍保留 `iam / organization / platformconfig` 等子目录，后续新增领域测试优先按模块继续放到 `modules/<module>/domain/`。
 - `modules/<module>/domain/`
   - 模块内部的领域规则测试。
 - 根目录测试
@@ -78,6 +84,7 @@ Java 生产代码根目录。
   - 当前数据库结构等可生成参考。
 - `exec-plans/`
   - 多步骤任务的执行计划与归档记录。
+  - `active/` 只放当前仍在推进的计划；已完成计划应及时移到 `completed/`。
 - `object-storage.md`
   - 共享对象存储与 MinIO 接入说明。
 
@@ -90,8 +97,9 @@ Java 生产代码根目录。
 - `task_plan.md`
 - `findings.md`
 - `progress.md`
+- `todo.md`
 
-这三个文件只服务当前或最近一次任务执行，不属于长期规范，因此不进入 `docs/` 根目录。
+这些文件服务当前或最近一次任务执行，不属于长期规范，因此不进入 `docs/` 根目录。
 
 ## 新增代码放置规则
 
