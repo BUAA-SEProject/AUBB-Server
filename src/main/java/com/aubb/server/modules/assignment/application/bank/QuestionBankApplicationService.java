@@ -6,6 +6,8 @@ import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionCo
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigView;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionView;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingExecutionEnvironmentInput;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingLanguageExecutionEnvironmentInput;
 import com.aubb.server.modules.assignment.application.paper.StructuredQuestionSupport;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankCategoryEntity;
@@ -25,6 +27,7 @@ import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.judge.application.environment.JudgeEnvironmentProfileApplicationService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -52,6 +55,7 @@ public class QuestionBankApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final StructuredQuestionSupport structuredQuestionSupport;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final JudgeEnvironmentProfileApplicationService judgeEnvironmentProfileApplicationService;
 
     @Transactional
     public QuestionBankQuestionView createQuestion(
@@ -69,6 +73,9 @@ public class QuestionBankApplicationService {
         requireOffering(offeringId);
         structuredQuestionSupport.validateQuestionDefinition(
                 questionType, defaultScore, options, config, "QUESTION_BANK");
+        AssignmentQuestionConfigInput resolvedConfig = resolveConfig(offeringId, questionType, config);
+        structuredQuestionSupport.validateQuestionDefinition(
+                questionType, defaultScore, options, resolvedConfig, "QUESTION_BANK");
 
         QuestionBankQuestionEntity entity = new QuestionBankQuestionEntity();
         entity.setOfferingId(offeringId);
@@ -78,7 +85,7 @@ public class QuestionBankApplicationService {
         entity.setQuestionType(questionType.name());
         entity.setDefaultScore(structuredQuestionSupport.normalizeScore(defaultScore, "QUESTION_BANK_SCORE_INVALID"));
         entity.setCategoryId(resolveCategoryId(offeringId, categoryName, principal.getUserId()));
-        entity.setConfigJson(structuredQuestionSupport.writeConfigJson(config));
+        entity.setConfigJson(structuredQuestionSupport.writeConfigJson(resolvedConfig));
         questionMapper.insert(entity);
 
         persistOptions(entity.getId(), options);
@@ -196,13 +203,16 @@ public class QuestionBankApplicationService {
         assertActiveQuestion(entity, "QUESTION_BANK_QUESTION_ARCHIVED", "已归档题目不能再编辑");
         structuredQuestionSupport.validateQuestionDefinition(
                 questionType, defaultScore, options, config, "QUESTION_BANK");
+        AssignmentQuestionConfigInput resolvedConfig = resolveConfig(entity.getOfferingId(), questionType, config);
+        structuredQuestionSupport.validateQuestionDefinition(
+                questionType, defaultScore, options, resolvedConfig, "QUESTION_BANK");
 
         entity.setTitle(structuredQuestionSupport.normalizeTitle(title, "QUESTION_BANK_TITLE_REQUIRED"));
         entity.setPromptText(structuredQuestionSupport.normalizePrompt(prompt, "QUESTION_BANK_PROMPT_REQUIRED"));
         entity.setQuestionType(questionType.name());
         entity.setDefaultScore(structuredQuestionSupport.normalizeScore(defaultScore, "QUESTION_BANK_SCORE_INVALID"));
         entity.setCategoryId(resolveCategoryId(entity.getOfferingId(), categoryName, principal.getUserId()));
-        entity.setConfigJson(structuredQuestionSupport.writeConfigJson(config));
+        entity.setConfigJson(structuredQuestionSupport.writeConfigJson(resolvedConfig));
         questionMapper.updateById(entity);
 
         replaceOptions(entity.getId(), options);
@@ -252,6 +262,50 @@ public class QuestionBankApplicationService {
                 .eq(QuestionBankQuestionOptionEntity::getQuestionId, questionId)
                 .orderByAsc(QuestionBankQuestionOptionEntity::getOptionOrder)
                 .orderByAsc(QuestionBankQuestionOptionEntity::getId));
+    }
+
+    private AssignmentQuestionConfigInput resolveConfig(
+            Long offeringId, AssignmentQuestionType questionType, AssignmentQuestionConfigInput config) {
+        if (!AssignmentQuestionType.PROGRAMMING.equals(questionType) || config == null) {
+            return config;
+        }
+        List<ProgrammingLanguageExecutionEnvironmentInput> languageEnvironments =
+                config.languageExecutionEnvironments() == null
+                        ? List.of()
+                        : config.languageExecutionEnvironments().stream()
+                                .map(languageEnvironment -> new ProgrammingLanguageExecutionEnvironmentInput(
+                                        languageEnvironment.programmingLanguage(),
+                                        judgeEnvironmentProfileApplicationService.resolveEnvironmentReference(
+                                                offeringId,
+                                                languageEnvironment.programmingLanguage(),
+                                                languageEnvironment.executionEnvironment())))
+                                .toList();
+        ProgrammingExecutionEnvironmentInput executionEnvironment =
+                judgeEnvironmentProfileApplicationService.resolveEnvironmentReference(
+                        offeringId, null, config.executionEnvironment());
+        return new AssignmentQuestionConfigInput(
+                config.supportedLanguages(),
+                config.maxFileCount(),
+                config.maxFileSizeMb(),
+                config.acceptedExtensions(),
+                config.allowMultipleFiles(),
+                config.allowSampleRun(),
+                config.sampleStdinText(),
+                config.sampleExpectedStdout(),
+                config.templateEntryFilePath(),
+                config.templateDirectories(),
+                config.templateFiles(),
+                config.timeLimitMs(),
+                config.memoryLimitMb(),
+                config.outputLimitKb(),
+                config.compileArgs(),
+                config.runArgs(),
+                config.judgeMode(),
+                config.customJudgeScript(),
+                config.referenceAnswer(),
+                config.judgeCases(),
+                languageEnvironments,
+                executionEnvironment);
     }
 
     private QuestionBankQuestionView toView(QuestionBankQuestionEntity entity, boolean revealCorrect) {

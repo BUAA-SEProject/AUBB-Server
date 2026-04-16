@@ -7,7 +7,9 @@ import com.aubb.server.modules.assignment.application.bank.QuestionBankCategoryV
 import com.aubb.server.modules.assignment.application.bank.QuestionBankQuestionView;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingExecutionEnvironmentInput;
 import com.aubb.server.modules.assignment.application.paper.ProgrammingJudgeCaseInput;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingLanguageExecutionEnvironmentInput;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingJudgeMode;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
@@ -164,7 +166,9 @@ public class QuestionBankTeacherController {
             ProgrammingJudgeMode judgeMode,
             String customJudgeScript,
             String referenceAnswer,
-            List<@Valid ProgrammingJudgeCaseRequest> judgeCases) {
+            List<@Valid ProgrammingJudgeCaseRequest> judgeCases,
+            List<@Valid ProgrammingLanguageExecutionEnvironmentRequest> languageExecutionEnvironments,
+            @Valid ProgrammingExecutionEnvironmentRequest executionEnvironment) {
 
         AssignmentQuestionConfigInput toInput() {
             return new AssignmentQuestionConfigInput(
@@ -191,7 +195,54 @@ public class QuestionBankTeacherController {
                             ? List.of()
                             : judgeCases.stream()
                                     .map(ProgrammingJudgeCaseRequest::toInput)
-                                    .toList());
+                                    .toList(),
+                    languageExecutionEnvironments == null
+                            ? List.of()
+                            : languageExecutionEnvironments.stream()
+                                    .map(ProgrammingLanguageExecutionEnvironmentRequest::toInput)
+                                    .toList(),
+                    executionEnvironment == null ? null : executionEnvironment.toInput());
+        }
+    }
+
+    public record ProgrammingExecutionEnvironmentRequest(
+            Long profileId,
+            String profileCode,
+            String profileName,
+            String profileScope,
+            String languageVersion,
+            String workingDirectory,
+            String initScript,
+            String compileCommand,
+            String runCommand,
+            java.util.Map<String, String> environmentVariables,
+            Integer cpuRateLimit,
+            List<ProgrammingSourceFile> supportFiles) {
+
+        ProgrammingExecutionEnvironmentInput toInput() {
+            return new ProgrammingExecutionEnvironmentInput(
+                    profileId,
+                    profileCode,
+                    profileName,
+                    profileScope,
+                    languageVersion,
+                    workingDirectory,
+                    initScript,
+                    compileCommand,
+                    runCommand,
+                    environmentVariables,
+                    cpuRateLimit,
+                    supportFiles);
+        }
+    }
+
+    public record ProgrammingLanguageExecutionEnvironmentRequest(
+            @NotNull ProgrammingLanguage programmingLanguage,
+            @NotNull @Valid ProgrammingExecutionEnvironmentRequest executionEnvironment) {
+
+        ProgrammingLanguageExecutionEnvironmentInput toInput() {
+            return new ProgrammingLanguageExecutionEnvironmentInput(
+                    programmingLanguage, executionEnvironment.toInput());
         }
     }
 

@@ -671,6 +671,73 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     }
 
     @Test
+    void studentRunsGoSampleRunWithExecutionEnvironmentOverrides() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-GO", "Go 班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createGoEnvironmentProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.paper.sections[0].questions[0].config.executionEnvironment.profileName")
+                                .value("GO_ENV_V1"))
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"cmd/aubb/main.go",
+                                  "files":[
+                                    {
+                                      "path":"go.mod",
+                                      "content":"module aubbtest\\n\\ngo 1.22\\n"
+                                    },
+                                    {
+                                      "path":"cmd/aubb/main.go",
+                                      "content":"package main\\n\\nimport (\\n  \\\"fmt\\\"\\n  \\\"os\\\"\\n  \\\"strconv\\\"\\n\\n  \\\"aubbtest/internal/add\\\"\\n)\\n\\nfunc main() {\\n  left, _ := strconv.Atoi(os.Getenv(\\\"AUBB_OFFSET\\\"))\\n  right, _ := strconv.Atoi(os.Getenv(\\\"AUBB_EXTRA\\\"))\\n  fmt.Println(add.Sum(left, right))\\n}\\n"
+                                    },
+                                    {
+                                      "path":"internal/add/add.go",
+                                      "content":"package add\\n\\nfunc Sum(left, right int) int {\\n  return left + right\\n}\\n"
+                                    }
+                                  ],
+                                  "programmingLanguage":"GO122"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.programmingLanguage").value("GO122"))
+                .andExpect(jsonPath("$.entryFilePath").value("cmd/aubb/main.go"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.stdoutText").value("42\n"))
+                .andExpect(jsonPath("$.detailReport.executionMetadata.executionEnvironment.profileName")
+                        .value("GO_ENV_V1"))
+                .andExpect(jsonPath("$.detailReport.executionMetadata.executionEnvironment.languageVersion")
+                        .value("go1.22"))
+                .andExpect(jsonPath("$.detailReport.executionMetadata.executionEnvironment.workingDirectory")
+                        .value("cmd/aubb"))
+                .andExpect(jsonPath("$.detailReport.executionMetadata.executionEnvironment.cpuRateLimit")
+                        .value(1000))
+                .andExpect(
+                        jsonPath("$.detailReport.caseReports[0].runCommand[0]").value("./main"));
+    }
+
+    @Test
     void studentSeesCompileFailureSummaryForJavaSampleRun() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -1055,6 +1122,82 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
                                               "compileArgs":["-DANSWER=41"],
                                               "runArgs":["1"],
                                               "judgeMode":"STANDARD_IO",
+                                              "judgeCases":[
+                                                {"stdinText":"0\\n","expectedStdout":"42\\n","score":100}
+                                              ]
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(
+                                        classId,
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .minusDays(1)),
+                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
+                                                .plusDays(3)))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
+    private Long createGoEnvironmentProgrammingAssignment(String token, Long offeringId, Long classId)
+            throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"Go 工作区作业",
+                                  "description":"workspace go runtime environment",
+                                  "teachingClassId":%s,
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
+                                  "maxSubmissions":1,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"编程题",
+                                        "questions":[
+                                          {
+                                            "title":"Go 环境 A+B",
+                                            "prompt":"验证 Go 语言与运行环境覆盖。",
+                                            "questionType":"PROGRAMMING",
+                                            "score":100,
+                                            "config":{
+                                              "supportedLanguages":["GO122"],
+                                              "acceptedExtensions":["go","mod"],
+                                              "allowMultipleFiles":true,
+                                              "allowSampleRun":true,
+                                              "sampleStdinText":"0\\n",
+                                              "sampleExpectedStdout":"42\\n",
+                                              "timeLimitMs":1500,
+                                              "memoryLimitMb":128,
+                                              "outputLimitKb":64,
+                                              "judgeMode":"STANDARD_IO",
+                                              "executionEnvironment":{
+                                                "profileName":"GO_ENV_V1",
+                                                "languageVersion":"go1.22",
+                                                "workingDirectory":"cmd/aubb",
+                                                "initScript":". ./bootstrap.sh",
+                                                "compileCommand":"/usr/local/go/bin/go build -o main .",
+                                                "runCommand":"./main",
+                                                "cpuRateLimit":1000,
+                                                "environmentVariables":{
+                                                  "GOCACHE":"/tmp/go-build",
+                                                  "CGO_ENABLED":"0",
+                                                  "AUBB_EXTRA":"2"
+                                                },
+                                                "supportFiles":[
+                                                  {
+                                                    "path":"cmd/aubb/bootstrap.sh",
+                                                    "content":"export AUBB_OFFSET=40\\n"
+                                                  }
+                                                ]
+                                              },
                                               "judgeCases":[
                                                 {"stdinText":"0\\n","expectedStdout":"42\\n","score":100}
                                               ]

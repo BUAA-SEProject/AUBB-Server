@@ -28,4 +28,6 @@ public record AssignmentQuestionConfigView(
         ProgrammingJudgeMode judgeMode,
         String customJudgeScript,
         String referenceAnswer,
-        List<ProgrammingJudgeCaseView> judgeCases) {}
+        List<ProgrammingJudgeCaseView> judgeCases,
+        List<ProgrammingLanguageExecutionEnvironmentView> languageExecutionEnvironments,
+        ProgrammingExecutionEnvironmentView executionEnvironment) {}

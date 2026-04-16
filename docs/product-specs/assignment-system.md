@@ -15,6 +15,7 @@
 - 教师可创建、更新、归档带标签、带分类的题库题目，并按开课实例查看题库列表 / 详情
 - 题库列表当前支持按题型、关键词、分类和标签精确过滤
 - 教师可查看开课实例内题库分类列表与当前活跃题目数
+- 教师可在开课实例下创建、更新、归档可复用的评测环境模板，并在编程题中按语言引用
 - 教师可在创建作业时附带结构化试卷
 - 结构化试卷支持多个大题，每个大题下挂多道题目
 - 当前题型支持：
@@ -58,6 +59,10 @@
 16. 编程题隐藏测试点分值之和必须等于题目分值。
 17. 题库分类当前按开课实例隔离；题目当前只支持一个主分类，分类字典会在题目创建 / 更新时按名称自动创建。
 18. 题库标签当前按开课实例隔离，写入时会做 `trim + lower-case` 归一化；列表使用重复 `tag` 参数时，语义为“同时命中全部标签”。
+19. 开课实例级评测环境模板只允许教师侧管理和引用；题库题目与作业快照保存的是解析后的环境快照，因此后续模板变更不会反向污染既有题目快照。
+20. 编程题当前支持两层运行环境配置：
+  - `executionEnvironment`：兼容旧单环境字段，作为所有语言共享的回退环境
+  - `languageExecutionEnvironments`：按 `programmingLanguage` 绑定独立环境，可引用开课实例级模板并做题目级覆盖
 
 ## 核心数据模型
 
@@ -86,6 +91,9 @@
   - 作业快照中的客观题选项和正确答案
 - `assignment_judge_profiles / assignment_judge_cases`
   - 继续保留 legacy assignment 级脚本型自动评测配置
+- `judge_environment_profiles`
+  - 开课实例内可复用的编程题评测环境模板
+  - 当前按 `offering_id + normalized_code` 去重
 - `audit_logs`
   - 记录 `QUESTION_BANK_QUESTION_CREATED / QUESTION_BANK_QUESTION_UPDATED / QUESTION_BANK_QUESTION_ARCHIVED / ASSIGNMENT_CREATED / ASSIGNMENT_PUBLISHED / ASSIGNMENT_CLOSED`
 
@@ -136,6 +144,11 @@
 - `GET /api/v1/teacher/question-bank/questions/{questionId}`
 - `PUT /api/v1/teacher/question-bank/questions/{questionId}`
 - `POST /api/v1/teacher/question-bank/questions/{questionId}/archive`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles`
+- `GET /api/v1/teacher/judge-environment-profiles/{profileId}`
+- `PUT /api/v1/teacher/judge-environment-profiles/{profileId}`
+- `POST /api/v1/teacher/judge-environment-profiles/{profileId}/archive`
 
 ### 我的作业
 
@@ -149,6 +162,7 @@
 - 教师当前已可编辑草稿作业并整体替换结构化试卷；已发布作业仍保持不可变，避免污染学生提交与批改基线。
 - 题库当前已支持更新、软归档、标签、分类和精确过滤；更复杂的分类体系、组卷规则与更完整搜索仍未实现。
 - 结构化试卷已支持五种题型的建模与读取；其中编程题已支持题目级隐藏测试点、资源限制、多文件提交约束，以及模板工作区快照建模。
+- 编程题当前支持开课实例级评测环境模板，以及题目级按语言 `languageExecutionEnvironments` 解析快照；作业发布后仍保持 assignment question snapshot 不可变。
 - assignment 级脚本型自动评测仍只适用于 legacy 文本作业，不适用于结构化试卷。
 - 结构化编程题当前已接入 question-level judge，并已向学生侧暴露样例输入输出、模板工作区、工作区修订历史和样例试运行入口。
 - assignment 只负责提供编程题配置与快照，不直接承载工作区状态和试运行结果；对应状态分别落在 submission 与 judge 模块。

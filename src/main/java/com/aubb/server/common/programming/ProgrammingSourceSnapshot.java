@@ -43,6 +43,7 @@ public record ProgrammingSourceSnapshot(String entryFilePath, List<ProgrammingSo
             case PYTHON3 -> "main.py";
             case JAVA21, JAVA17 -> "Main.java";
             case CPP17 -> "main.cpp";
+            case GO122 -> "main.go";
         };
     }
 

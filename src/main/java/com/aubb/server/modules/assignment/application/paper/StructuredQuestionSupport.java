@@ -5,10 +5,12 @@ import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingJudgeMode;
+import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.assignment.infrastructure.bank.QuestionBankQuestionOptionEntity;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentQuestionOptionEntity;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -26,8 +28,12 @@ public class StructuredQuestionSupport {
     private static final int MAX_CODE_TEXT_LENGTH = 50_000;
     private static final int MAX_TEMPLATE_FILE_COUNT = 20;
     private static final int MAX_TEMPLATE_DIRECTORY_COUNT = 40;
+    private static final int MAX_ENVIRONMENT_SUPPORT_FILE_COUNT = 20;
+    private static final int MAX_ENVIRONMENT_VARIABLE_COUNT = 20;
+    private static final int MAX_ENVIRONMENT_SCRIPT_LENGTH = 4_000;
     private static final int MAX_SOURCE_FILE_PATH_LENGTH = 200;
     private static final Pattern SAFE_SOURCE_FILE_PATH = Pattern.compile("^[A-Za-z0-9._/-]+$");
+    private static final Pattern SAFE_ENVIRONMENT_VARIABLE_NAME = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*$");
 
     private final ObjectMapper objectMapper;
 
@@ -112,7 +118,7 @@ public class StructuredQuestionSupport {
         AssignmentQuestionConfigInput safeConfig = config == null
                 ? new AssignmentQuestionConfigInput(
                         null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                        null, null, null, null)
+                        null, null, null, null, null, null)
                 : config;
         try {
             return objectMapper.writeValueAsString(safeConfig);
@@ -125,7 +131,7 @@ public class StructuredQuestionSupport {
         if (!StringUtils.hasText(configJson)) {
             return new AssignmentQuestionConfigInput(
                     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                    null, null, null, null);
+                    null, null, null, null, null, null);
         }
         try {
             return objectMapper.readValue(configJson, AssignmentQuestionConfigInput.class);
@@ -139,7 +145,7 @@ public class StructuredQuestionSupport {
         if (config == null) {
             return new AssignmentQuestionConfigView(
                     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                    null, null, null, null, null);
+                    null, null, null, null, null, null, null);
         }
         return new AssignmentQuestionConfigView(
                 config.supportedLanguages(),
@@ -167,7 +173,21 @@ public class StructuredQuestionSupport {
                                 .map(caseInput -> new ProgrammingJudgeCaseView(
                                         caseInput.stdinText(), caseInput.expectedStdout(), caseInput.score()))
                                 .toList()
-                        : null);
+                        : null,
+                config.languageExecutionEnvironments() == null
+                        ? null
+                        : config.languageExecutionEnvironments().stream()
+                                .map(environment -> new ProgrammingLanguageExecutionEnvironmentView(
+                                        environment.programmingLanguage(),
+                                        toExecutionEnvironmentView(
+                                                environment.executionEnvironment(), revealSensitiveFields)))
+                                .toList(),
+                toExecutionEnvironmentView(config.executionEnvironment(), revealSensitiveFields));
+    }
+
+    public void validateProgrammingExecutionEnvironment(
+            ProgrammingExecutionEnvironmentInput environment, String prefix) {
+        validateExecutionEnvironment(environment, prefix);
     }
 
     private void validateSingleChoice(List<AssignmentQuestionOptionInput> options, String prefix) {
@@ -255,6 +275,9 @@ public class StructuredQuestionSupport {
         validateCommandArgs(config.compileArgs(), prefix + "_COMPILE_ARGS_INVALID", "编译参数不能为空白字符串");
         validateCommandArgs(config.runArgs(), prefix + "_RUN_ARGS_INVALID", "运行参数不能为空白字符串");
         validateProgrammingTemplate(config, prefix);
+        validateLanguageExecutionEnvironments(
+                config.supportedLanguages(), config.languageExecutionEnvironments(), prefix);
+        validateExecutionEnvironment(config.executionEnvironment(), prefix);
         if (ProgrammingJudgeMode.CUSTOM_SCRIPT.equals(config.judgeMode())
                 && !StringUtils.hasText(config.customJudgeScript())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_CUSTOM_SCRIPT_REQUIRED", "自定义脚本模式必须提供评测脚本");
@@ -305,6 +328,102 @@ public class StructuredQuestionSupport {
         }
     }
 
+    private void validateLanguageExecutionEnvironments(
+            List<ProgrammingLanguage> supportedLanguages,
+            List<ProgrammingLanguageExecutionEnvironmentInput> languageEnvironments,
+            String prefix) {
+        if (languageEnvironments == null || languageEnvironments.isEmpty()) {
+            return;
+        }
+        LinkedHashSet<ProgrammingLanguage> seenLanguages = new LinkedHashSet<>();
+        for (ProgrammingLanguageExecutionEnvironmentInput languageEnvironment : languageEnvironments) {
+            if (languageEnvironment == null || languageEnvironment.programmingLanguage() == null) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_LANGUAGE_ENVIRONMENT_LANGUAGE_REQUIRED", "按语言评测环境必须指定语言");
+            }
+            if (languageEnvironment.executionEnvironment() == null) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_LANGUAGE_ENVIRONMENT_REQUIRED", "按语言评测环境不能为空");
+            }
+            if (supportedLanguages != null && !supportedLanguages.contains(languageEnvironment.programmingLanguage())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_LANGUAGE_ENVIRONMENT_SCOPE_INVALID", "按语言评测环境必须属于题目支持语言");
+            }
+            if (!seenLanguages.add(languageEnvironment.programmingLanguage())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_LANGUAGE_ENVIRONMENT_DUPLICATED", "同一语言只能配置一个评测环境");
+            }
+            validateExecutionEnvironment(
+                    languageEnvironment.executionEnvironment(),
+                    prefix + "_LANGUAGE_"
+                            + languageEnvironment.programmingLanguage().name());
+        }
+    }
+
+    private void validateExecutionEnvironment(ProgrammingExecutionEnvironmentInput environment, String prefix) {
+        if (environment == null) {
+            return;
+        }
+        if (environment.profileId() != null && environment.profileId() <= 0) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_PROFILE_INVALID", "评测环境模板标识必须大于 0");
+        }
+        if (StringUtils.hasText(environment.profileCode())
+                && environment.profileCode().trim().length() > 64) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_PROFILE_CODE_INVALID", "评测环境模板编码长度不能超过 64");
+        }
+        if (StringUtils.hasText(environment.profileName())
+                && environment.profileName().trim().length() > 128) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_PROFILE_NAME_INVALID", "评测环境模板名称长度不能超过 128");
+        }
+        if (StringUtils.hasText(environment.workingDirectory()) && !isSafePath(environment.workingDirectory())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_WORKING_DIRECTORY_INVALID", "评测环境工作目录不合法");
+        }
+        if (StringUtils.hasText(environment.compileCommand())
+                && !StringUtils.hasText(environment.compileCommand().trim())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_COMPILE_COMMAND_INVALID", "评测环境编译命令不能为空白字符串");
+        }
+        if (StringUtils.hasText(environment.runCommand())
+                && !StringUtils.hasText(environment.runCommand().trim())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_RUN_COMMAND_INVALID", "评测环境运行命令不能为空白字符串");
+        }
+        if (StringUtils.hasText(environment.initScript())
+                && environment.initScript().trim().length() > MAX_ENVIRONMENT_SCRIPT_LENGTH) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_INIT_SCRIPT_TOO_LONG", "评测环境初始化脚本长度超过限制");
+        }
+        if (environment.cpuRateLimit() != null && environment.cpuRateLimit() <= 0) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_CPU_RATE_INVALID", "评测环境 CPU 限制必须大于 0");
+        }
+        Map<String, String> environmentVariables = environment.environmentVariables();
+        if (environmentVariables != null) {
+            if (environmentVariables.size() > MAX_ENVIRONMENT_VARIABLE_COUNT) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_VARIABLE_LIMIT_EXCEEDED", "评测环境变量数量超过限制");
+            }
+            for (Map.Entry<String, String> entry : environmentVariables.entrySet()) {
+                if (!StringUtils.hasText(entry.getKey())
+                        || !SAFE_ENVIRONMENT_VARIABLE_NAME
+                                .matcher(entry.getKey().trim())
+                                .matches()) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_VARIABLE_NAME_INVALID", "评测环境变量名不合法");
+                }
+                if (entry.getValue() == null) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_VARIABLE_VALUE_INVALID", "评测环境变量值不能为空");
+                }
+            }
+        }
+        validateEnvironmentSupportFiles(environment.supportFiles(), prefix);
+    }
+
     private void validateProgrammingTemplate(AssignmentQuestionConfigInput config, String prefix) {
         List<ProgrammingSourceFile> templateFiles = config.templateFiles() == null ? List.of() : config.templateFiles();
         List<String> templateDirectories =
@@ -345,6 +464,31 @@ public class StructuredQuestionSupport {
                     throw new BusinessException(
                             HttpStatus.BAD_REQUEST, prefix + "_TEMPLATE_FILE_SIZE_EXCEEDED", "模板源码文件大小超过题目限制");
                 }
+            }
+        }
+    }
+
+    private void validateEnvironmentSupportFiles(List<ProgrammingSourceFile> supportFiles, String prefix) {
+        if (supportFiles == null || supportFiles.isEmpty()) {
+            return;
+        }
+        if (supportFiles.size() > MAX_ENVIRONMENT_SUPPORT_FILE_COUNT) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_SUPPORT_FILE_LIMIT_EXCEEDED", "评测环境支持文件数量超过限制");
+        }
+        LinkedHashSet<String> normalizedPaths = new LinkedHashSet<>();
+        for (ProgrammingSourceFile file : supportFiles) {
+            if (file == null || !isSafePath(file.path())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_SUPPORT_FILE_PATH_INVALID", "评测环境支持文件路径不合法");
+            }
+            if (!normalizedPaths.add(file.path())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_SUPPORT_FILE_PATH_DUPLICATED", "评测环境支持文件路径不能重复");
+            }
+            if (safeContent(file.content()).length() > MAX_CODE_TEXT_LENGTH) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, prefix + "_ENVIRONMENT_SUPPORT_FILE_TOO_LONG", "评测环境支持文件内容超过限制");
             }
         }
     }
@@ -412,6 +556,28 @@ public class StructuredQuestionSupport {
                 .map(extension -> extension.startsWith(".") ? extension.substring(1) : extension)
                 .map(String::toLowerCase)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private ProgrammingExecutionEnvironmentView toExecutionEnvironmentView(
+            ProgrammingExecutionEnvironmentInput environment, boolean revealSensitiveFields) {
+        if (environment == null) {
+            return null;
+        }
+        return new ProgrammingExecutionEnvironmentView(
+                environment.profileId(),
+                blankToNull(environment.profileCode()),
+                blankToNull(environment.profileName()),
+                blankToNull(environment.profileScope()),
+                blankToNull(environment.languageVersion()),
+                blankToNull(environment.workingDirectory()),
+                environment.environmentVariables() == null ? null : Map.copyOf(environment.environmentVariables()),
+                environment.cpuRateLimit(),
+                revealSensitiveFields ? blankToNull(environment.compileCommand()) : null,
+                revealSensitiveFields ? blankToNull(environment.runCommand()) : null,
+                revealSensitiveFields ? blankToNull(environment.initScript()) : null,
+                revealSensitiveFields && environment.supportFiles() != null
+                        ? List.copyOf(environment.supportFiles())
+                        : null);
     }
 
     private String extensionOf(String filename) {

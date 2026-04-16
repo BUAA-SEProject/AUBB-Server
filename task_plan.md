@@ -144,6 +144,18 @@ Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 c
 - [x] 把仓库状态检查与文档整理结论写回工作记忆，便于下一轮继续开发
 - **Status:** completed
 
+### Phase 24：评测运行环境与语言模板第一阶段
+
+- [x] 为结构化编程题补齐题目级 `executionEnvironment` 快照模型与校验
+- [x] 为教师侧题库 / 作业接口补齐运行环境请求模型
+- [x] 扩展 `ProgrammingLanguage`，新增 `GO122`
+- [x] 通过真实 go-judge `/run` 支持 Go 多文件工程正式评测与样例试运行
+- [x] 用 `copyOut / copyIn` 复用编译阶段产物，保证两阶段执行时编译结果不丢失
+- [x] 新增开课实例级 `judge_environment_profiles`，供教师按课程维护可复用的语言环境模板
+- [x] 支持编程题通过 `languageExecutionEnvironments` 按语言引用环境模板，并在题库题目 / assignment 快照中固化解析结果
+- [x] 用真实 go-judge 集成测试验证“模板引用 -> assignment 快照 -> 正式评测 / 样例试运行”的完整链路
+- **Status:** completed
+
 ## 已做决策
 
 | Decision | Rationale |
@@ -153,13 +165,15 @@ Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 c
 | `judge` 只负责样例试运行、正式评测和日志产物 | 执行型系统应与题库、人工批改和成绩发布解耦 |
 | `grading` 继续负责人工批改、成绩发布和成绩册 | 评分可见性、反馈和统计应集中在一个域内演进 |
 | 下一优先级先补在线 IDE，再补多语言稳定化 | 当前最显著的产品缺口是“能评测但不像真正 IDE”，先补工作区模型最稳 |
-| 多语言 V1 先收敛为 `PYTHON3 / JAVA21 / CPP17` | 代码和配置已具备这三种语言的基础能力，继续扩语言会放大验证成本；`JAVA17` 仅作为兼容输入保留 |
+| 多语言 V1 先收敛为 `PYTHON3 / JAVA21 / CPP17 / GO122` | 当前代码、运行镜像和真实 go-judge 验证已覆盖这四种语言；`JAVA17` 仅作为兼容输入保留，更复杂版本矩阵延后 |
 | 编译失败继续映射到 `RUNTIME_ERROR` 而不是新增 verdict | 现有 API 和存储枚举已被学生侧、教师侧与样例试运行复用，先稳定摘要口径比扩枚举更稳 |
 | 题库生命周期与成绩导出排在 IDE / 运行时之后 | 这两块重要，但不会阻断学生完成编程题主链路 |
 | 文档入口优先集中到 README / docs/index / repository-structure 三处 | 继续开发时应先解决入口失真，而不是继续新增重复说明文档 |
 | 评测详细报告先落库到 `judge_jobs.detail_report_json`，暂不直接落对象存储 | 先稳定 API 与权限脱敏边界，再决定日志产物对象化策略 |
 | RabbitMQ 队列先做单队列单 consumer 入口，并保留本地异步回退 | 先验证真实引擎与消息链路闭环，避免一次性引入独立 worker 与重试编排 |
 | 在线 IDE 第二阶段先补后端工作区与试运行契约，不在当前仓库内实现浏览器编辑器能力 | 当前仓库是后端服务，优先保证模板、目录树、版本恢复、试运行与评测环境一致性 |
+| 评测环境模板当前先收敛到开课实例级 `judge_environment_profiles` | 教师最常见的复用边界是同一门课内的多题共享环境；先避免过早引入平台级环境中心 |
+| 题目引用环境模板时必须在发布前解析并固化为 assignment question snapshot | 题库题目和环境模板后续仍可变，正式评测必须绑定创建作业时的稳定环境快照 |
 
 ## 错误记录
 
@@ -171,3 +185,4 @@ Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 c
 | go-judge 对 `files` 数组执行联合类型校验，`null` 字段会触发 400 | 1 | 将 `GoJudgeClient` 的 stdin/stdout/stderr 文件描述符拆成真实联合模型，并为空 stdin 发送空内容而不是 `null` |
 | 评测任务在 RabbitMQ 路径下可能出现 `finished_at < started_at` 约束冲突 | 1 | 在 `JudgeExecutionService` 中将 `startedAt / finishedAt` 归一到不早于排队时间与开始时间，避免时序抖动触发表约束 |
 | 工作区从历史修订恢复时，`last_stdin_text` 无法被清空 | 1 | 为 `ProgrammingWorkspaceEntity.lastStdinText` 增加 `FieldStrategy.ALWAYS`，确保恢复空值时也会写回数据库 |
+| 真实 go-judge 的每次 `/run` 都是全新沙箱，直接拆成两次调用会丢失编译产物 | 1 | 通过 `copyOut / copyIn` 回传编译阶段产物，再在第二阶段恢复执行，保证 Go 多文件工程等场景稳定运行 |

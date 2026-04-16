@@ -714,3 +714,59 @@
 - Verification:
   - 本轮代码状态复核沿用同日已完成的 `bash ./mvnw clean verify`
   - 当前结果：`BUILD SUCCESS`，全量 `71` 个测试通过
+
+## Session: 2026-04-16 评测运行环境与语言模板第一阶段
+
+### Phase 24：题目级运行环境快照、Go 多文件执行与开课实例环境模板
+
+- **Status:** completed
+- Actions taken:
+  - 为结构化编程题新增 `ProgrammingExecutionEnvironmentInput/View`，并让题库题目与作业题目都支持 `executionEnvironment`
+  - 为教师侧作业 / 题库接口补齐环境标签、语言版本、编译命令、运行命令、环境变量、工作目录、初始化脚本、支持文件和 CPU 速率限制的请求模型
+  - 扩展 `ProgrammingLanguage` 与源码快照默认入口，新增 `GO122`
+  - 更新 `JudgeExecutionService` 与 `GoJudgeClient`，将编译型语言执行拆成“编译 -> 运行”两阶段，并通过 go-judge `copyOut / copyIn` 回传编译产物
+  - 为 `GO122` 固化第一阶段运行模板：多文件工程、`go.mod`、工作目录、环境变量覆盖、初始化脚本与支持文件都通过真实 go-judge 验证
+  - 新增开课实例级 `judge_environment_profiles`，支持教师按课程维护可复用的语言环境模板
+  - 为编程题新增 `languageExecutionEnvironments`，支持按 `programmingLanguage` 引用模板并做题目级覆盖，同时保留旧 `executionEnvironment` 作为回退环境
+  - 在题库建题与 assignment 快照环节解析 `profileId / profileCode`，把模板化环境固化为不可变快照，避免后续模板修改污染既有作业
+  - 扩展真实集成测试，覆盖正式题目级评测、样例试运行，以及“模板引用 -> assignment 快照 -> 真实 go-judge 执行”的完整链路
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/ProgrammingExecutionEnvironmentInput.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/ProgrammingExecutionEnvironmentView.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/ProgrammingLanguageExecutionEnvironmentInput.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/ProgrammingLanguageExecutionEnvironmentView.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/AssignmentQuestionConfigInput.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/AssignmentQuestionConfigView.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/StructuredQuestionSupport.java`
+  - `src/main/java/com/aubb/server/modules/assignment/api/AssignmentTeacherController.java`
+  - `src/main/java/com/aubb/server/modules/assignment/api/QuestionBankTeacherController.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/bank/QuestionBankApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/assignment/application/paper/AssignmentPaperApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/assignment/domain/question/ProgrammingLanguage.java`
+  - `src/main/java/com/aubb/server/common/programming/ProgrammingSourceSnapshot.java`
+  - `src/main/java/com/aubb/server/modules/judge/infrastructure/gojudge/GoJudgeClient.java`
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/main/java/com/aubb/server/modules/judge/application/environment/**`
+  - `src/main/java/com/aubb/server/modules/judge/infrastructure/environment/**`
+  - `src/main/java/com/aubb/server/modules/judge/api/TeacherJudgeEnvironmentProfileController.java`
+  - `docker/go-judge/Dockerfile`
+  - `docker/go-judge/mount.yaml`
+  - `src/test/java/com/aubb/server/integration/AbstractRealJudgeIntegrationTest.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `README.md`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/product-specs/judge-system.md`
+  - `docs/generated/db-schema.md`
+  - `docs/exec-plans/completed/2026-04-16-judge-runtime-environments-phase1.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=StructuredAssignmentIntegrationTests,StructuredProgrammingJudgeIntegrationTests test`
+  - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `82` 个测试通过

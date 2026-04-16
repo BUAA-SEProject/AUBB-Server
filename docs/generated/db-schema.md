@@ -20,6 +20,7 @@
 - `src/main/resources/db/migration/V16__judge_queue_and_reports_phase1.sql`
 - `src/main/resources/db/migration/V17__online_ide_phase2.sql`
 - `src/main/resources/db/migration/V18__question_bank_categories_phase2.sql`
+- `src/main/resources/db/migration/V19__judge_environment_profiles_phase1.sql`
 
 ## 总览
 
@@ -48,6 +49,7 @@
 - `assignment_question_options`：试卷题目选项快照
 - `assignment_judge_profiles`：作业自动评测配置
 - `assignment_judge_cases`：作业自动评测测试用例
+- `judge_environment_profiles`：开课实例级编程题评测环境模板
 - `submissions`：正式提交记录
 - `submission_artifacts`：提交附件元数据
 - `submission_answers`：分题答案、人工批改与题目级评测回写状态
@@ -439,6 +441,36 @@
 - `uk_assignment_judge_cases_assignment_order`
 - `ix_assignment_judge_cases_assignment_order`
 
+### `judge_environment_profiles`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `profile_code` | `text` | 必填，最长 64 |
+| `normalized_code` | `text` | 必填，最长 64，开课实例内唯一 |
+| `profile_name` | `text` | 必填，最长 128 |
+| `description` | `text` | 可空，最长 500 |
+| `programming_language` | `text` | 必填，当前支持 `PYTHON3 / JAVA21 / JAVA17 / CPP17 / GO122` |
+| `language_version` | `text` | 可空，最长 64 |
+| `working_directory` | `text` | 可空，最长 200 |
+| `init_script` | `text` | 可空，初始化脚本 |
+| `compile_command` | `text` | 可空，模板化编译命令 |
+| `run_command` | `text` | 可空，模板化运行命令 |
+| `environment_variables_json` | `text` | 可空，环境变量 JSON |
+| `cpu_rate_limit` | `integer` | 可空，`> 0` |
+| `support_files_json` | `text` | 可空，支持文件 JSON |
+| `created_by_user_id` | `bigint` | 可空，外键到 `users.id`，删除置空 |
+| `archived_by_user_id` | `bigint` | 可空，外键到 `users.id`，删除置空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+| `archived_at` | `timestamptz` | 可空，归档时间 |
+
+索引与约束：
+
+- `uk_judge_environment_profiles_offering_code`
+- `ix_judge_environment_profiles_offering_language_active`
+
 ### `submissions`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -753,6 +785,9 @@
 - `assignment_question_options.assignment_question_id -> assignment_questions.id`
 - `assignment_judge_profiles.assignment_id -> assignments.id`
 - `assignment_judge_cases.assignment_id -> assignment_judge_profiles.assignment_id`
+- `judge_environment_profiles.offering_id -> course_offerings.id`
+- `judge_environment_profiles.created_by_user_id -> users.id`
+- `judge_environment_profiles.archived_by_user_id -> users.id`
 - `submissions.assignment_id -> assignments.id`
 - `submissions.offering_id -> course_offerings.id`
 - `submissions.teaching_class_id -> teaching_classes.id`
@@ -804,6 +839,7 @@
 - `programming_workspace_revisions` 以追加写方式保存工作区历史版本，用于模板重置、历史恢复和试运行复用，不单独引入复杂的增量补丁协议。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
+- `judge_environment_profiles` 当前作为开课实例内可复用的编程题评测环境模板存在；题库题目和 assignment question 通过 `profileId / profileCode` 引用后，会先解析模板再固化到 `assignment_questions.config_json` 的环境快照中。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
 - `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要与详细报告；完整评测产物对象仍未持久化。
 - `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会同时持久化入口文件、目录树源码快照、输入模式和详细报告，并可回指工作区修订。

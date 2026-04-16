@@ -25,4 +25,6 @@ public record AssignmentQuestionConfigInput(
         ProgrammingJudgeMode judgeMode,
         String customJudgeScript,
         String referenceAnswer,
-        List<ProgrammingJudgeCaseInput> judgeCases) {}
+        List<ProgrammingJudgeCaseInput> judgeCases,
+        List<ProgrammingLanguageExecutionEnvironmentInput> languageExecutionEnvironments,
+        ProgrammingExecutionEnvironmentInput executionEnvironment) {}

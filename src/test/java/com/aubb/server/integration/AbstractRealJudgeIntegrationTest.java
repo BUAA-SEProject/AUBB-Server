@@ -27,6 +27,7 @@ abstract class AbstractRealJudgeIntegrationTest {
     private static final String GO_JUDGE_TEST_DOCKERFILE = """
             FROM criyle/go-judge:v1.11.4 AS go-judge
             FROM eclipse-temurin:21.0.8_9-jdk-jammy AS java21
+            FROM golang:1.22.12-bookworm AS go122
             FROM debian:bookworm-slim
 
             RUN apt-get update \\
@@ -37,6 +38,7 @@ abstract class AbstractRealJudgeIntegrationTest {
 
             COPY --from=go-judge /opt/go-judge /opt/
             COPY --from=java21 /opt/java/openjdk /opt/java/openjdk
+            COPY --from=go122 /usr/local/go /usr/local/go
             COPY mount.yaml /opt/mount.yaml
 
             EXPOSE 5050/tcp

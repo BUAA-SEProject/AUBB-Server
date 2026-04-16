@@ -12,6 +12,7 @@ import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentQuestio
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentQuestionOptionMapper;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionEntity;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionMapper;
+import com.aubb.server.modules.judge.application.environment.JudgeEnvironmentProfileApplicationService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +35,7 @@ public class AssignmentPaperApplicationService {
     private final QuestionBankQuestionMapper questionBankQuestionMapper;
     private final QuestionBankQuestionOptionMapper questionBankQuestionOptionMapper;
     private final StructuredQuestionSupport structuredQuestionSupport;
+    private final JudgeEnvironmentProfileApplicationService judgeEnvironmentProfileApplicationService;
 
     @Transactional
     public void persistPaper(Long assignmentId, Long offeringId, AssignmentPaperInput paper) {
@@ -244,13 +246,16 @@ public class AssignmentPaperApplicationService {
         }
         structuredQuestionSupport.validateQuestionDefinition(
                 input.questionType(), input.score(), input.options(), input.config(), "ASSIGNMENT_QUESTION");
+        AssignmentQuestionConfigInput resolvedConfig = resolveConfig(offeringId, input.questionType(), input.config());
+        structuredQuestionSupport.validateQuestionDefinition(
+                input.questionType(), input.score(), input.options(), resolvedConfig, "ASSIGNMENT_QUESTION");
         return new ResolvedQuestion(
                 null,
                 structuredQuestionSupport.normalizeTitle(input.title(), "ASSIGNMENT_QUESTION_TITLE_REQUIRED"),
                 structuredQuestionSupport.normalizePrompt(input.prompt(), "ASSIGNMENT_QUESTION_PROMPT_REQUIRED"),
                 input.questionType(),
                 structuredQuestionSupport.normalizeScore(input.score(), "ASSIGNMENT_QUESTION_SCORE_INVALID"),
-                structuredQuestionSupport.writeConfigJson(input.config()),
+                structuredQuestionSupport.writeConfigJson(resolvedConfig),
                 normalizeOptions(input.options()));
     }
 
@@ -300,6 +305,50 @@ public class AssignmentPaperApplicationService {
                 .map(option -> new ResolvedOption(
                         option.optionKey().trim(), option.content().trim(), Boolean.TRUE.equals(option.correct())))
                 .toList();
+    }
+
+    private AssignmentQuestionConfigInput resolveConfig(
+            Long offeringId, AssignmentQuestionType questionType, AssignmentQuestionConfigInput config) {
+        if (!AssignmentQuestionType.PROGRAMMING.equals(questionType) || config == null) {
+            return config;
+        }
+        List<ProgrammingLanguageExecutionEnvironmentInput> languageEnvironments =
+                config.languageExecutionEnvironments() == null
+                        ? List.of()
+                        : config.languageExecutionEnvironments().stream()
+                                .map(languageEnvironment -> new ProgrammingLanguageExecutionEnvironmentInput(
+                                        languageEnvironment.programmingLanguage(),
+                                        judgeEnvironmentProfileApplicationService.resolveEnvironmentReference(
+                                                offeringId,
+                                                languageEnvironment.programmingLanguage(),
+                                                languageEnvironment.executionEnvironment())))
+                                .toList();
+        ProgrammingExecutionEnvironmentInput executionEnvironment =
+                judgeEnvironmentProfileApplicationService.resolveEnvironmentReference(
+                        offeringId, null, config.executionEnvironment());
+        return new AssignmentQuestionConfigInput(
+                config.supportedLanguages(),
+                config.maxFileCount(),
+                config.maxFileSizeMb(),
+                config.acceptedExtensions(),
+                config.allowMultipleFiles(),
+                config.allowSampleRun(),
+                config.sampleStdinText(),
+                config.sampleExpectedStdout(),
+                config.templateEntryFilePath(),
+                config.templateDirectories(),
+                config.templateFiles(),
+                config.timeLimitMs(),
+                config.memoryLimitMb(),
+                config.outputLimitKb(),
+                config.compileArgs(),
+                config.runArgs(),
+                config.judgeMode(),
+                config.customJudgeScript(),
+                config.referenceAnswer(),
+                config.judgeCases(),
+                languageEnvironments,
+                executionEnvironment);
     }
 
     private record ResolvedQuestion(

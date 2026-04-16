@@ -43,6 +43,10 @@ mount:
     target: /opt/java/openjdk
     readonly: true
   - type: bind
+    source: /usr/local/go
+    target: /usr/local/go
+    readonly: true
+  - type: bind
     source: /dev/urandom
     target: /dev/urandom
   - type: bind

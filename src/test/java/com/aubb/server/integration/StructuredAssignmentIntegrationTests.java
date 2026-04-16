@@ -625,6 +625,146 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .isEqualTo(3);
     }
 
+    @Test
+    void teacherManagesJudgeEnvironmentProfilesAndSnapshotsProfileReferenceInAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JUDGE", "评测环境班", 2026);
+
+        Long profileId = createJudgeEnvironmentProfile(teacherToken, offeringId, """
+                {
+                  "profileCode":"JAVA_PKG_V1",
+                  "profileName":"Java 包运行模板",
+                  "description":"用于 package 化 Java 多文件工程",
+                  "programmingLanguage":"JAVA21",
+                  "environment":{
+                    "workingDirectory":"solutions",
+                    "compileCommand":"/opt/java/openjdk/bin/javac -encoding UTF-8 -d . ${JAVA_SOURCE_FILES}",
+                    "runCommand":"/opt/java/openjdk/bin/java -cp . ${JAVA_LAUNCH_CLASS}",
+                    "cpuRateLimit":1200,
+                    "environmentVariables":{
+                      "JAVA_TOOL_OPTIONS":""
+                    }
+                  }
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("programmingLanguage", "JAVA21"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(profileId))
+                .andExpect(jsonPath("$[0].profileCode").value("JAVA_PKG_V1"))
+                .andExpect(jsonPath("$[0].executionEnvironment.profileScope").value("OFFERING"));
+
+        mockMvc.perform(put("/api/v1/teacher/judge-environment-profiles/{profileId}", profileId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "profileCode":"JAVA_PKG_V1",
+                                  "profileName":"Java 包运行模板（更新）",
+                                  "description":"更新后的模板",
+                                  "programmingLanguage":"JAVA21",
+                                  "environment":{
+                                    "workingDirectory":"solutions",
+                                    "compileCommand":"/opt/java/openjdk/bin/javac -encoding UTF-8 -d . ${JAVA_SOURCE_FILES}",
+                                    "runCommand":"/opt/java/openjdk/bin/java -cp . ${JAVA_LAUNCH_CLASS} ${RUN_ARGS}",
+                                    "cpuRateLimit":1500
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profileName").value("Java 包运行模板（更新）"))
+                .andExpect(jsonPath("$.executionEnvironment.cpuRateLimit").value(1500));
+
+        Long bankQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"Java 包工程题",
+                  "prompt":"读取两个整数并输出和。",
+                  "questionType":"PROGRAMMING",
+                  "defaultScore":100,
+                  "config":{
+                    "supportedLanguages":["JAVA21"],
+                    "allowMultipleFiles":true,
+                    "allowSampleRun":true,
+                    "acceptedExtensions":["java"],
+                    "sampleStdinText":"1 2\\n",
+                    "sampleExpectedStdout":"3\\n",
+                    "timeLimitMs":1500,
+                    "memoryLimitMb":128,
+                    "outputLimitKb":64,
+                    "judgeMode":"STANDARD_IO",
+                    "languageExecutionEnvironments":[
+                      {
+                        "programmingLanguage":"JAVA21",
+                        "executionEnvironment":{
+                          "profileId":%s
+                        }
+                      }
+                    ],
+                    "judgeCases":[
+                      {"stdinText":"20 22\\n","expectedStdout":"42\\n","score":100}
+                    ]
+                  }
+                }
+                """.formatted(profileId));
+
+        Long assignmentId = createSingleQuestionAssignment(teacherToken, offeringId, classId, bankQuestionId);
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].programmingLanguage")
+                        .value("JAVA21"))
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.profileId")
+                        .value(profileId))
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.profileCode")
+                        .value("JAVA_PKG_V1"))
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.profileScope")
+                        .value("OFFERING"))
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.cpuRateLimit")
+                        .value(1500));
+
+        mockMvc.perform(post("/api/v1/teacher/judge-environment-profiles/{profileId}/archive", profileId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.archivedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("includeArchived", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].archivedAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.profileCode")
+                        .value("JAVA_PKG_V1"))
+                .andExpect(jsonPath(
+                                "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.profileName")
+                        .value("Java 包运行模板（更新）"));
+    }
+
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
         jdbcTemplate.update(
                 """
@@ -770,6 +910,17 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    private Long createJudgeEnvironmentProfile(String token, Long offeringId, String body) throws Exception {
+        MvcResult result = mockMvc.perform(
+                        post("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
+                                .header("Authorization", "Bearer " + token)
+                                .contentType("application/json")
+                                .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
     private Long createStructuredAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
@@ -852,6 +1003,36 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                               ]
                                             }
                                           }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(classId, bankQuestionId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
+    private Long createSingleQuestionAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)
+            throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"环境模板快照作业",
+                                  "description":"验证题目快照固化模板",
+                                  "teachingClassId":%s,
+                                  "openAt":"2026-04-01T08:00:00+08:00",
+                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "maxSubmissions":2,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"编程题",
+                                        "questions":[
+                                          {"bankQuestionId":%s,"score":100}
                                         ]
                                       }
                                     ]

@@ -22,6 +22,16 @@
   - 目录树源码快照 + 附件装配为多文件输入，并兼容 legacy `codeText`
   - 逐测试点结果明细回写到 `judge_jobs.case_results_json`
   - 编程题配置 `compileArgs / runArgs`
+  - 开课实例级 judge environment profiles 管理与复用
+  - 编程题配置题目级 `languageExecutionEnvironments`
+  - 编程题配置题目级 `executionEnvironment`：
+    - 环境标签 / 语言版本标签
+    - 编译命令 / 运行命令模板
+    - 环境变量
+    - 工作目录
+    - 初始化脚本
+    - 支持文件
+    - CPU 速率限制
   - 详细评测报告回写到 `judge_jobs.detail_report_json`
 - 当前支持结构化编程题样例试运行：
   - 独立的 `programming_sample_runs` 历史
@@ -70,6 +80,12 @@
   - 超时 / 超内存 / 超输出当前分别落成 `TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED`
 15. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
 16. `detail_report_json` 保存测试点级完整日志、执行命令和执行元数据；学生侧报告默认隐藏 `stdinText / expectedStdout`，教师侧保留。
+17. 对于存在编译阶段的语言，当前实现会拆成“编译 -> 运行”两个真实 go-judge `/run` 调用，并通过 `copyOut / copyIn` 回传编译产物，避免编译结果在第二阶段沙箱中丢失。
+18. 当前“支持文件”仅表示题目配置中的受控辅助文件，通过 go-judge `copyIn` 注入运行目录，不表示动态宿主目录挂载。
+19. 开课实例级 `judge_environment_profiles` 当前作为可复用模板存在；教师在题库题目或 assignment question 中通过 `profileId / profileCode` 引用时，平台会先解析模板，再把结果快照固化进题目配置。
+20. 编程题当前支持两种环境选择方式：
+  - `languageExecutionEnvironments`：按语言命中独立环境，优先级最高
+  - `executionEnvironment`：旧单环境字段，作为未命中语言时的共享回退
 
 ## 核心数据模型
 
@@ -84,6 +100,12 @@
   - `case_order`：测试用例顺序
   - `stdin_text / expected_stdout`：输入输出
   - `score`：用例分值
+- `judge_environment_profiles`
+  - `offering_id`：模板所属开课实例
+  - `profile_code / normalized_code`：模板编码与大小写无关查找键
+  - `programming_language`：模板绑定语言
+  - `language_version / working_directory / init_script / compile_command / run_command`：模板化执行环境
+  - `environment_variables_json / support_files_json`：环境变量与支持文件
 - `judge_jobs`
   - `submission_id`：所属正式提交
   - `submission_answer_id`：可选，题目级评测时指向分题答案
@@ -121,6 +143,7 @@
 - `audit_logs`
   - 记录 `JUDGE_JOB_ENQUEUED / JUDGE_JOB_STARTED / JUDGE_JOB_COMPLETED / JUDGE_JOB_FAILED`
   - 记录 `PROGRAMMING_SAMPLE_RUN_CREATED`
+  - 记录 `JUDGE_ENVIRONMENT_PROFILE_CREATED / UPDATED / ARCHIVED`
 
 详细字段以 [../generated/db-schema.md](../generated/db-schema.md) 为准。
 
@@ -137,6 +160,11 @@
 
 ### 教师侧
 
+- `POST /api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles`
+- `GET /api/v1/teacher/judge-environment-profiles/{profileId}`
+- `PUT /api/v1/teacher/judge-environment-profiles/{profileId}`
+- `POST /api/v1/teacher/judge-environment-profiles/{profileId}/archive`
 - `GET /api/v1/teacher/submissions/{submissionId}/judge-jobs`
 - `POST /api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue`
 - `GET /api/v1/teacher/submission-answers/{answerId}/judge-jobs`
@@ -146,12 +174,21 @@
 ## 当前实现边界
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
-- 结构化编程题当前按语言装配 `PYTHON3 / JAVA21 / CPP17` 运行命令，并支持把目录树源码快照和附件一起写入运行目录；自动化验证当前已覆盖这三种语言的样例试运行与正式评测最小链路。
+- 结构化编程题当前按语言装配 `PYTHON3 / JAVA21 / CPP17 / GO122` 运行命令，并支持把目录树源码快照、附件和题目级支持文件一起写入运行目录；自动化验证当前已覆盖这四种语言的样例试运行与正式评测最小链路。
 - 结构化编程题当前支持 `compileArgs / runArgs`：
   - `PYTHON3`：解释器参数走 `compileArgs`，脚本参数走 `runArgs`
   - `JAVA21 / JAVA17`：编译参数追加到 `javac`，运行参数追加到 `java`
   - `CPP17`：编译阶段会收集目录树中的全部 `.cpp / .cc / .cxx / .c`，并追加 `compileArgs` 与 `runArgs`
+  - `GO122`：编译参数追加到 `go build`，运行参数追加到二进制入口
+- 结构化编程题当前支持开课实例级 `judge_environment_profiles` 与题目级 `languageExecutionEnvironments / executionEnvironment`：
+  - 教师可先在开课实例下维护 `profileCode / profileName / programmingLanguage` 唯一的环境模板
+  - 题目配置可按 `programmingLanguage` 绑定模板并做题目级覆盖，最终仍保存为 assignment question snapshot
+  - `profileId / profileCode / profileName / profileScope / languageVersion` 作为快照元数据随 assignment question 固化
+  - `workingDirectory / initScript / environmentVariables / supportFiles` 会真实映射到 go-judge 执行目录和环境变量
+  - `compileCommand / runCommand` 当前以模板化 shell 命令执行，可引用入口文件、工作目录和参数占位符
+- 对于 `JAVA21 / JAVA17 / CPP17 / GO122` 这类需要编译的语言，当前实现会先在真实 go-judge 沙箱内编译，再通过 `copyOut / copyIn` 回传编译产物到第二阶段执行，保证编译资源窗口和运行资源窗口可以独立控制。
 - `JAVA21` 当前已固定为“编译全部 `.java` 源文件到当前工作目录，再按入口文件 package + 类名启动”的运行模板，因此已支持目录树场景下的多文件、嵌套路径和 package 化入口；`JAVA17` 仅作为兼容输入保留。
+- `GO122` 当前默认以入口文件所在目录作为工作目录，并通过 `GOCACHE=/tmp/go-build`、`CGO_ENABLED=0`、`GOFLAGS=-p=1`、`GOMAXPROCS=1` 收敛真实 go-judge 沙箱内的编译并发和资源抖动。
 - `CUSTOM_SCRIPT` 当前通过固定的 Python checker 执行，checker 读取保留文件：
   - `_aubb_stdin.txt`
   - `_aubb_expected_stdout.txt`
@@ -171,6 +208,7 @@
   - `PYTHON3`：直接执行入口脚本
   - `JAVA21`：编译全部 `.java` 文件，支持嵌套目录与 package 入口
   - `CPP17`：编译目录树内全部翻译单元，并按入口文件启动
+  - `GO122`：按工作目录执行 `go build`，支持带 `go.mod` 的多文件工程
 
 ## 验收标准
 

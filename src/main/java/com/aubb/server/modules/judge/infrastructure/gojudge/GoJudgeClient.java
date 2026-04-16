@@ -11,12 +11,16 @@ public interface GoJudgeClient {
 
     record Command(
             List<String> args,
+            List<String> env,
             List<FileDescriptor> files,
             long cpuLimit,
             long clockLimit,
             long memoryLimit,
             int procLimit,
-            Map<String, CopyInFile> copyIn) {}
+            Integer cpuRateLimit,
+            Map<String, CopyInFile> copyIn,
+            List<String> copyOut,
+            Long copyOutMax) {}
 
     sealed interface FileDescriptor permits MemoryFileDescriptor, CollectorFileDescriptor {}
 

@@ -27,7 +27,7 @@
 
 - 题库管理已补齐更新、归档、标签、标签精确检索，以及分类 / 分类过滤第一阶段；结构化作业也已补齐草稿编辑第一阶段，但仍缺更完整组卷体验
 - 编程题后端已支持 `entryFilePath + files + directories + artifactIds` 的目录树快照、模板工作区、工作区目录操作、历史修订、模板重置、最近标准输入回填，以及样例试运行 / 正式评测复用；当前剩余缺口主要是前端目录树交互、编辑器能力和更实时同步协议
-- 多语言运行时已有 `PYTHON3 / JAVA21 / CPP17` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这三种语言，并已支持 `compileArgs / runArgs` 与 C++ 多文件工程，但日志一致性与更复杂工程布局仍不足；`JAVA17` 当前仅作为兼容输入保留
+- 多语言运行时已有 `PYTHON3 / JAVA21 / CPP17 / GO122` 的模型与正式 / 样例两条执行链路，自动化验证已覆盖这四种语言，并已支持 `compileArgs / runArgs`、题目级 `executionEnvironment`、开课实例级 `judge_environment_profiles`、按语言 `languageExecutionEnvironments` 与 C++ / Go 多文件工程，但日志一致性与更复杂工程布局仍不足；`JAVA17` 当前仅作为兼容输入保留
 - 编译失败、运行失败和资源超限的摘要口径已在 legacy judge、question-level judge 与样例试运行三条链路上完成第一阶段统一，但更复杂工程布局下的完整执行日志仍不足
 - `JAVA21` 运行模板已补齐为“编译全部 `.java` 文件 + 按 package 解析启动类”，目录树中的嵌套路径和 package 化入口已不再退化成 `WRONG_ANSWER`
 - 成绩发布、教师侧成绩册和学生侧成绩册已完成第一阶段，但成绩导出和多作业聚合未完成
@@ -170,6 +170,9 @@
 - 真实 go-judge `/run` 会返回 `Nonzero Exit Status`，不能再沿用 fake judge 时代的 `Non Zero Exit Status` 字符串。
 - 真实 go-judge 对 `files` 使用联合类型校验，stdin/stdout/stderr 需要按真实对象类型序列化，不能发送带 `null` 字段的混合描述符。
 - 正式评测与样例试运行现在都支持 `compileArgs / runArgs`，并已经由真实 go-judge Testcontainers 覆盖到 C++ 多文件工程。
+- 真实 go-judge 的每次 `/run` 都是全新沙箱；若要拆成“编译 -> 运行”两阶段，必须通过 `copyOut / copyIn` 回传编译产物，不能假设第一次执行生成的二进制会自动保留到第二次调用。
+- 题目级 `executionEnvironment` 目前最稳的边界是 assignment question snapshot：通过题库题目复用、在作业发布时固化，并在执行时只允许映射到受控的 `workingDirectory / initScript / environmentVariables / supportFiles / compileCommand / runCommand / cpuRateLimit`，不额外引入独立环境管理中心。
+- 课程内最稳的环境复用边界是开课实例级 `judge_environment_profiles`：教师可先维护语言模板，再由题库题目或作业题目按 `profileId / profileCode` 引用；平台解析后只保留环境快照，不在正式评测阶段回查运行中的模板实体。
 - `judge_jobs.detail_report_json` 当前包含测试点级 `stdin / expectedStdout / stdout / stderr / compileCommand / runCommand` 和执行元数据；学生侧报告会脱敏隐藏测试输入输出。
 - 编译失败当前继续映射到 `RUNTIME_ERROR`，通过稳定中文摘要区分“编译失败”和“程序运行失败”；如后续要新增独立 verdict，需要评估 API 兼容和历史数据迁移。
 - 结构化作业一旦落地，旧版“整份文本提交”不能误用于新型作业，必须在业务层显式区分。

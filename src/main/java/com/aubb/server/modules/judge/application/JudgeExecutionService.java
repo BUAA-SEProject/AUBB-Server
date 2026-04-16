@@ -8,6 +8,7 @@ import com.aubb.server.common.storage.StoredObject;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionSnapshot;
+import com.aubb.server.modules.assignment.application.paper.ProgrammingExecutionEnvironmentInput;
 import com.aubb.server.modules.assignment.application.paper.ProgrammingJudgeCaseInput;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingJudgeMode;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
@@ -65,6 +66,13 @@ public class JudgeExecutionService {
     private static final int DEFAULT_TIME_LIMIT_MS = 1_000;
     private static final int DEFAULT_MEMORY_LIMIT_MB = 128;
     private static final int DEFAULT_OUTPUT_LIMIT_KB = 64;
+    private static final int DEFAULT_COMPILE_TIME_LIMIT_MS = 10_000;
+    private static final int DEFAULT_COMPILE_MEMORY_LIMIT_MB = 512;
+    private static final int DEFAULT_COMPILE_OUTPUT_LIMIT_KB = 256;
+    private static final List<String> DEFAULT_PROGRAM_ENV =
+            List.of("PATH=/usr/local/go/bin:/opt/java/openjdk/bin:/usr/bin:/bin", "HOME=/tmp");
+    private static final String COMPILED_BUNDLE_FILE = "_aubb_compiled_bundle.b64";
+    private static final long COMPILED_BUNDLE_MAX_BYTES = 16L * 1024L * 1024L;
     private static final String CUSTOM_JUDGE_SCRIPT_FILE = "_aubb_custom_judge.py";
     private static final String CUSTOM_JUDGE_CONTEXT_FILE = "_aubb_judge_context.json";
     private static final String CUSTOM_JUDGE_STDIN_FILE = "_aubb_stdin.txt";
@@ -222,7 +230,7 @@ public class JudgeExecutionService {
             return ProgrammingSampleRunOutcome.failed("编程题试运行缺少标准输入", null, null);
         }
         try {
-            SourceBundle sourceBundle = buildSourceBundle(sourceSnapshot, artifactIds, programmingLanguage);
+            SourceBundle sourceBundle = buildSourceBundle(sourceSnapshot, artifactIds, programmingLanguage, config);
             CaseOutcome caseOutcome = evaluateProgrammingCase(
                     sourceBundle, programmingLanguage, config, stdinText, expectedStdout, null, true);
             JudgeJobStoredReport detailReport = new JudgeJobStoredReport(
@@ -283,9 +291,12 @@ public class JudgeExecutionService {
                     List.of("/usr/bin/python3", context.legacyProfile().getEntryFileName());
             RunResult result = executeCase(
                     runCommand,
+                    buildProgramEnvironment(ProgrammingLanguage.PYTHON3, null),
+                    null,
                     Map.of(
                             context.legacyProfile().getEntryFileName(),
                             new CopyInFile(context.submission().getContentText())),
+                    List.of(),
                     testCase.getStdinText(),
                     context.legacyProfile().getTimeLimitMs(),
                     context.legacyProfile().getMemoryLimitMb(),
@@ -367,7 +378,8 @@ public class JudgeExecutionService {
                         payload.entryFilePath(),
                         payload.files()),
                 payload.artifactIds(),
-                payload.programmingLanguage());
+                payload.programmingLanguage(),
+                config);
         List<JudgeJobCaseResultView> caseResults = new ArrayList<>();
         List<JudgeJobCaseReportView> caseReports = new ArrayList<>();
         int passedCaseCount = 0;
@@ -454,9 +466,31 @@ public class JudgeExecutionService {
             Integer maxScore,
             boolean sampleRun) {
         ProgramCommandPlan commandPlan = buildProgramCommand(programmingLanguage, sourceBundle, config);
+        RunResult compileResult = null;
+        if (!commandPlan.compileShellArgs().isEmpty()) {
+            compileResult = executeCase(
+                    commandPlan.compileShellArgs(),
+                    commandPlan.environment(),
+                    commandPlan.cpuRateLimit(),
+                    sourceBundle.copyIn(),
+                    commandPlan.compileBundlePath() == null ? List.of() : List.of(commandPlan.compileBundlePath()),
+                    null,
+                    resolveCompileTimeLimitMs(config),
+                    resolveCompileMemoryLimitMb(config),
+                    resolveCompileOutputLimitKb(config));
+            CaseOutcome compileOutcome =
+                    toCaseOutcome(compileResult, null, null, commandPlan.compileCommand(), commandPlan.runCommand());
+            if (compileOutcome.verdict() != JudgeVerdict.ACCEPTED) {
+                return compileOutcome;
+            }
+        }
+        Map<String, CopyInFile> runCopyIn = copyInWithCompiledBundle(sourceBundle.copyIn(), commandPlan, compileResult);
         RunResult programResult = executeCase(
-                commandPlan.shellArgs(),
-                sourceBundle.copyIn(),
+                commandPlan.runShellArgs(),
+                commandPlan.environment(),
+                commandPlan.cpuRateLimit(),
+                runCopyIn,
+                List.of(),
                 stdinText,
                 safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS),
                 safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB),
@@ -471,10 +505,17 @@ public class JudgeExecutionService {
                     expectedStdout,
                     maxScore,
                     commandPlan,
+                    compileResult,
                     sampleRun);
         }
-        return toCaseOutcome(
-                programResult, stdinText, expectedStdout, commandPlan.compileCommand(), commandPlan.runCommand());
+        return combineCompileAndRunOutcome(
+                compileResult,
+                toCaseOutcome(
+                        programResult,
+                        stdinText,
+                        expectedStdout,
+                        commandPlan.compileCommand(),
+                        commandPlan.runCommand()));
     }
 
     // checker 只负责给出裁决和分数，学生看到的 stdout / stderr 仍然来自自己的程序运行结果。
@@ -487,6 +528,7 @@ public class JudgeExecutionService {
             String expectedStdout,
             Integer maxScore,
             ProgramCommandPlan commandPlan,
+            RunResult compileResult,
             boolean sampleRun) {
         String stdout = normalizeLineEndings(
                 programResult.files() == null ? null : programResult.files().get("stdout"));
@@ -547,6 +589,8 @@ public class JudgeExecutionService {
 
         RunResult judgeResult = executeCase(
                 List.of("/usr/bin/python3", CUSTOM_JUDGE_SCRIPT_FILE),
+                buildProgramEnvironment(ProgrammingLanguage.PYTHON3, null),
+                null,
                 buildCustomJudgeCopyIn(
                         sourceBundle,
                         programmingLanguage,
@@ -556,6 +600,7 @@ public class JudgeExecutionService {
                         config,
                         maxScore,
                         sampleRun),
+                List.of(),
                 null,
                 safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS),
                 safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB),
@@ -601,20 +646,22 @@ public class JudgeExecutionService {
         CustomJudgeDecision decision = readCustomJudgeDecision(judgeStdout);
         JudgeVerdict verdict = readCustomJudgeVerdict(decision.verdict());
         Integer awardedScore = resolveCustomJudgeScore(decision.score(), maxScore, verdict);
-        return new CaseOutcome(
-                verdict,
-                stdout,
-                stderr,
-                timeMillis,
-                memoryBytes,
-                awardedScore,
-                clip(decision.message()),
-                programResult.status(),
-                programResult.exitStatus(),
-                commandPlan.compileCommand(),
-                commandPlan.runCommand(),
-                stdinText,
-                expectedStdout);
+        return combineCompileAndRunOutcome(
+                compileResult,
+                new CaseOutcome(
+                        verdict,
+                        stdout,
+                        stderr,
+                        timeMillis,
+                        memoryBytes,
+                        awardedScore,
+                        clip(decision.message()),
+                        programResult.status(),
+                        programResult.exitStatus(),
+                        commandPlan.compileCommand(),
+                        commandPlan.runCommand(),
+                        stdinText,
+                        expectedStdout));
     }
 
     private Map<String, CopyInFile> buildCustomJudgeCopyIn(
@@ -729,7 +776,10 @@ public class JudgeExecutionService {
 
     private RunResult executeCase(
             List<String> args,
+            List<String> env,
+            Integer cpuRateLimit,
             Map<String, CopyInFile> copyIn,
+            List<String> copyOut,
             String stdinText,
             int timeLimitMs,
             int memoryLimitMb,
@@ -740,6 +790,7 @@ public class JudgeExecutionService {
         long outputLimitBytes = outputLimitKb * 1024L;
         RunRequest request = new RunRequest(List.of(new Command(
                 args,
+                env,
                 List.of(
                         new MemoryFileDescriptor(safeContent(stdinText)),
                         new CollectorFileDescriptor("stdout", outputLimitBytes),
@@ -748,7 +799,10 @@ public class JudgeExecutionService {
                 clockLimitNanos,
                 memoryLimitBytes,
                 PROC_LIMIT,
-                copyIn)));
+                cpuRateLimit,
+                copyIn,
+                copyOut,
+                copyOut == null || copyOut.isEmpty() ? null : COMPILED_BUNDLE_MAX_BYTES)));
         List<RunResult> results = goJudgeClient.run(request);
         if (results.size() != 1) {
             throw new IllegalStateException("go-judge 返回结果数量异常");
@@ -850,6 +904,22 @@ public class JudgeExecutionService {
                 caseOutcome.runCommand());
     }
 
+    private Map<String, CopyInFile> copyInWithCompiledBundle(
+            Map<String, CopyInFile> sourceCopyIn, ProgramCommandPlan commandPlan, RunResult compileResult) {
+        Map<String, CopyInFile> resolved = new LinkedHashMap<>(sourceCopyIn);
+        if (commandPlan.compileBundlePath() == null) {
+            return resolved;
+        }
+        String compiledBundle = compileResult == null || compileResult.files() == null
+                ? null
+                : compileResult.files().get(commandPlan.compileBundlePath());
+        if (!StringUtils.hasText(compiledBundle)) {
+            throw new IllegalStateException("编译阶段未返回可复用产物");
+        }
+        resolved.put(commandPlan.compileBundlePath(), new CopyInFile(compiledBundle));
+        return resolved;
+    }
+
     private void finishJob(Long judgeJobId, JudgeFinalization outcome) {
         JudgeJobEntity job = judgeJobMapper.selectById(judgeJobId);
         if (job == null) {
@@ -924,54 +994,252 @@ public class JudgeExecutionService {
         String entryFileName = sourceBundle.entryFileName();
         List<String> compileArgs = normalizeCommandArgs(config.compileArgs());
         List<String> runArgs = normalizeCommandArgs(config.runArgs());
-        return switch (language) {
+        ProgrammingExecutionEnvironmentInput environment = resolveExecutionEnvironment(config, language);
+        String workingDirectory = resolveWorkingDirectory(language, entryFileName, environment);
+        String relativeEntryFileName = relativizeToWorkingDirectory(entryFileName, workingDirectory);
+        List<String> javaSourceFiles = sourceBundle.sourceFiles().stream()
+                .filter(path -> path.endsWith(".java"))
+                .map(path -> relativizeToWorkingDirectory(path, workingDirectory))
+                .sorted()
+                .toList();
+        List<String> cppSourceFiles = sourceBundle.sourceFiles().stream()
+                .filter(path ->
+                        path.endsWith(".cpp") || path.endsWith(".cc") || path.endsWith(".cxx") || path.endsWith(".c"))
+                .map(path -> relativizeToWorkingDirectory(path, workingDirectory))
+                .sorted()
+                .toList();
+        List<String> goSourceFiles = sourceBundle.sourceFiles().stream()
+                .filter(path -> path.endsWith(".go"))
+                .map(path -> relativizeToWorkingDirectory(path, workingDirectory))
+                .sorted()
+                .toList();
+        String launchClassName = resolveJavaLaunchClassName(entryFileName, sourceBundle.copyIn());
+
+        List<String> compileCommand = List.of();
+        List<String> runCommand = List.of();
+        switch (language) {
             case PYTHON3 -> {
-                List<String> runCommand = new ArrayList<>();
-                runCommand.add("/usr/bin/python3");
-                runCommand.addAll(compileArgs);
-                runCommand.add(entryFileName);
-                runCommand.addAll(runArgs);
-                yield new ProgramCommandPlan(runCommand, List.of(), List.copyOf(runCommand));
+                compileCommand = List.of();
+                List<String> resolvedRunCommand = new ArrayList<>();
+                resolvedRunCommand.add("/usr/bin/python3");
+                resolvedRunCommand.addAll(compileArgs);
+                resolvedRunCommand.add(relativeEntryFileName);
+                resolvedRunCommand.addAll(runArgs);
+                runCommand = List.copyOf(resolvedRunCommand);
             }
             case JAVA21, JAVA17 -> {
-                List<String> javaSourceFiles = sourceBundle.copyIn().keySet().stream()
-                        .filter(path -> path.endsWith(".java"))
-                        .sorted()
-                        .toList();
-                String launchClassName = resolveJavaLaunchClassName(entryFileName, sourceBundle.copyIn());
-                List<String> compileCommand =
+                List<String> resolvedCompileCommand =
                         new ArrayList<>(List.of("/opt/java/openjdk/bin/javac", "-encoding", "UTF-8", "-d", "."));
-                compileCommand.addAll(compileArgs);
-                compileCommand.addAll(javaSourceFiles);
-                List<String> runCommand =
+                resolvedCompileCommand.addAll(compileArgs);
+                resolvedCompileCommand.addAll(javaSourceFiles);
+                compileCommand = List.copyOf(resolvedCompileCommand);
+                List<String> resolvedRunCommand =
                         new ArrayList<>(List.of("/opt/java/openjdk/bin/java", "-cp", ".", launchClassName));
-                runCommand.addAll(runArgs);
-                yield new ProgramCommandPlan(
-                        List.of("/bin/sh", "-lc", shellJoin(compileCommand) + " && " + shellJoin(runCommand)),
-                        List.copyOf(compileCommand),
-                        List.copyOf(runCommand));
+                resolvedRunCommand.addAll(runArgs);
+                runCommand = List.copyOf(resolvedRunCommand);
             }
             case CPP17 -> {
-                List<String> cppSourceFiles = sourceBundle.copyIn().keySet().stream()
-                        .filter(path -> path.endsWith(".cpp")
-                                || path.endsWith(".cc")
-                                || path.endsWith(".cxx")
-                                || path.endsWith(".c"))
-                        .sorted()
-                        .toList();
-                List<String> compileCommand =
+                List<String> resolvedCompileCommand =
                         new ArrayList<>(List.of("/usr/bin/g++", "-B/usr/bin", "-std=c++17", "-O2"));
-                compileCommand.addAll(cppSourceFiles);
-                compileCommand.addAll(compileArgs);
-                compileCommand.addAll(List.of("-o", "main"));
-                List<String> runCommand = new ArrayList<>(List.of("./main"));
-                runCommand.addAll(runArgs);
-                yield new ProgramCommandPlan(
-                        List.of("/bin/sh", "-lc", shellJoin(compileCommand) + " && " + shellJoin(runCommand)),
-                        List.copyOf(compileCommand),
-                        List.copyOf(runCommand));
+                resolvedCompileCommand.addAll(cppSourceFiles);
+                resolvedCompileCommand.addAll(compileArgs);
+                resolvedCompileCommand.addAll(List.of("-o", "main"));
+                compileCommand = List.copyOf(resolvedCompileCommand);
+                List<String> resolvedRunCommand = new ArrayList<>(List.of("./main"));
+                resolvedRunCommand.addAll(runArgs);
+                runCommand = List.copyOf(resolvedRunCommand);
             }
+            case GO122 -> {
+                List<String> resolvedCompileCommand =
+                        new ArrayList<>(List.of("/usr/local/go/bin/go", "build", "-o", "main"));
+                resolvedCompileCommand.addAll(compileArgs);
+                resolvedCompileCommand.add(".");
+                compileCommand = List.copyOf(resolvedCompileCommand);
+                List<String> resolvedRunCommand = new ArrayList<>(List.of("./main"));
+                resolvedRunCommand.addAll(runArgs);
+                runCommand = List.copyOf(resolvedRunCommand);
+            }
+        }
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        placeholders.put("${ENTRY}", shellQuote(relativeEntryFileName));
+        placeholders.put("${ENTRY_PATH}", shellQuote(entryFileName));
+        placeholders.put("${ENTRY_DIR}", shellQuote(parentDirectory(relativeEntryFileName)));
+        placeholders.put("${WORKING_DIRECTORY}", shellQuote(workingDirectory));
+        placeholders.put("${JAVA_LAUNCH_CLASS}", shellQuote(launchClassName));
+        placeholders.put("${JAVA_SOURCE_FILES}", shellJoin(javaSourceFiles));
+        placeholders.put("${CPP_SOURCE_FILES}", shellJoin(cppSourceFiles));
+        placeholders.put("${GO_SOURCE_FILES}", shellJoin(goSourceFiles));
+        placeholders.put("${COMPILE_ARGS}", shellJoin(compileArgs));
+        placeholders.put("${RUN_ARGS}", shellJoin(runArgs));
+
+        List<String> compileCommandDisplay = StringUtils.hasText(environmentCommand(environment, true))
+                ? List.of(environmentCommand(environment, true))
+                : compileCommand;
+        List<String> runCommandDisplay = StringUtils.hasText(environmentCommand(environment, false))
+                ? List.of(environmentCommand(environment, false))
+                : runCommand;
+        String compileShell = StringUtils.hasText(environmentCommand(environment, true))
+                ? renderShellTemplate(environmentCommand(environment, true), placeholders)
+                : (compileCommand.isEmpty() ? null : shellJoin(compileCommand));
+        String runShell = StringUtils.hasText(environmentCommand(environment, false))
+                ? renderShellTemplate(environmentCommand(environment, false), placeholders)
+                : shellJoin(runCommand);
+        String compileBundlePath = compileCommand.isEmpty() ? null : resolveCompileBundlePath(workingDirectory);
+        String compileArchiveCommand = compileBundlePath == null
+                ? null
+                : "tar --exclude='./%s' -cf - . | base64 -w0 > %s"
+                        .formatted(COMPILED_BUNDLE_FILE, shellQuote(COMPILED_BUNDLE_FILE));
+        String runRestoreCommand = compileBundlePath == null
+                ? null
+                : "base64 -d %s | tar -xf -".formatted(shellQuote(COMPILED_BUNDLE_FILE));
+        return new ProgramCommandPlan(
+                buildShellArgs(
+                        workingDirectory,
+                        environment == null ? null : environment.initScript(),
+                        joinCommands(compileShell, compileArchiveCommand)),
+                buildShellArgs(
+                        workingDirectory,
+                        environment == null ? null : environment.initScript(),
+                        joinCommands(runRestoreCommand, runShell)),
+                buildProgramEnvironment(language, environment),
+                environment == null ? null : environment.cpuRateLimit(),
+                compileBundlePath,
+                compileCommandDisplay,
+                runCommandDisplay);
+    }
+
+    private String resolveWorkingDirectory(
+            ProgrammingLanguage language, String entryFileName, ProgrammingExecutionEnvironmentInput environment) {
+        if (environment != null && StringUtils.hasText(environment.workingDirectory())) {
+            return environment.workingDirectory().trim();
+        }
+        return switch (language) {
+            case GO122 -> parentDirectory(entryFileName);
+            default -> ".";
         };
+    }
+
+    private List<String> buildProgramEnvironment(
+            ProgrammingLanguage language, ProgrammingExecutionEnvironmentInput environment) {
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (String envEntry : DEFAULT_PROGRAM_ENV) {
+            int separator = envEntry.indexOf('=');
+            resolved.put(envEntry.substring(0, separator), envEntry.substring(separator + 1));
+        }
+        if (ProgrammingLanguage.GO122.equals(language)) {
+            resolved.put("GOCACHE", "/tmp/go-build");
+            resolved.put("CGO_ENABLED", "0");
+            resolved.put("GOFLAGS", "-p=1");
+            resolved.put("GOMAXPROCS", "1");
+        }
+        if (environment != null && environment.environmentVariables() != null) {
+            environment.environmentVariables().forEach((key, value) -> resolved.put(key.trim(), value));
+        }
+        return resolved.entrySet().stream()
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .toList();
+    }
+
+    private String environmentCommand(ProgrammingExecutionEnvironmentInput environment, boolean compilePhase) {
+        if (environment == null) {
+            return null;
+        }
+        return compilePhase ? environment.compileCommand() : environment.runCommand();
+    }
+
+    private String renderShellTemplate(String template, Map<String, String> placeholders) {
+        String rendered = template == null ? "" : template.trim();
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            rendered = rendered.replace(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+        }
+        return rendered.trim();
+    }
+
+    private List<String> buildShellArgs(String workingDirectory, String initScript, String command) {
+        String shellProgram = buildShellProgram(workingDirectory, initScript, command);
+        if (!StringUtils.hasText(shellProgram)) {
+            return List.of();
+        }
+        return List.of("/bin/sh", "-lc", shellProgram);
+    }
+
+    private String buildShellProgram(String workingDirectory, String initScript, String command) {
+        List<String> steps = new ArrayList<>();
+        if (StringUtils.hasText(workingDirectory) && !".".equals(workingDirectory)) {
+            steps.add("cd " + shellQuote(workingDirectory));
+        }
+        if (StringUtils.hasText(initScript)) {
+            steps.add(initScript.trim());
+        }
+        if (StringUtils.hasText(command)) {
+            steps.add(command.trim());
+        }
+        return steps.isEmpty() ? null : String.join(" && ", steps);
+    }
+
+    private String joinCommands(String... commands) {
+        List<String> resolved = new ArrayList<>();
+        for (String command : commands) {
+            if (StringUtils.hasText(command)) {
+                resolved.add(command.trim());
+            }
+        }
+        return resolved.isEmpty() ? null : String.join(" && ", resolved);
+    }
+
+    private String resolveCompileBundlePath(String workingDirectory) {
+        if (!StringUtils.hasText(workingDirectory) || ".".equals(workingDirectory)) {
+            return COMPILED_BUNDLE_FILE;
+        }
+        return workingDirectory + "/" + COMPILED_BUNDLE_FILE;
+    }
+
+    private int resolveCompileTimeLimitMs(AssignmentQuestionConfigInput config) {
+        return Math.max(DEFAULT_COMPILE_TIME_LIMIT_MS, safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS));
+    }
+
+    private int resolveCompileMemoryLimitMb(AssignmentQuestionConfigInput config) {
+        return Math.max(DEFAULT_COMPILE_MEMORY_LIMIT_MB, safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB));
+    }
+
+    private int resolveCompileOutputLimitKb(AssignmentQuestionConfigInput config) {
+        return Math.max(DEFAULT_COMPILE_OUTPUT_LIMIT_KB, safeInt(config.outputLimitKb(), DEFAULT_OUTPUT_LIMIT_KB));
+    }
+
+    private CaseOutcome combineCompileAndRunOutcome(RunResult compileResult, CaseOutcome runOutcome) {
+        if (compileResult == null || runOutcome == null) {
+            return runOutcome;
+        }
+        return new CaseOutcome(
+                runOutcome.verdict(),
+                runOutcome.stdoutText(),
+                runOutcome.stderrText(),
+                nanosToMillis(compileResult.time()) + runOutcome.timeMillis(),
+                Math.max(safeLong(compileResult.memory()), runOutcome.memoryBytes()),
+                runOutcome.awardedScore(),
+                runOutcome.errorMessage(),
+                runOutcome.engineStatus(),
+                runOutcome.exitStatus(),
+                runOutcome.compileCommand(),
+                runOutcome.runCommand(),
+                runOutcome.stdinText(),
+                runOutcome.expectedStdout());
+    }
+
+    private String relativizeToWorkingDirectory(String path, String workingDirectory) {
+        if (!StringUtils.hasText(path) || !StringUtils.hasText(workingDirectory) || ".".equals(workingDirectory)) {
+            return path;
+        }
+        String prefix = workingDirectory.endsWith("/") ? workingDirectory : workingDirectory + "/";
+        return path.startsWith(prefix) ? path.substring(prefix.length()) : path;
+    }
+
+    private String parentDirectory(String path) {
+        if (!StringUtils.hasText(path) || !path.contains("/")) {
+            return ".";
+        }
+        return path.substring(0, path.lastIndexOf('/'));
     }
 
     private String resolveJavaLaunchClassName(String entryFileName, Map<String, CopyInFile> copyIn) {
@@ -990,7 +1258,10 @@ public class JudgeExecutionService {
     }
 
     private SourceBundle buildSourceBundle(
-            ProgrammingSourceSnapshot sourceSnapshot, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {
+            ProgrammingSourceSnapshot sourceSnapshot,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage,
+            AssignmentQuestionConfigInput config) {
         ProgrammingSourceSnapshot normalizedSnapshot = sourceSnapshot == null
                 ? ProgrammingSourceSnapshot.fromInput(programmingLanguage, null, null, List.of())
                 : sourceSnapshot;
@@ -999,10 +1270,26 @@ public class JudgeExecutionService {
         for (ProgrammingSourceFile file : normalizedSnapshot.files()) {
             copyIn.put(file.path(), new CopyInFile(file.content()));
         }
+        List<String> supportFiles = new ArrayList<>();
+        ProgrammingExecutionEnvironmentInput environment =
+                config == null ? null : resolveExecutionEnvironment(config, programmingLanguage);
+        if (environment != null && environment.supportFiles() != null) {
+            for (ProgrammingSourceFile supportFile : environment.supportFiles()) {
+                if (copyIn.containsKey(supportFile.path())) {
+                    throw new IllegalStateException("评测环境支持文件与源码路径冲突");
+                }
+                copyIn.put(supportFile.path(), new CopyInFile(supportFile.content()));
+                supportFiles.add(supportFile.path());
+            }
+        }
         if (!copyIn.containsKey(entryFileName)) {
             throw new IllegalStateException("当前自动评测需要代码文本或包含入口文件的附件");
         }
-        return new SourceBundle(entryFileName, copyIn);
+        List<String> sourceFiles = copyIn.keySet().stream()
+                .filter(path -> !supportFiles.contains(path))
+                .sorted()
+                .toList();
+        return new SourceBundle(entryFileName, copyIn, sourceFiles, List.copyOf(supportFiles));
     }
 
     private Map<String, CopyInFile> readArtifactSourceFiles(List<Long> artifactIds) {
@@ -1099,10 +1386,12 @@ public class JudgeExecutionService {
                         ? null
                         : payload.programmingLanguage().name());
         metadata.put("entryFilePath", sourceBundle.entryFileName());
-        metadata.put("sourceFiles", List.copyOf(sourceBundle.copyIn().keySet()));
+        metadata.put("sourceFiles", sourceBundle.sourceFiles());
+        metadata.put("supportFiles", sourceBundle.supportFiles());
         metadata.put("artifactIds", payload.artifactIds());
         metadata.put("compileArgs", normalizeCommandArgs(config.compileArgs()));
         metadata.put("runArgs", normalizeCommandArgs(config.runArgs()));
+        metadata.put("executionEnvironment", buildExecutionEnvironmentMetadata(config, payload.programmingLanguage()));
         metadata.put(
                 "judgeMode",
                 config.judgeMode() == null ? null : config.judgeMode().name());
@@ -1133,10 +1422,12 @@ public class JudgeExecutionService {
         metadata.put("assignmentQuestionId", question.id());
         metadata.put("programmingLanguage", programmingLanguage == null ? null : programmingLanguage.name());
         metadata.put("entryFilePath", sourceBundle.entryFileName());
-        metadata.put("sourceFiles", List.copyOf(sourceBundle.copyIn().keySet()));
+        metadata.put("sourceFiles", sourceBundle.sourceFiles());
+        metadata.put("supportFiles", sourceBundle.supportFiles());
         metadata.put("artifactIds", artifactIds);
         metadata.put("compileArgs", normalizeCommandArgs(config.compileArgs()));
         metadata.put("runArgs", normalizeCommandArgs(config.runArgs()));
+        metadata.put("executionEnvironment", buildExecutionEnvironmentMetadata(config, programmingLanguage));
         metadata.put("inputMode", inputMode == null ? null : inputMode.name());
         metadata.put("workspaceRevisionId", workspaceRevisionId);
         metadata.put(
@@ -1146,6 +1437,69 @@ public class JudgeExecutionService {
         metadata.put("memoryLimitMb", safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB));
         metadata.put("outputLimitKb", safeInt(config.outputLimitKb(), DEFAULT_OUTPUT_LIMIT_KB));
         return metadata;
+    }
+
+    private Map<String, Object> buildExecutionEnvironmentMetadata(
+            AssignmentQuestionConfigInput config, ProgrammingLanguage programmingLanguage) {
+        ProgrammingExecutionEnvironmentInput environment =
+                config == null ? null : resolveExecutionEnvironment(config, programmingLanguage);
+        if (environment == null) {
+            return null;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("profileId", environment.profileId());
+        metadata.put("profileCode", blankToNull(environment.profileCode()));
+        metadata.put("profileName", blankToNull(environment.profileName()));
+        metadata.put("profileScope", blankToNull(environment.profileScope()));
+        metadata.put(
+                "languageVersion",
+                StringUtils.hasText(environment.languageVersion())
+                        ? environment.languageVersion().trim()
+                        : defaultLanguageVersion(programmingLanguage));
+        metadata.put("workingDirectory", blankToNull(environment.workingDirectory()));
+        metadata.put("cpuRateLimit", environment.cpuRateLimit());
+        metadata.put("compileCommand", blankToNull(environment.compileCommand()));
+        metadata.put("runCommand", blankToNull(environment.runCommand()));
+        metadata.put(
+                "environmentVariables",
+                environment.environmentVariables() == null ? Map.of() : Map.copyOf(environment.environmentVariables()));
+        metadata.put(
+                "supportFiles",
+                environment.supportFiles() == null
+                        ? List.of()
+                        : environment.supportFiles().stream()
+                                .map(ProgrammingSourceFile::path)
+                                .toList());
+        return metadata;
+    }
+
+    private ProgrammingExecutionEnvironmentInput resolveExecutionEnvironment(
+            AssignmentQuestionConfigInput config, ProgrammingLanguage programmingLanguage) {
+        if (config == null) {
+            return null;
+        }
+        if (config.languageExecutionEnvironments() != null && programmingLanguage != null) {
+            for (var languageEnvironment : config.languageExecutionEnvironments()) {
+                if (languageEnvironment != null
+                        && Objects.equals(languageEnvironment.programmingLanguage(), programmingLanguage)) {
+                    return languageEnvironment.executionEnvironment();
+                }
+            }
+        }
+        return config.executionEnvironment();
+    }
+
+    private String defaultLanguageVersion(ProgrammingLanguage programmingLanguage) {
+        if (programmingLanguage == null) {
+            return null;
+        }
+        return switch (programmingLanguage) {
+            case PYTHON3 -> "python3";
+            case JAVA21 -> "java21";
+            case JAVA17 -> "java17";
+            case CPP17 -> "c++17";
+            case GO122 -> "go1.22";
+        };
     }
 
     private int safeInt(Integer value, int defaultValue) {
@@ -1168,6 +1522,10 @@ public class JudgeExecutionService {
 
     private String shellQuote(String value) {
         return "'" + value.replace("'", "'\"'\"'") + "'";
+    }
+
+    private String blankToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private JudgeVerdict mapEngineVerdict(String status) {
@@ -1433,9 +1791,20 @@ public class JudgeExecutionService {
             String entryFilePath,
             List<ProgrammingSourceFile> files) {}
 
-    private record SourceBundle(String entryFileName, Map<String, CopyInFile> copyIn) {}
+    private record SourceBundle(
+            String entryFileName,
+            Map<String, CopyInFile> copyIn,
+            List<String> sourceFiles,
+            List<String> supportFiles) {}
 
-    private record ProgramCommandPlan(List<String> shellArgs, List<String> compileCommand, List<String> runCommand) {}
+    private record ProgramCommandPlan(
+            List<String> compileShellArgs,
+            List<String> runShellArgs,
+            List<String> environment,
+            Integer cpuRateLimit,
+            String compileBundlePath,
+            List<String> compileCommand,
+            List<String> runCommand) {}
 
     private record CustomJudgeDecision(String verdict, Integer score, String message) {}
 

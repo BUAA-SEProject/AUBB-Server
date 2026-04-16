@@ -4,5 +4,6 @@ public enum ProgrammingLanguage {
     PYTHON3,
     JAVA21,
     JAVA17,
-    CPP17
+    CPP17,
+    GO122
 }
