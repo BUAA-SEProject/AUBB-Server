@@ -1,5 +1,25 @@
 # 进度日志
 
+## Session: 2026-04-16 作业模块能力重规划
+
+### Phase 14：现状核对与路线重排
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 重新读取 `todo.md`、`task_plan.md`、`findings.md`、`progress.md` 与当前产品规格
+  - 使用 Serena、`rg` 和文件级符号检索核对 `assignment / submission / judge / grading` 的真实覆盖度
+  - 并行等待两个子代理，分别收敛“结构化作业与成绩能力”和“编程题运行栈 / 工作区能力”的现状结论
+  - 冻结新的阶段路线：在线 IDE 第二阶段 -> 多语言运行时稳定化 -> 题库与组卷第二阶段 -> 成绩与反馈第二阶段 -> 判题日志与可复现性第二阶段
+  - 新增活动执行计划，并同步 `task_plan.md`、`findings.md`、`todo.md`
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `docs/exec-plans/active/README.md`
+
 ## Session: 2026-04-16 结构化作业与题库第一阶段
 
 ### Phase 1：需求盘点与阶段边界冻结

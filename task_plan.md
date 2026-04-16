@@ -1,83 +1,97 @@
-# 任务计划：结构化编程题评测继续推进到自定义脚本执行
+# 任务计划：作业模块能力重规划与后续推进
 
 ## 当前目标
 
-围绕 `todo.md` 的作业主链路，仓库已完成“题库 + 结构化试卷 + 分题提交 + 客观题自动评分 + 人工批改 + 成绩发布 + question-level judge + 样例试运行 + 工作区 + CUSTOM_SCRIPT 第一阶段”这一段。当前这一轮继续补齐“教师侧成绩册第一阶段”，并把下一优先级收敛为：多语言稳定运行、更完整 IDE / 目录树工作区，以及成绩册导出 / 学生侧成绩册。
+根据 `todo.md` 与最新需求，重新核对作业模块当前实现，明确“已完成 / 部分完成 / 尚未开始”的边界，并把后续路线收敛为可持续提交的小切片。当前仓库已经完成课程级与班级级作业发布、结构化试卷快照、分题提交、客观题自动评分、人工批改、assignment 级成绩发布、教师侧成绩册第一阶段、go-judge 题目级自动评测、样例试运行与最小工作区。本轮重点不是继续堆功能，而是先冻结合理的模块边界和推进顺序。
 
 ## 当前阶段
 
-Phase 6 in_progress
+Phase 15 ready
 
 ## Skills 选择
 
-- `planning-with-files`：持续维护多阶段工作记忆和后续切片计划。
-- `springboot-patterns`：保持 `assignment / submission / grading / judge` 的边界稳定。
-- `springboot-tdd`：继续以集成测试驱动 question-level judge 的最小闭环。
-- `springboot-verification`：收口专项测试与全量验证。
-- `postgresql-table-design`：设计题目级隐藏测试用例、评测快照和结果回写约束。
-- `api-design-principles`：保持现有 REST API 的追加式演进。
+- `planning-with-files`：持续维护多阶段计划、发现和进度记录。
+- `springboot-patterns`：保持 `assignment / submission / grading / judge` 的职责稳定。
+- `documentation-writer`：把重规划结论同步到仓库文档与执行计划。
+- `springboot-tdd`：后续每个切片继续用集成测试驱动实现。
+- `springboot-verification`：维持专项测试与全量验证闭环。
+- `postgresql-table-design`：后续目录树工作区和日志产物建模时约束表结构。
+- `api-design-principles`：保持既有 REST API 兼容，只做追加式演进。
 
 ## 阶段
 
-### Phase 1：结构化作业与批改闭环
+### 基线能力：结构化作业主链路
 
-- [x] 题库最小管理
-- [x] 结构化试卷快照
-- [x] 分题提交与客观题自动评分
-- [x] 非客观题人工批改
+- [x] 课程级与班级级发布
+- [x] 结构化试卷与多题型配置
+- [x] 多次提交与版本记录
+- [x] 客观题自动评分与人工批改
 - [x] assignment 级成绩发布
+- [x] question-level judge、样例试运行与最小工作区
+- [x] 教师侧成绩册第一阶段
 - **Status:** completed
 
-### Phase 2：当前缺口建模
+### Phase 14：现状核对与路线重排
 
-- [x] 审查现有 `judge` 仍是 assignment 级模型的边界
-- [x] 确认结构化编程题缺少 question-level 隐藏测试用例与脚本快照模型
-- [x] 确认在线 IDE / 样例试运行应建立在 question-level judge 之上，而不是反过来
+- [x] 对照最新需求盘点 `assignment / submission / grading / judge` 的真实边界
+- [x] 划分“已完成 / 部分完成 / 缺口”
+- [x] 冻结最佳模块职责拆分和兼容约束
+- [x] 同步 `todo.md`、执行计划和工作记忆
 - **Status:** completed
 
-### Phase 3：题目级评测数据模型
+### Phase 15：在线 IDE 第二阶段
 
-- [x] 为结构化编程题补充题目级隐藏测试点快照
-- [x] 为 judge job 增加 `submission_answer_id` 级定位
-- [x] 保持 legacy assignment 级 judge 与 question-level judge 可并存
-- **Status:** completed
+- [ ] 把编程工作区升级为目录树与多文件编辑模型
+- [ ] 支持新建 / 重命名 / 删除文件与入口文件选择
+- [ ] 让样例试运行与正式评测复用同一份工作区快照
+- [ ] 为工作区补充更稳定的项目快照语义
+- **Status:** pending
 
-### Phase 4：question-level judge 执行
+### Phase 16：多语言运行时稳定化
 
-- [x] 结构化提交后对编程题答案自动入队
-- [x] go-judge 执行结果回写到 `submission_answers`
-- [x] 与 grading 汇总和成绩发布衔接
-- [x] 补充答案级查询与重排队 API
-- **Status:** completed
+- [ ] 固化 `PYTHON3 / JAVA17 / CPP17` 的源码装配与运行模板
+- [ ] 补齐三种语言的样例试运行与正式评测集成测试
+- [ ] 统一编译失败、运行失败与资源超限的日志摘要格式
+- [ ] 明确当前 V1 支持矩阵与后续扩展语言入口
+- **Status:** pending
 
-### Phase 5：试运行与 IDE 扩展位
+### Phase 17：题库与组卷第二阶段
 
-- [x] 样例试运行 API
-- [x] 在线 IDE / 工作区模型
-- [x] `CUSTOM_SCRIPT` 真实执行
-- **Status:** completed
+- [ ] 为题库补齐更新、删除与更清晰的引用约束
+- [ ] 增加标签 / 分类 / 检索等基础管理能力
+- [ ] 增强组卷能力，支持更稳定的题库选题与试卷编辑
+- [ ] 保持 assignment 快照不可变，不直接引用运行中的题库实体
+- **Status:** pending
 
-### Phase 6：成绩册与统计
+### Phase 18：成绩与反馈第二阶段
 
-- [x] assignment 级成绩册聚合
-- [x] 课程 / 班级 / 学生维度统计（教师侧第一阶段）
-- [ ] 导出与报表
-- **Status:** in_progress
+- [ ] 补齐学生侧成绩视图与已发布成绩面板
+- [ ] 增加课程 / 班级成绩导出与报表第一阶段
+- [ ] 为多作业聚合与加权总评预留扩展位
+- [ ] 保持“发布前隐藏人工评分”的现有可见性边界
+- **Status:** pending
+
+### Phase 19：判题可复现性与日志第二阶段
+
+- [ ] 持久化更完整的评测日志与执行元数据
+- [ ] 为正式评测和样例试运行补充更可回放的结果模型
+- [ ] 在受控边界内扩展 `CUSTOM_SCRIPT` 的脚本打包与执行上下文
+- **Status:** pending
 
 ## 已做决策
 
 | Decision | Rationale |
 |----------|-----------|
-| `grading` 独立成逻辑模块，但第一阶段不新建成绩表 | 当前最小闭环只需要 assignment 级发布与分题人工评分，不值得提前引入成绩册复杂度 |
-| 学生成绩发布前只保留客观题即时分可见 | 兼容既有客观题即时反馈，又给非客观题评分和反馈留出正式发布入口 |
-| question-level judge 必须先补题目级隐藏测试模型 | 只有样例输入输出不足以支撑真实编程题自动评测 |
-| 样例试运行不能复用 `judge_jobs` | 否则会污染正式评测历史、成绩和审计语义 |
-| 题目级隐藏测试点当前先挂在 `assignment_questions.config_json` | 先复用现有题目快照链路，避免提前引入额外表拆分；后续若需要更复杂查询再拆表 |
-| 教师侧成绩册聚合放在 `grading` | 当前聚合依赖 assignment 成绩发布、submission 最新提交和 `submission_answers` 评分摘要，放在 grading 最符合职责边界 |
-| 成绩册第一阶段只覆盖结构化作业 | legacy 文本作业没有分题评分摘要，强行混入会让聚合语义不稳定 |
+| `assignment` 继续负责作业头、题库和试卷快照 | 这些内容共同定义了“作业长什么样”，不应拆散到执行或提交域 |
+| `submission` 继续负责提交版本、分题答案、附件和工作区状态 | 这些都属于“学生提交了什么”的事实模型 |
+| `judge` 只负责样例试运行、正式评测和日志产物 | 执行型系统应与题库、人工批改和成绩发布解耦 |
+| `grading` 继续负责人工批改、成绩发布和成绩册 | 评分可见性、反馈和统计应集中在一个域内演进 |
+| 下一优先级先补在线 IDE，再补多语言稳定化 | 当前最显著的产品缺口是“能评测但不像真正 IDE”，先补工作区模型最稳 |
+| 多语言 V1 先收敛为 `PYTHON3 / JAVA17 / CPP17` | 代码和配置已具备这三种语言的基础能力，继续扩语言会放大验证成本 |
+| 题库生命周期与成绩导出排在 IDE / 运行时之后 | 这两块重要，但不会阻断学生完成编程题主链路 |
 
 ## 错误记录
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| `submission_answers.grading_status` 检查约束未包含 `MANUALLY_GRADED` | 首轮 grading 测试直接触发数据库约束失败 | 在 `V10__grading_first_slice.sql` 中显式重建 check constraint |
+| 暂无本轮实现错误 | 当前阶段以重规划与文档同步为主 | 后续进入实现切片时继续追加 |
