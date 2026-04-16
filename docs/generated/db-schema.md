@@ -22,6 +22,7 @@
 - `src/main/resources/db/migration/V18__question_bank_categories_phase2.sql`
 - `src/main/resources/db/migration/V19__judge_environment_profiles_phase1.sql`
 - `src/main/resources/db/migration/V20__assignment_grade_weights_phase1.sql`
+- `src/main/resources/db/migration/V21__grade_appeals_phase1.sql`
 
 ## 总览
 
@@ -54,6 +55,7 @@
 - `submissions`：正式提交记录
 - `submission_artifacts`：提交附件元数据
 - `submission_answers`：分题答案、人工批改与题目级评测回写状态
+- `grade_appeals`：成绩申诉与复核记录
 - `programming_workspaces`：编程题工作区草稿
 - `programming_workspace_revisions`：工作区历史修订与恢复点
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
@@ -549,6 +551,33 @@
 - `idx_submission_answers_graded_by_user_id`
 - `ck_submission_answers_score_consistency`
 
+### `grade_appeals`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id` |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id` |
+| `submission_id` | `bigint` | 必填，外键到 `submissions.id` |
+| `submission_answer_id` | `bigint` | 必填，外键到 `submission_answers.id` |
+| `student_user_id` | `bigint` | 必填，申诉发起学生，外键到 `users.id` |
+| `status` | `varchar(32)` | 必填，`PENDING / IN_REVIEW / ACCEPTED / REJECTED` |
+| `appeal_reason` | `text` | 必填，申诉原因 |
+| `response_text` | `text` | 可空，教师 / 助教复核回复 |
+| `resolved_score` | `integer` | 可空，申诉处理后的分数 |
+| `responded_by_user_id` | `bigint` | 可空，复核人，外键到 `users.id` |
+| `responded_at` | `timestamptz` | 可空，复核时间 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `idx_grade_appeals_assignment_created`
+- `idx_grade_appeals_student_created`
+- `idx_grade_appeals_submission_answer`
+- `uq_grade_appeals_active_answer`
+
 ### `programming_workspaces`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -803,6 +832,13 @@
 - `submission_answers.submission_id -> submissions.id`
 - `submission_answers.assignment_question_id -> assignment_questions.id`
 - `submission_answers.graded_by_user_id -> users.id`
+- `grade_appeals.offering_id -> course_offerings.id`
+- `grade_appeals.teaching_class_id -> teaching_classes.id`
+- `grade_appeals.assignment_id -> assignments.id`
+- `grade_appeals.submission_id -> submissions.id`
+- `grade_appeals.submission_answer_id -> submission_answers.id`
+- `grade_appeals.student_user_id -> users.id`
+- `grade_appeals.responded_by_user_id -> users.id`
 - `programming_workspaces.assignment_id -> assignments.id`
 - `programming_workspaces.assignment_question_id -> assignment_questions.id`
 - `programming_workspaces.user_id -> users.id`
@@ -837,7 +873,8 @@
 - `assignment_sections / assignment_questions / assignment_question_options` 用于表达结构化试卷的快照，不再把题目结构塞进 assignment 单列字段。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
-- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕。
+- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕；成绩册排名、通过率和 batch-adjust 第一阶段都继续复用该表，不新增独立成绩明细表。
+- `grade_appeals` 当前保存学生围绕非客观题答案发起的成绩申诉和复核结果，约束“同一答案同一时间最多一个活动申诉”。
 - `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`；当前还会记录目录列表与最近一次标准输入，便于断线恢复。
 - `programming_workspace_revisions` 以追加写方式保存工作区历史版本，用于模板重置、历史恢复和试运行复用，不单独引入复杂的增量补丁协议。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。

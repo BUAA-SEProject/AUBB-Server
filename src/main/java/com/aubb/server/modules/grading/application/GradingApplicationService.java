@@ -11,6 +11,8 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerView;
 import com.aubb.server.modules.submission.application.answer.SubmissionScoreSummaryView;
@@ -20,16 +22,31 @@ import com.aubb.server.modules.submission.infrastructure.SubmissionMapper;
 import com.aubb.server.modules.submission.infrastructure.answer.SubmissionAnswerEntity;
 import com.aubb.server.modules.submission.infrastructure.answer.SubmissionAnswerMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -42,6 +59,8 @@ public class GradingApplicationService {
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final UserMapper userMapper;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public ManualGradeResultView gradeAnswer(
@@ -99,6 +118,187 @@ public class GradingApplicationService {
         SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
                 submissionId, assignment.getId(), true, assignment.getGradePublishedAt() != null);
         return new ManualGradeResultView(answerView, scoreSummary);
+    }
+
+    @Transactional
+    public BatchManualGradeResultView batchGradeAnswers(
+            Long assignmentId, List<BatchGradeItem> adjustments, AuthenticatedUserPrincipal principal) {
+        AssignmentEntity assignment = requireAssignment(assignmentId);
+        courseAuthorizationService.assertCanGradeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        if (adjustments == null || adjustments.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_BATCH_GRADE_REQUIRED", "批量调整必须至少包含一条成绩记录");
+        }
+        List<ManualGradeResultView> results = new ArrayList<>();
+        for (BatchGradeItem adjustment : adjustments) {
+            if (adjustment == null || adjustment.submissionId() == null || adjustment.answerId() == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_BATCH_GRADE_INVALID", "批量调整项必须绑定提交和答案");
+            }
+            SubmissionEntity submission = requireSubmission(adjustment.submissionId());
+            if (!Objects.equals(submission.getAssignmentId(), assignmentId)) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "SUBMISSION_BATCH_GRADE_SCOPE_INVALID", "批量调整项存在不属于当前作业的提交");
+            }
+            results.add(gradeAnswer(
+                    adjustment.submissionId(),
+                    adjustment.answerId(),
+                    adjustment.score(),
+                    adjustment.feedbackText(),
+                    principal));
+        }
+        return new BatchManualGradeResultView(assignmentId, results.size(), List.copyOf(results));
+    }
+
+    public GradeImportTemplateContent exportBatchGradeTemplate(
+            Long assignmentId, AuthenticatedUserPrincipal principal) {
+        AssignmentEntity assignment = requireAssignment(assignmentId);
+        courseAuthorizationService.assertCanGradeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        List<AssignmentQuestionSnapshot> questions =
+                assignmentPaperApplicationService.loadQuestionSnapshots(assignmentId);
+        Map<Long, AssignmentQuestionSnapshot> manualQuestions = questions.stream()
+                .filter(this::supportsManualGrading)
+                .collect(Collectors.toMap(
+                        AssignmentQuestionSnapshot::id,
+                        Function.identity(),
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        Map<Long, Integer> questionOrder = new HashMap<>();
+        int order = 0;
+        for (AssignmentQuestionSnapshot question : questions) {
+            questionOrder.put(question.id(), order++);
+        }
+
+        List<SubmissionEntity> submissions = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
+                .eq(SubmissionEntity::getAssignmentId, assignmentId)
+                .orderByAsc(SubmissionEntity::getSubmitterUserId)
+                .orderByAsc(SubmissionEntity::getAttemptNo)
+                .orderByAsc(SubmissionEntity::getSubmittedAt)
+                .orderByAsc(SubmissionEntity::getId));
+        if (submissions.isEmpty()) {
+            return new GradeImportTemplateContent(
+                    "assignment-grades-%s-template.csv".formatted(assignmentId),
+                    "text/csv",
+                    renderBatchGradeTemplate(List.of()).getBytes(StandardCharsets.UTF_8));
+        }
+
+        List<Long> submissionIds =
+                submissions.stream().map(SubmissionEntity::getId).toList();
+        Map<Long, SubmissionEntity> submissionById = submissions.stream()
+                .collect(Collectors.toMap(SubmissionEntity::getId, Function.identity(), (left, right) -> left));
+        Map<Long, UserEntity> usersById = userMapper
+                .selectByIds(submissions.stream()
+                        .map(SubmissionEntity::getSubmitterUserId)
+                        .distinct()
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(UserEntity::getId, Function.identity(), (left, right) -> left));
+        List<SubmissionAnswerExportRow> rows = submissionAnswerMapper
+                .selectList(Wrappers.<SubmissionAnswerEntity>lambdaQuery()
+                        .in(SubmissionAnswerEntity::getSubmissionId, submissionIds))
+                .stream()
+                .filter(answer -> manualQuestions.containsKey(answer.getAssignmentQuestionId()))
+                .sorted(Comparator.comparing((SubmissionAnswerEntity answer) ->
+                                submissionById.get(answer.getSubmissionId()).getSubmitterUserId())
+                        .thenComparing(answer ->
+                                submissionById.get(answer.getSubmissionId()).getAttemptNo())
+                        .thenComparing(answer ->
+                                questionOrder.getOrDefault(answer.getAssignmentQuestionId(), Integer.MAX_VALUE))
+                        .thenComparing(SubmissionAnswerEntity::getId))
+                .map(answer -> {
+                    SubmissionEntity submission = submissionById.get(answer.getSubmissionId());
+                    UserEntity student = usersById.get(submission.getSubmitterUserId());
+                    AssignmentQuestionSnapshot question = manualQuestions.get(answer.getAssignmentQuestionId());
+                    return new SubmissionAnswerExportRow(
+                            submission.getId(),
+                            answer.getId(),
+                            submission.getSubmissionNo(),
+                            submission.getAttemptNo(),
+                            student == null ? null : student.getUsername(),
+                            student == null ? null : student.getDisplayName(),
+                            question.title(),
+                            question.questionType().name(),
+                            question.score(),
+                            answer.getFinalScore(),
+                            answer.getFeedbackText());
+                })
+                .toList();
+        return new GradeImportTemplateContent(
+                "assignment-grades-%s-template.csv".formatted(assignmentId),
+                "text/csv",
+                renderBatchGradeTemplate(rows).getBytes(StandardCharsets.UTF_8));
+    }
+
+    public BatchGradeImportResultView importBatchGrades(
+            Long assignmentId, MultipartFile file, AuthenticatedUserPrincipal principal) {
+        AssignmentEntity assignment = requireAssignment(assignmentId);
+        courseAuthorizationService.assertCanGradeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        TransactionTemplate rowTransaction = new TransactionTemplate(transactionManager);
+        rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        int total = 0;
+        int success = 0;
+        List<BatchGradeImportErrorView> errors = new ArrayList<>();
+        try (BufferedReader reader =
+                new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            String headerLine = reader.readLine();
+            if (headerLine == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_FILE_EMPTY", "导入文件不能为空");
+            }
+            BatchGradeImportHeader header = BatchGradeImportHeader.parse(headerLine);
+            String line;
+            int rowNumber = 1;
+            while ((line = reader.readLine()) != null) {
+                rowNumber++;
+                if (line.isBlank()) {
+                    continue;
+                }
+                total++;
+                BatchGradeImportRow row = null;
+                try {
+                    row = header.readRow(parseCsvLine(line));
+                    if (!row.hasAdjustment()) {
+                        continue;
+                    }
+                    Integer score = row.score();
+                    if (score == null) {
+                        SubmissionAnswerEntity answer = requireAnswer(row.answerId());
+                        score = answer.getFinalScore();
+                        if (score == null) {
+                            throw new BusinessException(
+                                    HttpStatus.BAD_REQUEST,
+                                    "SUBMISSION_BATCH_GRADE_SCORE_REQUIRED",
+                                    "导入行必须提供分数，或答案已有最终分数");
+                        }
+                    }
+                    Long submissionId = row.submissionId();
+                    Long answerId = row.answerId();
+                    String feedbackText = row.feedbackText();
+                    Integer resolvedScore = score;
+                    rowTransaction.executeWithoutResult(
+                            _unused -> gradeAnswer(submissionId, answerId, resolvedScore, feedbackText, principal));
+                    success++;
+                } catch (BusinessException exception) {
+                    errors.add(new BatchGradeImportErrorView(
+                            (long) rowNumber,
+                            row == null ? null : row.submissionId(),
+                            row == null ? null : row.answerId(),
+                            exception.getMessage()));
+                }
+            }
+        } catch (IOException exception) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_FILE_READ_FAILED", "无法读取导入文件");
+        }
+
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.ASSIGNMENT_GRADES_IMPORTED,
+                "ASSIGNMENT",
+                String.valueOf(assignmentId),
+                errors.isEmpty() ? AuditResult.SUCCESS : AuditResult.FAILURE,
+                Map.of("total", total, "success", success, "failed", errors.size()));
+        return new BatchGradeImportResultView(assignmentId, total, success, errors.size(), List.copyOf(errors));
     }
 
     @Transactional
@@ -160,6 +360,103 @@ public class GradingApplicationService {
         }
     }
 
+    private boolean supportsManualGrading(AssignmentQuestionSnapshot question) {
+        return !AssignmentQuestionType.SINGLE_CHOICE.equals(question.questionType())
+                && !AssignmentQuestionType.MULTIPLE_CHOICE.equals(question.questionType());
+    }
+
+    private String renderBatchGradeTemplate(List<SubmissionAnswerExportRow> rows) {
+        StringBuilder builder = new StringBuilder();
+        appendCsvRow(
+                builder,
+                List.of(
+                        "submissionId",
+                        "answerId",
+                        "submissionNo",
+                        "attemptNo",
+                        "studentUsername",
+                        "studentDisplayName",
+                        "questionTitle",
+                        "questionType",
+                        "maxScore",
+                        "currentScore",
+                        "currentFeedbackText",
+                        "newScore",
+                        "newFeedbackText"));
+        for (SubmissionAnswerExportRow row : rows) {
+            appendCsvRow(
+                    builder,
+                    List.of(
+                            String.valueOf(row.submissionId()),
+                            String.valueOf(row.answerId()),
+                            defaultCsvValue(row.submissionNo()),
+                            String.valueOf(row.attemptNo()),
+                            defaultCsvValue(row.studentUsername()),
+                            defaultCsvValue(row.studentDisplayName()),
+                            defaultCsvValue(row.questionTitle()),
+                            row.questionType(),
+                            String.valueOf(row.maxScore()),
+                            defaultCsvValue(row.currentScore()),
+                            defaultCsvValue(row.currentFeedbackText()),
+                            "",
+                            ""));
+        }
+        return builder.toString();
+    }
+
+    private void appendCsvRow(StringBuilder builder, List<String> values) {
+        for (int index = 0; index < values.size(); index++) {
+            if (index > 0) {
+                builder.append(',');
+            }
+            builder.append(escapeCsv(values.get(index)));
+        }
+        builder.append('\n');
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        boolean needsQuotes =
+                value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r");
+        String escaped = value.replace("\"", "\"\"");
+        return needsQuotes ? "\"" + escaped + "\"" : escaped;
+    }
+
+    private static List<String> parseCsvLine(String line) {
+        List<String> columns = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        for (int index = 0; index < line.length(); index++) {
+            char currentChar = line.charAt(index);
+            if (currentChar == '"') {
+                if (inQuotes && index + 1 < line.length() && line.charAt(index + 1) == '"') {
+                    current.append('"');
+                    index++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (currentChar == ',' && !inQuotes) {
+                columns.add(current.toString());
+                current.setLength(0);
+                continue;
+            }
+            current.append(currentChar);
+        }
+        if (inQuotes) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_CSV_FORMAT_INVALID", "导入 CSV 存在未闭合引号");
+        }
+        columns.add(current.toString());
+        return columns;
+    }
+
+    private String defaultCsvValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     private SubmissionEntity requireSubmission(Long submissionId) {
         SubmissionEntity submission = submissionMapper.selectById(submissionId);
         if (submission == null) {
@@ -182,5 +479,94 @@ public class GradingApplicationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "任务不存在");
         }
         return assignment;
+    }
+
+    public record BatchGradeItem(Long submissionId, Long answerId, Integer score, String feedbackText) {}
+
+    private record SubmissionAnswerExportRow(
+            Long submissionId,
+            Long answerId,
+            String submissionNo,
+            Integer attemptNo,
+            String studentUsername,
+            String studentDisplayName,
+            String questionTitle,
+            String questionType,
+            Integer maxScore,
+            Integer currentScore,
+            String currentFeedbackText) {}
+
+    private record BatchGradeImportHeader(Map<String, Integer> columnIndexes) {
+
+        private static final Set<String> REQUIRED_COLUMNS = Set.of("submissionid", "answerid");
+
+        private static BatchGradeImportHeader parse(String headerLine) {
+            List<String> columns = parseCsvLine(headerLine);
+            Map<String, Integer> indexes = new LinkedHashMap<>();
+            for (int index = 0; index < columns.size(); index++) {
+                indexes.put(columns.get(index).trim().toLowerCase(Locale.ROOT), index);
+            }
+            for (String requiredColumn : REQUIRED_COLUMNS) {
+                if (!indexes.containsKey(requiredColumn)) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, "IMPORT_HEADER_INVALID", "导入文件缺少必需列: " + requiredColumn);
+                }
+            }
+            if (!indexes.containsKey("newscore") && !indexes.containsKey("score")) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_HEADER_INVALID", "导入文件缺少必需列: newScore");
+            }
+            return new BatchGradeImportHeader(indexes);
+        }
+
+        private BatchGradeImportRow readRow(List<String> columns) {
+            Long submissionId = parseLong(columns, "submissionid");
+            Long answerId = parseLong(columns, "answerid");
+            Integer score = parseInteger(columns, "newscore", "score");
+            String feedbackText = parseString(columns, "newfeedbacktext", "feedbacktext");
+            return new BatchGradeImportRow(submissionId, answerId, score, feedbackText);
+        }
+
+        private Long parseLong(List<String> columns, String columnName) {
+            String value = parseString(columns, columnName);
+            if (!StringUtils.hasText(value)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_ROW_INVALID", "导入行缺少 " + columnName);
+            }
+            try {
+                return Long.parseLong(value.trim());
+            } catch (NumberFormatException exception) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_ROW_INVALID", columnName + " 不是有效数字");
+            }
+        }
+
+        private Integer parseInteger(List<String> columns, String... candidateNames) {
+            String value = parseString(columns, candidateNames);
+            if (!StringUtils.hasText(value)) {
+                return null;
+            }
+            try {
+                return Integer.parseInt(value.trim());
+            } catch (NumberFormatException exception) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "IMPORT_ROW_INVALID", candidateNames[0] + " 不是有效整数");
+            }
+        }
+
+        private String parseString(List<String> columns, String... candidateNames) {
+            for (String candidateName : candidateNames) {
+                Integer index = columnIndexes.get(candidateName);
+                if (index == null || index >= columns.size()) {
+                    continue;
+                }
+                return columns.get(index).trim();
+            }
+            return null;
+        }
+    }
+
+    private record BatchGradeImportRow(Long submissionId, Long answerId, Integer score, String feedbackText) {
+
+        private boolean hasAdjustment() {
+            return score != null || StringUtils.hasText(feedbackText);
+        }
     }
 }

@@ -44,6 +44,8 @@ public record GradebookPageView(
             double totalWeightedScore,
             Integer totalWeight,
             double weightedScoreRate,
+            Integer offeringRank,
+            Integer teachingClassRank,
             Integer submittedAssignmentCount,
             Integer gradedAssignmentCount,
             List<GradeCellView> grades) {}

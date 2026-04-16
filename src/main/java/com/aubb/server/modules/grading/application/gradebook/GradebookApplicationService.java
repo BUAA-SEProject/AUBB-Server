@@ -44,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class GradebookApplicationService {
 
+    private static final double PASS_SCORE_RATE = 0.6d;
     private static final List<ScoreBandDefinition> SCORE_BAND_DEFINITIONS = List.of(
             new ScoreBandDefinition("EXCELLENT", "优秀", 90, null, 0.9, 1.0000001),
             new ScoreBandDefinition("GOOD", "良好", 80, 90, 0.8, 0.9),
@@ -126,20 +127,21 @@ public class GradebookApplicationService {
             Long offeringId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
-        return buildStudentGradebook(offering, studentUserId, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中");
+        return buildStudentGradebook(offering, studentUserId, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中", true);
     }
 
     @Transactional(readOnly = true)
     public StudentGradebookView getMyGradebook(Long offeringId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        return buildStudentGradebook(offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册");
+        return buildStudentGradebook(
+                offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册", false);
     }
 
     @Transactional(readOnly = true)
     public GradebookExportContent exportMyGradebook(Long offeringId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        return toStudentCsvExport(
-                buildStudentGradebook(offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册"));
+        return toStudentCsvExport(buildStudentGradebook(
+                offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册", false));
     }
 
     private StudentGradebookView buildStudentGradebook(
@@ -147,7 +149,8 @@ public class GradebookApplicationService {
             Long studentUserId,
             boolean revealNonObjectiveScores,
             HttpStatus missingStudentStatus,
-            String missingStudentMessage) {
+            String missingStudentMessage,
+            boolean includeRanking) {
         List<StudentRosterEntry> roster = loadRoster(offering.getId(), null, studentUserId);
         StudentRosterEntry student = roster.stream()
                 .filter(candidate -> Objects.equals(candidate.user().getId(), studentUserId))
@@ -201,6 +204,7 @@ public class GradebookApplicationService {
         }
 
         TeachingClassEntity studentClass = classIndex.get(student.teachingClassId());
+        StudentRank studentRank = includeRanking ? loadStudentRank(offering, studentUserId) : StudentRank.EMPTY;
         return new StudentGradebookView(
                 toScope(offering.getId(), studentClass),
                 new StudentGradebookView.StudentView(
@@ -209,7 +213,9 @@ public class GradebookApplicationService {
                         student.user().getDisplayName(),
                         student.teachingClassId(),
                         studentClass == null ? null : studentClass.getClassCode(),
-                        studentClass == null ? null : studentClass.getClassName()),
+                        studentClass == null ? null : studentClass.getClassName(),
+                        studentRank.offeringRank(),
+                        studentRank.teachingClassRank()),
                 new StudentGradebookView.SummaryView(
                         assignmentViews.size(),
                         submittedCount,
@@ -264,6 +270,7 @@ public class GradebookApplicationService {
                 .map(student -> toStudentRow(
                         student, assignments, assignmentMaxScores, latestSubmissions, scoreSummaries, classIndex))
                 .toList();
+        rows = applyRankings(rows);
 
         int submittedCount = rows.stream()
                 .map(GradebookPageView.StudentRowView::submittedAssignmentCount)
@@ -317,11 +324,15 @@ public class GradebookApplicationService {
         int totalMaxScore = 0;
         int totalWeight = 0;
         BigDecimal totalWeightedScore = BigDecimal.ZERO;
+        int passedStudentCount = 0;
         for (GradebookPageView.StudentRowView row : snapshot.rows()) {
             totalFinalScore += row.totalFinalScore();
             totalMaxScore += row.totalMaxScore();
             totalWeight += defaultScore(row.totalWeight());
             totalWeightedScore = totalWeightedScore.add(BigDecimal.valueOf(row.totalWeightedScore()));
+            if (isPassing(overallScoreRate(row))) {
+                passedStudentCount++;
+            }
             applicableGradeCount += (int) row.grades().stream()
                     .filter(cell -> Boolean.TRUE.equals(cell.applicable()))
                     .count();
@@ -333,9 +344,11 @@ public class GradebookApplicationService {
                 snapshot.summary().submittedCount(),
                 snapshot.summary().fullyGradedCount(),
                 snapshot.summary().publishedCount(),
+                passedStudentCount,
                 ratio(snapshot.summary().submittedCount(), applicableGradeCount),
                 ratio(snapshot.summary().fullyGradedCount(), applicableGradeCount),
                 ratio(snapshot.summary().publishedCount(), applicableGradeCount),
+                ratio(passedStudentCount, snapshot.summary().studentCount()),
                 average(totalFinalScore, snapshot.summary().studentCount()),
                 ratio(totalFinalScore, totalMaxScore),
                 average(totalWeightedScore.doubleValue(), snapshot.summary().studentCount()),
@@ -354,6 +367,7 @@ public class GradebookApplicationService {
             int submittedStudentCount = 0;
             int fullyGradedStudentCount = 0;
             int publishedStudentCount = 0;
+            int passedStudentCount = 0;
             int totalSubmittedFinalScore = 0;
             int totalSubmittedMaxScore = 0;
             BigDecimal totalSubmittedWeightedScore = BigDecimal.ZERO;
@@ -372,7 +386,11 @@ public class GradebookApplicationService {
                         totalSubmittedWeightedScore =
                                 totalSubmittedWeightedScore.add(BigDecimal.valueOf(cell.weightedScore()));
                     }
-                    scoreRates.add(scoreRate(cell.finalScore(), cell.maxScore()));
+                    double studentScoreRate = scoreRate(cell.finalScore(), cell.maxScore());
+                    scoreRates.add(studentScoreRate);
+                    if (isPassing(studentScoreRate)) {
+                        passedStudentCount++;
+                    }
                 }
                 if (Boolean.TRUE.equals(cell.fullyGraded())) {
                     fullyGradedStudentCount++;
@@ -392,9 +410,11 @@ public class GradebookApplicationService {
                     submittedStudentCount,
                     fullyGradedStudentCount,
                     publishedStudentCount,
+                    passedStudentCount,
                     ratio(submittedStudentCount, applicableStudentCount),
                     ratio(fullyGradedStudentCount, applicableStudentCount),
                     ratio(publishedStudentCount, applicableStudentCount),
+                    ratio(passedStudentCount, submittedStudentCount),
                     average(totalSubmittedFinalScore, submittedStudentCount),
                     ratio(totalSubmittedFinalScore, totalSubmittedMaxScore),
                     average(totalSubmittedWeightedScore.doubleValue(), submittedStudentCount),
@@ -420,6 +440,9 @@ public class GradebookApplicationService {
             stat.publishedAssignmentCount += (int) row.grades().stream()
                     .filter(cell -> Boolean.TRUE.equals(cell.submitted()) && Boolean.TRUE.equals(cell.gradePublished()))
                     .count();
+            if (isPassing(overallScoreRate(row))) {
+                stat.passedStudentCount++;
+            }
             stat.totalFinalScore += defaultScore(row.totalFinalScore());
             stat.totalMaxScore += defaultScore(row.totalMaxScore());
             stat.totalWeight += defaultScore(row.totalWeight());
@@ -436,9 +459,11 @@ public class GradebookApplicationService {
                         stat.submittedAssignmentCount,
                         stat.gradedAssignmentCount,
                         stat.publishedAssignmentCount,
+                        stat.passedStudentCount,
                         ratio(stat.submittedAssignmentCount, stat.applicableAssignmentCount),
                         ratio(stat.gradedAssignmentCount, stat.applicableAssignmentCount),
                         ratio(stat.publishedAssignmentCount, stat.applicableAssignmentCount),
+                        ratio(stat.passedStudentCount, stat.studentCount),
                         average(stat.totalFinalScore, stat.studentCount),
                         ratio(stat.totalFinalScore, stat.totalMaxScore),
                         average(stat.totalWeightedScore.doubleValue(), stat.studentCount),
@@ -459,6 +484,8 @@ public class GradebookApplicationService {
                 "totalWeightedScore",
                 "totalWeight",
                 "weightedScoreRate",
+                "offeringRank",
+                "teachingClassRank",
                 "submittedAssignmentCount",
                 "gradedAssignmentCount"));
         for (GradebookPageView.AssignmentColumnView assignmentColumn : snapshot.assignmentColumns()) {
@@ -487,6 +514,8 @@ public class GradebookApplicationService {
             record.add(String.valueOf(row.totalWeightedScore()));
             record.add(String.valueOf(row.totalWeight()));
             record.add(String.valueOf(row.weightedScoreRate()));
+            record.add(row.offeringRank() == null ? null : String.valueOf(row.offeringRank()));
+            record.add(row.teachingClassRank() == null ? null : String.valueOf(row.teachingClassRank()));
             record.add(String.valueOf(row.submittedAssignmentCount()));
             record.add(String.valueOf(row.gradedAssignmentCount()));
             for (int index = 0; index < row.grades().size(); index++) {
@@ -671,9 +700,84 @@ public class GradebookApplicationService {
                 roundDecimal(totalWeightedScore, 2),
                 totalWeight,
                 ratio(totalWeightedScore.doubleValue(), totalWeight),
+                null,
+                null,
                 submittedAssignmentCount,
                 gradedAssignmentCount,
                 List.copyOf(grades));
+    }
+
+    private StudentRank loadStudentRank(CourseOfferingEntity offering, Long studentUserId) {
+        return buildGradebookSnapshot(offering, null, null).rows().stream()
+                .filter(row -> Objects.equals(row.userId(), studentUserId))
+                .findFirst()
+                .map(row -> new StudentRank(row.offeringRank(), row.teachingClassRank()))
+                .orElse(StudentRank.EMPTY);
+    }
+
+    private List<GradebookPageView.StudentRowView> applyRankings(List<GradebookPageView.StudentRowView> rows) {
+        Map<Long, Integer> offeringRanks = buildRankIndex(rows);
+        Map<Long, Map<Long, Integer>> classRanks = new LinkedHashMap<>();
+        rows.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        row -> row.teachingClassId() == null ? -1L : row.teachingClassId(),
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.toList()))
+                .forEach((teachingClassId, classRows) -> classRanks.put(teachingClassId, buildRankIndex(classRows)));
+        return rows.stream()
+                .map(row -> {
+                    Long teachingClassKey = row.teachingClassId() == null ? -1L : row.teachingClassId();
+                    return new GradebookPageView.StudentRowView(
+                            row.userId(),
+                            row.username(),
+                            row.displayName(),
+                            row.teachingClassId(),
+                            row.teachingClassCode(),
+                            row.teachingClassName(),
+                            row.totalFinalScore(),
+                            row.totalMaxScore(),
+                            row.totalWeightedScore(),
+                            row.totalWeight(),
+                            row.weightedScoreRate(),
+                            offeringRanks.get(row.userId()),
+                            classRanks.getOrDefault(teachingClassKey, Map.of()).get(row.userId()),
+                            row.submittedAssignmentCount(),
+                            row.gradedAssignmentCount(),
+                            row.grades());
+                })
+                .toList();
+    }
+
+    private Map<Long, Integer> buildRankIndex(List<GradebookPageView.StudentRowView> rows) {
+        List<GradebookPageView.StudentRowView> sortedRows = rows.stream()
+                .sorted(Comparator.comparingDouble(this::overallScoreRate)
+                        .reversed()
+                        .thenComparing(Comparator.comparingInt(
+                                        (GradebookPageView.StudentRowView row) -> defaultScore(row.totalFinalScore()))
+                                .reversed())
+                        .thenComparing(Comparator.comparingDouble(GradebookPageView.StudentRowView::totalWeightedScore)
+                                .reversed())
+                        .thenComparing(row -> row.username() == null ? "" : row.username())
+                        .thenComparing(row -> row.userId() == null ? Long.MAX_VALUE : row.userId()))
+                .toList();
+        Map<Long, Integer> rankByUserId = new LinkedHashMap<>();
+        GradebookPageView.StudentRowView previous = null;
+        int currentRank = 0;
+        for (int index = 0; index < sortedRows.size(); index++) {
+            GradebookPageView.StudentRowView row = sortedRows.get(index);
+            if (previous == null || !sameRank(previous, row)) {
+                currentRank = index + 1;
+            }
+            rankByUserId.put(row.userId(), currentRank);
+            previous = row;
+        }
+        return rankByUserId;
+    }
+
+    private boolean sameRank(GradebookPageView.StudentRowView left, GradebookPageView.StudentRowView right) {
+        return Double.compare(overallScoreRate(left), overallScoreRate(right)) == 0
+                && defaultScore(left.totalFinalScore()) == defaultScore(right.totalFinalScore())
+                && Double.compare(left.totalWeightedScore(), right.totalWeightedScore()) == 0;
     }
 
     private GradebookPageView.GradeCellView toGradeCell(
@@ -999,6 +1103,10 @@ public class GradebookApplicationService {
         return scoreRate(row.totalFinalScore(), row.totalMaxScore());
     }
 
+    private boolean isPassing(double scoreRate) {
+        return normalizeRate(scoreRate) >= PASS_SCORE_RATE;
+    }
+
     private double scoreRate(Integer score, Integer maxScore) {
         if (score == null || maxScore == null || maxScore <= 0) {
             return 0.0;
@@ -1068,6 +1176,7 @@ public class GradebookApplicationService {
         private int submittedAssignmentCount;
         private int gradedAssignmentCount;
         private int publishedAssignmentCount;
+        private int passedStudentCount;
         private int totalFinalScore;
         private int totalMaxScore;
         private int totalWeight;
@@ -1091,5 +1200,9 @@ public class GradebookApplicationService {
         private boolean matches(double rate) {
             return rate >= minRateInclusive && rate < maxRateExclusive;
         }
+    }
+
+    private record StudentRank(Integer offeringRank, Integer teachingClassRank) {
+        private static final StudentRank EMPTY = new StudentRank(null, null);
     }
 }

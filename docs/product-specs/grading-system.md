@@ -2,7 +2,7 @@
 
 ## 目标
 
-把结构化作业从“学生可提交、教师可查看”推进到“教师 / 助教可批改、学生按发布状态查看成绩与反馈”，并进一步补齐“教师侧成绩册第一阶段”“教师侧课程 / 班级成绩册 CSV 导出与统计报告第一阶段”“统计报告五档成绩分布第一阶段”“多作业权重与加权总评第一阶段”“学生侧成绩册第一阶段”和“学生侧成绩册 CSV 导出第一阶段”。当前 grading 模块不接管提交原文，也不执行自动评测；它负责人工评分、反馈写回、assignment 级成绩发布，以及基于现有提交事实的只读成绩册聚合、导出和统计报告。
+把结构化作业从“学生可提交、教师可查看”推进到“教师 / 助教可批改、学生按发布状态查看成绩与反馈”，并进一步补齐“教师侧成绩册第一阶段”“教师侧课程 / 班级成绩册 CSV 导出与统计报告第一阶段”“统计报告五档成绩分布与通过率第一阶段”“多作业权重与加权总评第一阶段”“学生侧成绩册第一阶段”“学生侧成绩册 CSV 导出第一阶段”“成绩申诉与复核第一阶段”以及“assignment 级批量成绩调整与 CSV 导入导出第一阶段”。当前 grading 模块不接管提交原文，也不执行自动评测；它负责人工评分、反馈写回、assignment 级成绩发布，以及基于现有提交事实的只读成绩册聚合、导出、统计报告和申诉复核。
 
 ## 覆盖范围
 
@@ -19,13 +19,18 @@
 - 教师 / 管理员按开课实例查看成绩册
 - 教师 / 管理员 / 班级助教按教学班查看成绩册
 - 教师 / 管理员按单个学生查看成绩册
+- 教师侧成绩册和单学生视图返回开课实例排名与教学班排名第一阶段结果
 - 教师 / 管理员按开课实例导出 CSV 成绩册并查看统计报告
 - 教师 / 管理员 / 班级助教按教学班导出 CSV 成绩册并查看统计报告
-- 教师 / 管理员 / 班级助教查看五档成绩分布统计
+- 教师 / 管理员 / 班级助教查看五档成绩分布与通过率统计
 - 学生按开课实例查看自己的成绩册
 - 学生按开课实例导出自己的成绩册 CSV
 - 学生在成绩发布前只能看到客观题即时分与非客观题批改状态
 - 学生成绩发布后可看到人工评分、总分和反馈
+- 学生可对已发布的非客观题成绩发起申诉
+- 学生可按开课实例查看自己的成绩申诉列表
+- 教师 / 具备班级责任的助教可按 assignment 查看申诉并执行复核
+- 教师可按 assignment 执行 batch-adjust 和 CSV 导入 / 导出第一阶段
 - 批改与成绩发布写入审计日志
 
 ### 不在范围
@@ -33,7 +38,7 @@
 - 更复杂的总评策略与多套权重方案
 - 更复杂的多维报表、学习分析和长期趋势统计
 - 批量批改工作台
-- 申诉、复评和成绩回滚
+- 更完整的申诉仲裁、成绩回滚、附件化申诉材料与 SLA 管理
 - 结构化编程题题目级自动评测执行本身
 
 ## 核心业务规则
@@ -56,6 +61,11 @@
 16. 班级责任 TA 当前只可导出和查看自己负责教学班的班级成绩册与统计报告，不能通过 offering 维度越权读取全课程导出或统计结果。
 17. 学生侧 CSV 导出必须与“我的成绩册”返回完全一致的可见性边界，未发布人工分、人工反馈和人工部分总分不得因为导出接口被提前泄露。
 18. 当前成绩分布固定为五档：`EXCELLENT / GOOD / MEDIUM / PASS / FAIL`；总评分布按学生当前加权得分率统计，若学生尚无加权权重则回退到总分得分率；作业分布只统计已提交学生。
+19. 成绩册中的 `offeringRank / teachingClassRank` 当前都是只读派生结果，不做持久化存储。
+20. 统计报告当前会在总体、按作业和按班级三个层级返回 `passedStudentCount` 与 `passRate`。
+21. 成绩申诉当前只支持非客观题，且必须在 assignment 成绩已发布后才能发起；同一答案同一时间只允许一个 `PENDING / IN_REVIEW` 申诉。
+22. 申诉复核在 `ACCEPTED` 时会复用单题人工批改写回最终分数与反馈，若未提供新分数则维持当前分数。
+23. assignment 级 batch-adjust 与 CSV 导入当前单次最多处理 `100` 条调整项，且所有调整都必须属于同一个 assignment。
 
 ## 核心数据模型
 
@@ -71,11 +81,16 @@
   - `graded_by_user_id / graded_at`：最近批改人和时间
 - `submissions`
   - 提供正式提交版本、`attempt_no` 和 `submitted_at`
+- `grade_appeals`
+  - 保存学生围绕非客观题答案发起的成绩申诉、处理状态与复核结果
 - `course_members`
   - 提供课程 / 班级名册与 TA 作用域
 - `audit_logs`
   - `SUBMISSION_ANSWER_GRADED`
   - `ASSIGNMENT_GRADES_PUBLISHED`
+  - `ASSIGNMENT_GRADES_IMPORTED`
+  - `GRADE_APPEAL_CREATED`
+  - `GRADE_APPEAL_REVIEWED`
 
 详细字段以 [../generated/db-schema.md](../generated/db-schema.md) 为准。
 
@@ -88,12 +103,15 @@
 - 发布 assignment 成绩
 - 查看开课实例、教学班和单学生成绩册
 - 导出开课实例 / 教学班 CSV 成绩册，并查看统计报告
+- 导出 assignment 级批量调分 CSV 模板，并导入批量调分结果
+- 查看并复核 assignment 下的成绩申诉
 
 ### 助教
 
 - 当前可查看并批改自己负责教学班内、且 assignment 绑定该教学班的提交
 - 当前不具备 assignment 级成绩发布权限
 - 当前只可查看并导出自己负责教学班的班级成绩册与统计报告
+- 当前可在已有批改权限范围内查看并复核成绩申诉
 
 ### 学生
 
@@ -101,6 +119,7 @@
 - 按开课实例查看自己的成绩册
 - 成绩发布前只能看到客观题即时分与批改状态
 - 成绩发布后可查看人工评分、总分与反馈
+- 当前可对已发布的非客观题答案发起成绩申诉，并查看自己的申诉列表
 
 ## API 边界
 
@@ -110,7 +129,12 @@
 
 ### 教师侧
 
+- `GET /api/v1/teacher/assignments/{assignmentId}/grades/import-template`
+- `POST /api/v1/teacher/assignments/{assignmentId}/grades/import`
+- `POST /api/v1/teacher/assignments/{assignmentId}/grades/batch-adjust`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/publish`
+- `GET /api/v1/teacher/assignments/{assignmentId}/grade-appeals`
+- `POST /api/v1/teacher/grade-appeals/{appealId}/review`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/export`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/report`
@@ -121,22 +145,25 @@
 
 ### 学生侧
 
+- `POST /api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals`
+- `GET /api/v1/me/course-offerings/{offeringId}/grade-appeals`
 - `GET /api/v1/me/course-offerings/{offeringId}/gradebook`
 - `GET /api/v1/me/course-offerings/{offeringId}/gradebook/export`
 
 ## 当前实现边界
 
 - 当前发布粒度是 assignment 级，而不是按提交、按学生或按班级的细粒度发布。
-- 当前只支持单题人工批改，不支持批量批改工作流。
+- 当前单题人工批改、JSON batch-adjust 和 CSV 导入 / 导出都已实现第一阶段，但仍没有独立的批量批改工作台。
 - 当前成绩册不新建成绩表，直接复用 `assignments / submissions / submission_answers / course_members` 读模型。
 - 当前成绩册默认只按最新正式提交聚合，不提供历史版本并排比较。
 - 当前成绩册已补齐 assignment 级权重、加权总分、权重合计和加权得分率第一阶段；更复杂的总评策略、权重版本化和分组权重仍未实现。
 - 当前成绩册的 offering / class / student / me 四类视图都只覆盖结构化作业。
-- 当前教师侧 CSV 导出只覆盖 offering / class 两类成绩册，且默认继续按最新正式提交聚合。
+- 当前教师侧 CSV 导出只覆盖 offering / class 两类成绩册，且默认继续按最新正式提交聚合；assignment 级 CSV 只用于 batch-adjust 模板导入导出，不表达完整成绩册。
 - 当前教师侧统计报告当前已补齐加权总分、加权得分率、作业权重和五档成绩分布第一阶段，但仍未进入更复杂的总评策略和长期趋势分析。
+- 当前教师侧成绩册与单学生视图已补齐 `offeringRank / teachingClassRank`，统计报告已补齐通过率第一阶段，但这些都仍是读模型派生值。
 - 学生侧成绩册当前已补齐“我在某个开课实例下的成绩总览”和 CSV 导出第一阶段，但不提供班级横向对比或历史版本矩阵。
 - 学生侧成绩册在未发布成绩时仍会返回作业和提交状态，但非客观题人工分、人工反馈和人工部分总分继续隐藏。
-- 当前没有总评语、评分 rubric、打回重提和复评流程。
+- 当前已补齐成绩申诉与复核第一阶段，但仍没有更完整的申诉回滚、仲裁与 SLA 流程，也没有总评语、评分 rubric 和打回重提。
 - 助教权限仍基于已有课程成员模型；对课程公共作业的细粒度分工未单独建模。
 - 编程题虽然允许人工批改，但题目级自动评测已由 judge 模块先行写回；grading 当前不直接执行自动评测。
 
@@ -148,9 +175,12 @@
 - 存在待批改或待编程评测答案时，assignment 成绩发布会被拒绝。
 - 教师 / 管理员可查看开课实例和单学生成绩册；班级责任 TA 可查看本班成绩册。
 - 教师 / 管理员可导出开课实例 / 教学班 CSV 成绩册，并读取与页面聚合语义一致的统计报告；班级责任 TA 只能访问自己负责教学班的导出与统计接口。
+- 教师侧成绩册与单学生视图当前会返回开课实例排名 / 教学班排名，统计报告当前会返回通过人数与通过率第一阶段结果。
 - 教师 / 管理员 / 班级责任 TA 读取统计报告时，可看到总体、按作业和按班级的五档成绩分布第一阶段结果。
 - 教师 / 管理员 / 学生读取成绩册时，当前都会看到与 assignment `gradeWeight` 一致的加权总分、权重合计和加权得分率第一阶段结果。
 - 学生可查看自己在开课实例下的成绩册，并且未发布的人工分不会在成绩册里提前泄露。
 - 学生可导出自己在开课实例下的成绩册 CSV，且导出内容与页面可见性边界保持一致。
 - 成绩册默认按最新正式提交聚合，并正确处理课程公共作业与班级专属作业的适用范围。
+- 学生可对已发布的非客观题成绩发起申诉，教师 / 责任助教可在 assignment 维度查看并复核申诉。
+- 教师可通过 JSON batch-adjust 或 CSV 模板导入 / 导出，对 assignment 下的分题成绩执行第一阶段批量调整。
 - `mvnd verify` 或 `bash ./mvnw verify` 提供自动化测试证据。

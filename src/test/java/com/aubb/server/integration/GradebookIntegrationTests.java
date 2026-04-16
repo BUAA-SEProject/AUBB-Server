@@ -108,6 +108,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         assertThat(JsonPath.<String>read(body, "$.items[0].teachingClassName")).isEqualTo("A班");
         assertThat(JsonPath.<Integer>read(body, "$.items[0].submittedAssignmentCount"))
                 .isEqualTo(2);
+        assertThat(JsonPath.<Integer>read(body, "$.items[0].offeringRank")).isEqualTo(2);
+        assertThat(JsonPath.<Integer>read(body, "$.items[0].teachingClassRank")).isEqualTo(1);
         assertThat(JsonPath.<Integer>read(body, "$.items[0].totalFinalScore")).isEqualTo(38);
         assertThat(JsonPath.<Double>read(body, "$.items[0].totalWeightedScore")).isEqualTo(96.0);
         assertThat(JsonPath.<Integer>read(body, "$.items[0].totalWeight")).isEqualTo(100);
@@ -129,6 +131,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         assertThat(JsonPath.<Integer>read(body, "$.assignmentColumns[1].gradeWeight"))
                 .isEqualTo(60);
         assertThat(JsonPath.<String>read(body, "$.items[1].username")).isEqualTo("student-b");
+        assertThat(JsonPath.<Integer>read(body, "$.items[1].offeringRank")).isEqualTo(1);
+        assertThat(JsonPath.<Integer>read(body, "$.items[1].teachingClassRank")).isEqualTo(1);
         assertThat(JsonPath.<Integer>read(body, "$.items[1].submittedAssignmentCount"))
                 .isEqualTo(1);
         assertThat(JsonPath.<Integer>read(body, "$.items[1].totalFinalScore")).isEqualTo(10);
@@ -172,6 +176,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.student.userId").value(scenario.studentAUserId()))
                 .andExpect(jsonPath("$.student.username").value("student-a"))
+                .andExpect(jsonPath("$.student.offeringRank").value(2))
+                .andExpect(jsonPath("$.student.teachingClassRank").value(1))
                 .andExpect(jsonPath("$.summary.assignmentCount").value(2))
                 .andExpect(jsonPath("$.summary.submittedCount").value(2))
                 .andExpect(jsonPath("$.summary.totalFinalScore").value(38))
@@ -206,11 +212,11 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .contains("gradebook-offering-%d".formatted(scenario.offeringId()));
         assertThat(csv)
                 .contains(
-                        "username,displayName,teachingClassCode,teachingClassName,totalFinalScore,totalMaxScore,totalWeightedScore,totalWeight,weightedScoreRate,submittedAssignmentCount,gradedAssignmentCount");
+                        "username,displayName,teachingClassCode,teachingClassName,totalFinalScore,totalMaxScore,totalWeightedScore,totalWeight,weightedScoreRate,offeringRank,teachingClassRank,submittedAssignmentCount,gradedAssignmentCount");
         assertThat(csv).contains("课程公共客观题-gradeWeight");
         assertThat(csv).contains("结构化批改作业 [A班]-applicable");
-        assertThat(csv).contains("student-a,Student A,CLS-A,A班,38,40,96.0,100,0.96,2,2");
-        assertThat(csv).contains("student-b,Student B,CLS-B,B班,10,10,40.0,40,1.0,1,1");
+        assertThat(csv).contains("student-a,Student A,CLS-A,A班,38,40,96.0,100,0.96,2,1,2,2");
+        assertThat(csv).contains("student-b,Student B,CLS-B,B班,10,10,40.0,40,1.0,1,1,1,1");
     }
 
     @Test
@@ -224,7 +230,7 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andReturn();
 
         String csv = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertThat(csv).contains("student-a,Student A,CLS-A,A班,38,40,96.0,100,0.96,2,2");
+        assertThat(csv).contains("student-a,Student A,CLS-A,A班,38,40,96.0,100,0.96,1,1,2,2");
         assertThat(csv).doesNotContain("student-b,Student B");
 
         mockMvc.perform(get("/api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/export", scenario.classAId())
@@ -275,7 +281,9 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.overview.studentCount").value(2))
                 .andExpect(jsonPath("$.overview.applicableGradeCount").value(3))
                 .andExpect(jsonPath("$.overview.submittedCount").value(3))
+                .andExpect(jsonPath("$.overview.passedStudentCount").value(2))
                 .andExpect(jsonPath("$.overview.submissionRate").value(1.0))
+                .andExpect(jsonPath("$.overview.passRate").value(1.0))
                 .andExpect(jsonPath("$.overview.averageTotalFinalScore").value(24.0))
                 .andExpect(jsonPath("$.overview.averageTotalScoreRate").value(0.96))
                 .andExpect(jsonPath("$.overview.averageTotalWeightedScore").value(68.0))
@@ -290,6 +298,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.assignments[0].title").value("课程公共客观题"))
                 .andExpect(jsonPath("$.assignments[0].gradeWeight").value(40))
                 .andExpect(jsonPath("$.assignments[0].submittedStudentCount").value(2))
+                .andExpect(jsonPath("$.assignments[0].passedStudentCount").value(2))
+                .andExpect(jsonPath("$.assignments[0].passRate").value(1.0))
                 .andExpect(
                         jsonPath("$.assignments[0].averageSubmittedFinalScore").value(10.0))
                 .andExpect(jsonPath("$.assignments[0].averageSubmittedWeightedScore")
@@ -300,6 +310,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.assignments[1].title").value("结构化批改作业"))
                 .andExpect(jsonPath("$.assignments[1].gradeWeight").value(60))
                 .andExpect(jsonPath("$.assignments[1].submittedStudentCount").value(1))
+                .andExpect(jsonPath("$.assignments[1].passedStudentCount").value(1))
+                .andExpect(jsonPath("$.assignments[1].passRate").value(1.0))
                 .andExpect(
                         jsonPath("$.assignments[1].averageSubmittedScoreRate").value(0.9333))
                 .andExpect(jsonPath("$.assignments[1].averageSubmittedWeightedScore")
@@ -309,6 +321,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                         jsonPath("$.assignments[1].scoreBands[0].studentCount").value(1))
                 .andExpect(jsonPath("$.teachingClasses.length()").value(2))
                 .andExpect(jsonPath("$.teachingClasses[0].teachingClassCode").value("CLS-A"))
+                .andExpect(jsonPath("$.teachingClasses[0].passedStudentCount").value(1))
+                .andExpect(jsonPath("$.teachingClasses[0].passRate").value(1.0))
                 .andExpect(
                         jsonPath("$.teachingClasses[0].averageTotalFinalScore").value(38.0))
                 .andExpect(jsonPath("$.teachingClasses[0].averageTotalWeightedScore")
@@ -320,6 +334,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.teachingClasses[0].scoreBands[0].studentCount")
                         .value(1))
                 .andExpect(jsonPath("$.teachingClasses[1].teachingClassCode").value("CLS-B"))
+                .andExpect(jsonPath("$.teachingClasses[1].passedStudentCount").value(1))
+                .andExpect(jsonPath("$.teachingClasses[1].passRate").value(1.0))
                 .andExpect(
                         jsonPath("$.teachingClasses[1].averageTotalScoreRate").value(1.0))
                 .andExpect(jsonPath("$.teachingClasses[1].averageTotalWeightedScore")
@@ -341,13 +357,17 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.overview.studentCount").value(1))
                 .andExpect(jsonPath("$.overview.submittedCount").value(2))
+                .andExpect(jsonPath("$.overview.passedStudentCount").value(1))
+                .andExpect(jsonPath("$.overview.passRate").value(1.0))
                 .andExpect(jsonPath("$.overview.averageTotalWeightedScore").value(96.0))
                 .andExpect(jsonPath("$.overview.averageWeightedScoreRate").value(0.96))
                 .andExpect(jsonPath("$.overview.scoreBands[0].bandCode").value("EXCELLENT"))
                 .andExpect(jsonPath("$.overview.scoreBands[0].studentCount").value(1))
                 .andExpect(jsonPath("$.teachingClasses.length()").value(0))
                 .andExpect(jsonPath("$.assignments[0].submittedStudentCount").value(1))
+                .andExpect(jsonPath("$.assignments[0].passedStudentCount").value(1))
                 .andExpect(jsonPath("$.assignments[1].submittedStudentCount").value(1))
+                .andExpect(jsonPath("$.assignments[1].passedStudentCount").value(1))
                 .andExpect(jsonPath("$.assignments[1].scoreBands[0].bandCode").value("EXCELLENT"))
                 .andExpect(
                         jsonPath("$.assignments[1].scoreBands[0].studentCount").value(1));

@@ -1,5 +1,66 @@
 # 进度日志
 
+## Session: 2026-04-16 成绩系统第二阶段
+
+### Phase 35：成绩册排名与通过率第一阶段
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 在 `GradebookApplicationService` 中为教师侧成绩册和单学生视图补齐 `offeringRank / teachingClassRank`
+  - 在统计报告总体、按作业和按班级三层补齐 `passedStudentCount / passRate`
+  - 保持排名和通过率都作为读模型派生结果，不新增数据库列
+  - 扩展 `GradebookIntegrationTests`，固定成绩册排名和通过率统计语义
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookPageView.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookReportView.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/StudentGradebookView.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+
+### Phase 36：成绩申诉与复核第一阶段
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 新增 `V21__grade_appeals_phase1.sql`，引入 `grade_appeals`
+  - 新增学生侧成绩申诉创建 / 列表接口，以及教师 / 责任助教的 assignment 维度申诉列表 / 复核接口
+  - 保持“仅非客观题、仅已发布成绩、同一答案唯一活动申诉”边界，并在接受申诉时复用单题人工批改写回分数与反馈
+  - 扩展 `GradingIntegrationTests`，覆盖申诉创建、重复申诉拦截、越权复核被拒绝和申诉接受后分数写回
+- Files created/modified:
+  - `src/main/resources/db/migration/V21__grade_appeals_phase1.sql`
+  - `src/main/java/com/aubb/server/modules/grading/application/appeal/**`
+  - `src/main/java/com/aubb/server/modules/grading/api/MyGradeAppealController.java`
+  - `src/main/java/com/aubb/server/modules/grading/api/TeacherGradeAppealController.java`
+  - `src/main/java/com/aubb/server/modules/grading/domain/appeal/GradeAppealStatus.java`
+  - `src/main/java/com/aubb/server/modules/grading/infrastructure/appeal/**`
+  - `src/main/java/com/aubb/server/modules/audit/domain/AuditAction.java`
+  - `src/test/java/com/aubb/server/integration/GradingIntegrationTests.java`
+
+### Phase 37：assignment 级批量成绩调整与 CSV 导入导出第一阶段
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 在 `GradingApplicationService` 中补齐 assignment 级批量成绩 CSV 模板导出和 CSV 导入能力
+  - 在 `TeacherGradingController` 中新增模板导出、CSV 导入接口，并保留既有 JSON `batch-adjust`
+  - 保持导入逐行处理和逐行错误反馈，成功行继续复用单题批改语义写回
+  - 扩展 `GradingIntegrationTests`，覆盖模板导出、成功导入和部分失败时的逐行报错
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/application/GradingApplicationService.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/BatchGradeImportErrorView.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/BatchGradeImportResultView.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/GradeImportTemplateContent.java`
+  - `src/main/java/com/aubb/server/modules/grading/api/TeacherGradingController.java`
+  - `src/test/java/com/aubb/server/integration/GradingIntegrationTests.java`
+
+### Phase 35 / 36 / 37 验证
+
+- 已执行 `bash ./mvnw spotless:apply`
+- 已执行 `bash ./mvnw -Dtest=GradingIntegrationTests test`
+- 已执行 `bash ./mvnw clean verify`
+- 当前结果：`BUILD SUCCESS`，全量 `92` 个测试通过
+
 ## Session: 2026-04-16 作业模块能力重规划
 
 ## Session: 2026-04-16 接手入口文档四次收口

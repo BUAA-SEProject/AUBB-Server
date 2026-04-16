@@ -14,7 +14,9 @@ public record StudentGradebookView(
             String displayName,
             Long teachingClassId,
             String teachingClassCode,
-            String teachingClassName) {}
+            String teachingClassName,
+            Integer offeringRank,
+            Integer teachingClassRank) {}
 
     public record SummaryView(
             int assignmentCount,
