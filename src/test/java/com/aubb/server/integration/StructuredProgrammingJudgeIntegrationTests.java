@@ -498,6 +498,71 @@ class StructuredProgrammingJudgeIntegrationTests {
                 .contains("\"maxScore\":60");
     }
 
+    @Test
+    void programmingAnswerTimeLimitExceededProducesStableJudgeSummary() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-TLE", "超时班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        MvcResult submissionResult = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "answerText":"#TIME_LIMIT\\nwhile True:\\n    pass",
+                                      "programmingLanguage":"PYTHON3"
+                                    }
+                                  ]
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long submissionId = readLong(submissionResult, "$.id");
+        Long answerId = readLong(submissionResult, "$.answers[0].id");
+
+        waitForLatestAnswerJudgeJobTerminal(answerId);
+
+        mockMvc.perform(get("/api/v1/me/submission-answers/{answerId}/judge-jobs", answerId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[0].verdict").value("TIME_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$[0].passedCaseCount").value(0))
+                .andExpect(jsonPath("$[0].score").value(0))
+                .andExpect(jsonPath("$[0].resultSummary").value(org.hamcrest.Matchers.containsString("超出时间限制")));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
+                .andExpect(jsonPath("$.answers[0].autoScore").value(0))
+                .andExpect(jsonPath("$.answers[0].finalScore").value(0))
+                .andExpect(jsonPath("$.answers[0].feedbackText").value(org.hamcrest.Matchers.containsString("超出时间限制")));
+    }
+
     private void waitForLatestAnswerJudgeJobTerminal(Long answerId) throws Exception {
         long deadline = System.currentTimeMillis() + 8_000L;
         while (System.currentTimeMillis() < deadline) {
@@ -864,18 +929,46 @@ class StructuredProgrammingJudgeIntegrationTests {
                 return;
             }
 
-            String stdout = simulateProgramStdout(request, stdin);
+            SimulatedExecution execution = simulateProgramExecution(request, stdin);
             byte[] response = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
-                    "status", "Accepted",
-                    "exitStatus", 0,
-                    "time", 1_000_000,
-                    "memory", 65_536,
-                    "runTime", 1_000_000,
-                    "files", Map.of("stdout", stdout, "stderr", ""))));
+                    "status",
+                    execution.status(),
+                    "exitStatus",
+                    execution.exitStatus(),
+                    "time",
+                    1_000_000,
+                    "memory",
+                    65_536,
+                    "runTime",
+                    1_000_000,
+                    "files",
+                    Map.of("stdout", execution.stdout(), "stderr", execution.stderr()))));
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
             exchange.close();
+        }
+
+        private SimulatedExecution simulateProgramExecution(JsonNode request, String stdin) {
+            String markerSource = readMarkerSource(request);
+            if (markerSource.contains("#RUNTIME_ERROR")) {
+                return new SimulatedExecution(
+                        "Non Zero Exit Status", 1, "", "Traceback (most recent call last):\nboom\n");
+            }
+            if (markerSource.contains("#TIME_LIMIT")) {
+                return new SimulatedExecution("Time Limit Exceeded", 1, "", "");
+            }
+            if (markerSource.contains("#MEMORY_LIMIT")) {
+                return new SimulatedExecution("Memory Limit Exceeded", 1, "", "");
+            }
+            if (markerSource.contains("#OUTPUT_LIMIT")) {
+                return new SimulatedExecution("Output Limit Exceeded", 1, "", "");
+            }
+            if (markerSource.contains("#COMPILE_ERROR")) {
+                return new SimulatedExecution(
+                        "Non Zero Exit Status", 1, "", "Compilation failed: simulated compiler error\n");
+            }
+            return new SimulatedExecution("Accepted", 0, simulateProgramStdout(request, stdin), "");
         }
 
         private String simulateProgramStdout(JsonNode request, String stdin) {
@@ -914,6 +1007,16 @@ class StructuredProgrammingJudgeIntegrationTests {
                 }
             }
             return "0\n";
+        }
+
+        private String readMarkerSource(JsonNode request) {
+            for (String path : List.of("main.py", "Main.java", "main.cpp")) {
+                String source = readCopyInContent(request, path);
+                if (!source.isEmpty()) {
+                    return source;
+                }
+            }
+            return "";
         }
 
         private String readCopyInContent(JsonNode request, String path) {
@@ -976,5 +1079,7 @@ class StructuredProgrammingJudgeIntegrationTests {
         private static String stripTrailingNewline(String value) {
             return value != null && value.endsWith("\n") ? value.substring(0, value.length() - 1) : value;
         }
+
+        private record SimulatedExecution(String status, int exitStatus, String stdout, String stderr) {}
     }
 }

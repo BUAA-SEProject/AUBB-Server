@@ -56,6 +56,11 @@
 10. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
 11. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
 12. 样例试运行与正式评测的源码装配优先消费 `entryFilePath + files`；旧 `codeText` 仅作为兼容路径保留。
+13. 编译失败、运行失败和资源超限当前统一视为“评测成功但结论非通过”：
+  - 编译失败当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“编译失败”
+  - 运行时异常当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“程序运行失败”
+  - 超时 / 超内存 / 超输出当前分别落成 `TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED`
+14. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
 
 ## 核心数据模型
 
@@ -137,6 +142,9 @@
 - 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果和源码快照落到 `programming_sample_runs`。
 - 当前采用应用内异步执行，不走 RabbitMQ worker。
 - 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
+- 当前失败态摘要已经做了第一阶段规范化：
+  - legacy assignment 级评测、question-level judge 和样例试运行会统一输出“编译失败 / 程序运行失败 / 超出时间限制 / 超出内存限制 / 超出输出限制”等中文摘要
+  - 编译失败暂不单独新增 verdict，而是继续映射到 `RUNTIME_ERROR`，避免打破既有 API 枚举
 
 ## 验收标准
 

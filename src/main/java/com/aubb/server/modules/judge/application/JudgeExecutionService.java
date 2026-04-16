@@ -41,6 +41,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.ObjectProvider;
@@ -299,8 +300,8 @@ public class JudgeExecutionService {
             }
         }
 
-        String summary = "%s，%s/%s 个用例通过，得分 %s/%s"
-                .formatted(overallVerdict.name(), passedCaseCount, totalCaseCount, score, maxScore);
+        String summary =
+                judgeJobSummary(overallVerdict, stderrExcerpt, passedCaseCount, totalCaseCount, score, maxScore, "用例");
         return JudgeFinalization.completed(
                 overallVerdict,
                 totalCaseCount,
@@ -388,8 +389,8 @@ public class JudgeExecutionService {
             caseOrder++;
         }
 
-        String summary = "%s，%s/%s 个测试点通过，得分 %s/%s"
-                .formatted(overallVerdict.name(), passedCaseCount, totalCaseCount, score, maxScore);
+        String summary =
+                judgeJobSummary(overallVerdict, stderrExcerpt, passedCaseCount, totalCaseCount, score, maxScore, "测试点");
         return JudgeFinalization.completed(
                 overallVerdict,
                 totalCaseCount,
@@ -465,7 +466,14 @@ public class JudgeExecutionService {
                     "go-judge 返回系统错误状态: " + programResult.status());
         }
         if (engineVerdict != JudgeVerdict.ACCEPTED) {
-            return new CaseOutcome(engineVerdict, stdout, stderr, timeMillis, memoryBytes, 0, null);
+            return new CaseOutcome(
+                    engineVerdict,
+                    stdout,
+                    stderr,
+                    timeMillis,
+                    memoryBytes,
+                    0,
+                    describeEngineFailure(engineVerdict, stderr));
         }
         if (!StringUtils.hasText(config.customJudgeScript())) {
             return new CaseOutcome(
@@ -688,7 +696,13 @@ public class JudgeExecutionService {
                     null);
         }
         return new CaseOutcome(
-                engineVerdict, stdout, stderr, nanosToMillis(result.time()), safeLong(result.memory()), null, null);
+                engineVerdict,
+                stdout,
+                stderr,
+                nanosToMillis(result.time()),
+                safeLong(result.memory()),
+                null,
+                describeEngineFailure(engineVerdict, stderr));
     }
 
     private JudgeJobCaseResultView toCaseResult(int caseOrder, int maxScore, CaseOutcome caseOutcome) {
@@ -888,6 +902,53 @@ public class JudgeExecutionService {
     private String formatProgramOutput(String value, boolean clipOutput) {
         String normalized = normalizeLineEndings(value);
         return clipOutput ? clip(normalized) : normalized;
+    }
+
+    private String judgeJobSummary(
+            JudgeVerdict verdict,
+            String stderrExcerpt,
+            int passedCaseCount,
+            int totalCaseCount,
+            int score,
+            int maxScore,
+            String caseLabel) {
+        String prefix = verdictSummaryPrefix(verdict, stderrExcerpt);
+        return "%s，%s/%s 个%s通过，得分 %s/%s".formatted(prefix, passedCaseCount, totalCaseCount, caseLabel, score, maxScore);
+    }
+
+    private String verdictSummaryPrefix(JudgeVerdict verdict, String stderrExcerpt) {
+        if (verdict == null) {
+            return "UNKNOWN";
+        }
+        String detail = describeEngineFailure(verdict, stderrExcerpt);
+        return StringUtils.hasText(detail) ? verdict.name() + "，" + detail : verdict.name();
+    }
+
+    private String describeEngineFailure(JudgeVerdict verdict, String stderrExcerpt) {
+        if (verdict == null || JudgeVerdict.ACCEPTED.equals(verdict)) {
+            return null;
+        }
+        return switch (verdict) {
+            case WRONG_ANSWER -> "输出与预期不一致";
+            case TIME_LIMIT_EXCEEDED -> "超出时间限制";
+            case MEMORY_LIMIT_EXCEEDED -> "超出内存限制";
+            case OUTPUT_LIMIT_EXCEEDED -> "超出输出限制";
+            case RUNTIME_ERROR -> isCompilationFailure(stderrExcerpt) ? "编译失败" : "程序运行失败";
+            case SYSTEM_ERROR -> "评测执行失败";
+            case ACCEPTED -> null;
+        };
+    }
+
+    private boolean isCompilationFailure(String stderrExcerpt) {
+        if (!StringUtils.hasText(stderrExcerpt)) {
+            return false;
+        }
+        String normalized = stderrExcerpt.toLowerCase(Locale.ROOT);
+        return normalized.contains("compilation failed")
+                || normalized.contains("compile error")
+                || normalized.contains("syntaxerror")
+                || normalized.contains("javac")
+                || normalized.contains("g++");
     }
 
     private long nanosToMillis(Long nanos) {

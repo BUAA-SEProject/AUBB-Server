@@ -205,6 +205,37 @@ class JudgeIntegrationTests {
     }
 
     @Test
+    void runtimeErrorBecomesSuccessfulJudgeJobWithRuntimeSummary() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "运行失败实验");
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentToken, assignmentId, "#RUNTIME_ERROR\nprint('boom')");
+        waitForLatestJudgeJobTerminal(submissionId);
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[0].verdict").value("RUNTIME_ERROR"))
+                .andExpect(jsonPath("$[0].passedCaseCount").value(0))
+                .andExpect(jsonPath("$[0].score").value(0))
+                .andExpect(jsonPath("$[0].stderrExcerpt").value(org.hamcrest.Matchers.containsString("Traceback")))
+                .andExpect(jsonPath("$[0].resultSummary").value(org.hamcrest.Matchers.containsString("程序运行失败")));
+    }
+
+    @Test
     void goJudgeFailureDoesNotBlockSubmissionAndMarksJudgeJobFailed() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -536,19 +567,43 @@ class JudgeIntegrationTests {
             }
 
             String stdin = request.at("/cmd/0/files/0/content").asText();
-            String stdout =
-                    source.contains("[::-1]") ? new StringBuilder(stripTrailingNewline(stdin)).reverse() + "\n" : stdin;
+            SimulatedExecution execution = simulateExecution(source, stdin);
             byte[] response = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
-                    "status", "Accepted",
-                    "exitStatus", 0,
-                    "time", 1_000_000,
-                    "memory", 65_536,
-                    "runTime", 1_000_000,
-                    "files", Map.of("stdout", stdout, "stderr", ""))));
+                    "status",
+                    execution.status(),
+                    "exitStatus",
+                    execution.exitStatus(),
+                    "time",
+                    1_000_000,
+                    "memory",
+                    65_536,
+                    "runTime",
+                    1_000_000,
+                    "files",
+                    Map.of("stdout", execution.stdout(), "stderr", execution.stderr()))));
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
             exchange.close();
+        }
+
+        private SimulatedExecution simulateExecution(String source, String stdin) {
+            if (source.contains("#RUNTIME_ERROR")) {
+                return new SimulatedExecution(
+                        "Non Zero Exit Status", 1, "", "Traceback (most recent call last):\nboom\n");
+            }
+            if (source.contains("#TIME_LIMIT")) {
+                return new SimulatedExecution("Time Limit Exceeded", 1, "", "");
+            }
+            if (source.contains("#MEMORY_LIMIT")) {
+                return new SimulatedExecution("Memory Limit Exceeded", 1, "", "");
+            }
+            if (source.contains("#OUTPUT_LIMIT")) {
+                return new SimulatedExecution("Output Limit Exceeded", 1, "", "");
+            }
+            String stdout =
+                    source.contains("[::-1]") ? new StringBuilder(stripTrailingNewline(stdin)).reverse() + "\n" : stdin;
+            return new SimulatedExecution("Accepted", 0, stdout, "");
         }
 
         private void writePlain(HttpExchange exchange, int statusCode, String body) throws IOException {
@@ -561,5 +616,7 @@ class JudgeIntegrationTests {
         private static String stripTrailingNewline(String value) {
             return value != null && value.endsWith("\n") ? value.substring(0, value.length() - 1) : value;
         }
+
+        private record SimulatedExecution(String status, int exitStatus, String stdout, String stderr) {}
     }
 }

@@ -219,6 +219,27 @@
   - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
   - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
 
+## Session: 2026-04-16 judge 失败态摘要规范化
+
+### Phase 13：失败态映射与摘要统一
+
+- **Status:** completed
+- Actions taken:
+  - 先补失败测试，覆盖 legacy judge 运行时异常、question-level judge 超时和样例试运行编译失败三条路径
+  - 调整 `JudgeExecutionService`，统一 legacy job、question-level judge 和样例试运行的失败态摘要
+  - 保持现有 `JudgeVerdict` 枚举不变，把编译失败继续映射为 `RUNTIME_ERROR`，仅通过稳定中文摘要区分“编译失败”和“程序运行失败”
+  - 扩展 fake go-judge，按源码标记模拟 `RUNTIME_ERROR / TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED / 编译失败`
+  - 已执行 `bash ./mvnw -Dtest=JudgeIntegrationTests,StructuredProgrammingJudgeIntegrationTests,ProgrammingWorkspaceIntegrationTests test` 并通过
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/test/java/com/aubb/server/integration/JudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `docs/product-specs/judge-system.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
 ## Session: 2026-04-16 编程工作区目录树快照第一阶段
 
 ### Phase 15：工作区快照后端模型

@@ -399,6 +399,54 @@ class ProgrammingWorkspaceIntegrationTests {
     }
 
     @Test
+    void studentSeesCompileFailureSummaryForJavaSampleRun() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JFAIL", "编译失败班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createJavaProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        GO_JUDGE_SERVER.reset();
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"Main.java",
+                                  "files":[
+                                    {
+                                      "path":"Main.java",
+                                      "content":"// #COMPILE_ERROR\\npublic class Main {\\n  public static void main(String[] args) {\\n    System.out.println(1)\\n  }\\n}"
+                                    }
+                                  ],
+                                  "programmingLanguage":"JAVA17"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.verdict").value("RUNTIME_ERROR"))
+                .andExpect(jsonPath("$.stderrText").value(org.hamcrest.Matchers.containsString("Compilation failed")))
+                .andExpect(jsonPath("$.resultSummary").value(org.hamcrest.Matchers.containsString("编译失败")));
+    }
+
+    @Test
     void studentRunsCustomJudgeSampleRunAndReceivesCustomVerdict() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -798,12 +846,12 @@ class ProgrammingWorkspaceIntegrationTests {
             }
 
             String stdin = request.at("/cmd/0/files/0/content").asText();
-            String stdout = simulateProgramStdout(request, stdin);
+            SimulatedExecution execution = simulateProgramExecution(request, stdin);
             byte[] responseBytes = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
                     "status",
-                    "Accepted",
+                    execution.status(),
                     "exitStatus",
-                    0,
+                    execution.exitStatus(),
                     "time",
                     1_500_000L,
                     "memory",
@@ -811,11 +859,33 @@ class ProgrammingWorkspaceIntegrationTests {
                     "runTime",
                     1_700_000L,
                     "files",
-                    Map.of("stdout", stdout, "stderr", ""))));
+                    Map.of("stdout", execution.stdout(), "stderr", execution.stderr()))));
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, responseBytes.length);
             exchange.getResponseBody().write(responseBytes);
             exchange.close();
+        }
+
+        private SimulatedExecution simulateProgramExecution(JsonNode request, String stdin) {
+            String markerSource = readMarkerSource(request);
+            if (markerSource.contains("#RUNTIME_ERROR")) {
+                return new SimulatedExecution(
+                        "Non Zero Exit Status", 1, "", "Traceback (most recent call last):\nboom\n");
+            }
+            if (markerSource.contains("#TIME_LIMIT")) {
+                return new SimulatedExecution("Time Limit Exceeded", 1, "", "");
+            }
+            if (markerSource.contains("#MEMORY_LIMIT")) {
+                return new SimulatedExecution("Memory Limit Exceeded", 1, "", "");
+            }
+            if (markerSource.contains("#OUTPUT_LIMIT")) {
+                return new SimulatedExecution("Output Limit Exceeded", 1, "", "");
+            }
+            if (markerSource.contains("#COMPILE_ERROR")) {
+                return new SimulatedExecution(
+                        "Non Zero Exit Status", 1, "", "Compilation failed: simulated compiler error\n");
+            }
+            return new SimulatedExecution("Accepted", 0, simulateProgramStdout(request, stdin), "");
         }
 
         private String simulateProgramStdout(JsonNode request, String stdin) {
@@ -846,6 +916,16 @@ class ProgrammingWorkspaceIntegrationTests {
                 }
             }
             return "0\n";
+        }
+
+        private String readMarkerSource(JsonNode request) {
+            for (String path : List.of("main.py", "Main.java", "main.cpp")) {
+                String source = readCopyInContent(request, path);
+                if (!source.isEmpty()) {
+                    return source;
+                }
+            }
+            return "";
         }
 
         private String readCopyInContent(JsonNode request, String path) {
@@ -901,5 +981,7 @@ class ProgrammingWorkspaceIntegrationTests {
             exchange.getResponseBody().write(responseBytes);
             exchange.close();
         }
+
+        private record SimulatedExecution(String status, int exitStatus, String stdout, String stderr) {}
     }
 }
