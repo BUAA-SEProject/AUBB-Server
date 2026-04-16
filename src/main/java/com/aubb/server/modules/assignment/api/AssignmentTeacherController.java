@@ -66,6 +66,7 @@ public class AssignmentTeacherController {
                 request.openAt(),
                 request.dueAt(),
                 request.maxSubmissions(),
+                request.gradeWeight(),
                 request.toPaperInput(),
                 request.toJudgeConfigInput(),
                 principal);
@@ -105,6 +106,7 @@ public class AssignmentTeacherController {
                 request.openAt(),
                 request.dueAt(),
                 request.maxSubmissions(),
+                request.gradeWeight(),
                 request.toPaperInput(),
                 request.toJudgeConfigInput(),
                 principal);
@@ -131,6 +133,7 @@ public class AssignmentTeacherController {
             @NotNull OffsetDateTime openAt,
             @NotNull OffsetDateTime dueAt,
             @NotNull @Positive Integer maxSubmissions,
+            @Positive Integer gradeWeight,
             @Valid PaperRequest paper,
             @Valid JudgeConfigRequest judgeConfig) {
 

@@ -33,6 +33,8 @@ public class AssignmentEntity {
 
     private Integer maxSubmissions;
 
+    private Integer gradeWeight;
+
     private OffsetDateTime publishedAt;
 
     private OffsetDateTime closedAt;

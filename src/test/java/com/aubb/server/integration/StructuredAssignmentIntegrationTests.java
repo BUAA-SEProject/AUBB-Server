@@ -376,6 +376,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                   "openAt":"2026-04-02T08:00:00+08:00",
                                   "dueAt":"2026-05-05T23:59:59+08:00",
                                   "maxSubmissions":5,
+                                  "gradeWeight":40,
                                   "paper":{
                                     "sections":[
                                       {
@@ -409,6 +410,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.description").value("改成课程公共作业"))
                 .andExpect(jsonPath("$.teachingClass").doesNotExist())
                 .andExpect(jsonPath("$.maxSubmissions").value(5))
+                .andExpect(jsonPath("$.gradeWeight").value(40))
                 .andExpect(jsonPath("$.paper.sectionCount").value(2))
                 .andExpect(jsonPath("$.paper.questionCount").value(2))
                 .andExpect(jsonPath("$.paper.totalScore").value(30))

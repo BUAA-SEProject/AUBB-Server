@@ -154,12 +154,16 @@ public class GradebookApplicationService {
         int gradedCount = 0;
         int totalFinalScore = 0;
         int totalMaxScore = 0;
+        int totalWeight = 0;
+        BigDecimal totalWeightedScore = BigDecimal.ZERO;
         for (AssignmentEntity assignment : assignments) {
             if (!isApplicable(assignment.getTeachingClassId(), student.teachingClassId())) {
                 continue;
             }
             int assignmentMaxScore = assignmentMaxScores.getOrDefault(assignment.getId(), 0);
+            int gradeWeight = defaultGradeWeight(assignment.getGradeWeight());
             totalMaxScore += assignmentMaxScore;
+            totalWeight += gradeWeight;
             SubmissionEntity submission = latestSubmissions.get(
                     latestSubmissionKey(assignment.getId(), student.user().getId()));
             SubmissionScoreSummaryView summary = submission == null ? null : scoreSummaries.get(submission.getId());
@@ -173,6 +177,9 @@ public class GradebookApplicationService {
             }
             if (gradeCell.finalScore() != null) {
                 totalFinalScore += gradeCell.finalScore();
+            }
+            if (gradeCell.weightedScore() != null) {
+                totalWeightedScore = totalWeightedScore.add(BigDecimal.valueOf(gradeCell.weightedScore()));
             }
             assignmentViews.add(new StudentGradebookView.AssignmentGradeView(
                     toAssignmentColumn(assignment, assignmentMaxScore, classIndex.get(assignment.getTeachingClassId())),
@@ -190,7 +197,14 @@ public class GradebookApplicationService {
                         studentClass == null ? null : studentClass.getClassCode(),
                         studentClass == null ? null : studentClass.getClassName()),
                 new StudentGradebookView.SummaryView(
-                        assignmentViews.size(), submittedCount, gradedCount, totalFinalScore, totalMaxScore),
+                        assignmentViews.size(),
+                        submittedCount,
+                        gradedCount,
+                        totalFinalScore,
+                        totalMaxScore,
+                        roundDecimal(totalWeightedScore, 2),
+                        totalWeight,
+                        ratio(totalWeightedScore.doubleValue(), totalWeight)),
                 List.copyOf(assignmentViews));
     }
 
@@ -280,9 +294,13 @@ public class GradebookApplicationService {
         int applicableGradeCount = 0;
         int totalFinalScore = 0;
         int totalMaxScore = 0;
+        int totalWeight = 0;
+        BigDecimal totalWeightedScore = BigDecimal.ZERO;
         for (GradebookPageView.StudentRowView row : snapshot.rows()) {
             totalFinalScore += row.totalFinalScore();
             totalMaxScore += row.totalMaxScore();
+            totalWeight += defaultScore(row.totalWeight());
+            totalWeightedScore = totalWeightedScore.add(BigDecimal.valueOf(row.totalWeightedScore()));
             applicableGradeCount += (int) row.grades().stream()
                     .filter(cell -> Boolean.TRUE.equals(cell.applicable()))
                     .count();
@@ -298,7 +316,9 @@ public class GradebookApplicationService {
                 ratio(snapshot.summary().fullyGradedCount(), applicableGradeCount),
                 ratio(snapshot.summary().publishedCount(), applicableGradeCount),
                 average(totalFinalScore, snapshot.summary().studentCount()),
-                ratio(totalFinalScore, totalMaxScore));
+                ratio(totalFinalScore, totalMaxScore),
+                average(totalWeightedScore.doubleValue(), snapshot.summary().studentCount()),
+                ratio(totalWeightedScore.doubleValue(), totalWeight));
     }
 
     private List<GradebookReportView.AssignmentStatView> buildAssignmentStats(GradebookSnapshot snapshot) {
@@ -312,6 +332,7 @@ public class GradebookApplicationService {
             int publishedStudentCount = 0;
             int totalSubmittedFinalScore = 0;
             int totalSubmittedMaxScore = 0;
+            BigDecimal totalSubmittedWeightedScore = BigDecimal.ZERO;
             for (GradebookPageView.StudentRowView row : snapshot.rows()) {
                 GradebookPageView.GradeCellView cell = row.grades().get(index);
                 if (!Boolean.TRUE.equals(cell.applicable())) {
@@ -322,6 +343,10 @@ public class GradebookApplicationService {
                     submittedStudentCount++;
                     totalSubmittedMaxScore += defaultScore(cell.maxScore());
                     totalSubmittedFinalScore += defaultScore(cell.finalScore());
+                    if (cell.weightedScore() != null) {
+                        totalSubmittedWeightedScore =
+                                totalSubmittedWeightedScore.add(BigDecimal.valueOf(cell.weightedScore()));
+                    }
                 }
                 if (Boolean.TRUE.equals(cell.fullyGraded())) {
                     fullyGradedStudentCount++;
@@ -336,6 +361,7 @@ public class GradebookApplicationService {
                     assignmentColumn.teachingClassName(),
                     assignmentColumn.title(),
                     defaultScore(assignmentColumn.maxScore()),
+                    defaultGradeWeight(assignmentColumn.gradeWeight()),
                     applicableStudentCount,
                     submittedStudentCount,
                     fullyGradedStudentCount,
@@ -344,7 +370,8 @@ public class GradebookApplicationService {
                     ratio(fullyGradedStudentCount, applicableStudentCount),
                     ratio(publishedStudentCount, applicableStudentCount),
                     average(totalSubmittedFinalScore, submittedStudentCount),
-                    ratio(totalSubmittedFinalScore, totalSubmittedMaxScore)));
+                    ratio(totalSubmittedFinalScore, totalSubmittedMaxScore),
+                    average(totalSubmittedWeightedScore.doubleValue(), submittedStudentCount)));
         }
         return List.copyOf(stats);
     }
@@ -368,6 +395,8 @@ public class GradebookApplicationService {
                     .count();
             stat.totalFinalScore += defaultScore(row.totalFinalScore());
             stat.totalMaxScore += defaultScore(row.totalMaxScore());
+            stat.totalWeight += defaultScore(row.totalWeight());
+            stat.totalWeightedScore = stat.totalWeightedScore.add(BigDecimal.valueOf(row.totalWeightedScore()));
         }
         return stats.values().stream()
                 .map(stat -> new GradebookReportView.TeachingClassStatView(
@@ -383,7 +412,9 @@ public class GradebookApplicationService {
                         ratio(stat.gradedAssignmentCount, stat.applicableAssignmentCount),
                         ratio(stat.publishedAssignmentCount, stat.applicableAssignmentCount),
                         average(stat.totalFinalScore, stat.studentCount),
-                        ratio(stat.totalFinalScore, stat.totalMaxScore)))
+                        ratio(stat.totalFinalScore, stat.totalMaxScore),
+                        average(stat.totalWeightedScore.doubleValue(), stat.studentCount),
+                        ratio(stat.totalWeightedScore.doubleValue(), stat.totalWeight)))
                 .toList();
     }
 
@@ -396,6 +427,9 @@ public class GradebookApplicationService {
                 "teachingClassName",
                 "totalFinalScore",
                 "totalMaxScore",
+                "totalWeightedScore",
+                "totalWeight",
+                "weightedScoreRate",
                 "submittedAssignmentCount",
                 "gradedAssignmentCount"));
         for (GradebookPageView.AssignmentColumnView assignmentColumn : snapshot.assignmentColumns()) {
@@ -406,6 +440,8 @@ public class GradebookApplicationService {
             header.add(label + "-submittedAt");
             header.add(label + "-finalScore");
             header.add(label + "-maxScore");
+            header.add(label + "-gradeWeight");
+            header.add(label + "-weightedScore");
             header.add(label + "-fullyGraded");
             header.add(label + "-gradePublished");
         }
@@ -419,9 +455,15 @@ public class GradebookApplicationService {
             record.add(row.teachingClassName());
             record.add(String.valueOf(row.totalFinalScore()));
             record.add(String.valueOf(row.totalMaxScore()));
+            record.add(String.valueOf(row.totalWeightedScore()));
+            record.add(String.valueOf(row.totalWeight()));
+            record.add(String.valueOf(row.weightedScoreRate()));
             record.add(String.valueOf(row.submittedAssignmentCount()));
             record.add(String.valueOf(row.gradedAssignmentCount()));
-            for (GradebookPageView.GradeCellView cell : row.grades()) {
+            for (int index = 0; index < row.grades().size(); index++) {
+                GradebookPageView.GradeCellView cell = row.grades().get(index);
+                GradebookPageView.AssignmentColumnView assignmentColumn =
+                        snapshot.assignmentColumns().get(index);
                 record.add(String.valueOf(Boolean.TRUE.equals(cell.applicable())));
                 record.add(String.valueOf(Boolean.TRUE.equals(cell.submitted())));
                 record.add(cell.latestAttemptNo() == null ? null : String.valueOf(cell.latestAttemptNo()));
@@ -429,6 +471,8 @@ public class GradebookApplicationService {
                         cell.submittedAt() == null ? null : cell.submittedAt().toString());
                 record.add(cell.finalScore() == null ? null : String.valueOf(cell.finalScore()));
                 record.add(cell.maxScore() == null ? null : String.valueOf(cell.maxScore()));
+                record.add(String.valueOf(defaultGradeWeight(assignmentColumn.gradeWeight())));
+                record.add(cell.weightedScore() == null ? null : String.valueOf(cell.weightedScore()));
                 record.add(cell.fullyGraded() == null ? null : String.valueOf(cell.fullyGraded()));
                 record.add(String.valueOf(Boolean.TRUE.equals(cell.gradePublished())));
             }
@@ -475,6 +519,8 @@ public class GradebookApplicationService {
         List<GradebookPageView.GradeCellView> grades = new ArrayList<>();
         int totalFinalScore = 0;
         int totalMaxScore = 0;
+        int totalWeight = 0;
+        BigDecimal totalWeightedScore = BigDecimal.ZERO;
         int submittedAssignmentCount = 0;
         int gradedAssignmentCount = 0;
         for (AssignmentEntity assignment : assignments) {
@@ -482,6 +528,7 @@ public class GradebookApplicationService {
             boolean applicable = isApplicable(assignment.getTeachingClassId(), student.teachingClassId());
             if (applicable) {
                 totalMaxScore += assignmentMaxScore;
+                totalWeight += defaultGradeWeight(assignment.getGradeWeight());
             }
             SubmissionEntity submission = latestSubmissions.get(
                     latestSubmissionKey(assignment.getId(), student.user().getId()));
@@ -497,6 +544,9 @@ public class GradebookApplicationService {
             if (applicable && cell.finalScore() != null) {
                 totalFinalScore += cell.finalScore();
             }
+            if (applicable && cell.weightedScore() != null) {
+                totalWeightedScore = totalWeightedScore.add(BigDecimal.valueOf(cell.weightedScore()));
+            }
             grades.add(cell);
         }
 
@@ -510,6 +560,9 @@ public class GradebookApplicationService {
                 studentClass == null ? null : studentClass.getClassName(),
                 totalFinalScore,
                 totalMaxScore,
+                roundDecimal(totalWeightedScore, 2),
+                totalWeight,
+                ratio(totalWeightedScore.doubleValue(), totalWeight),
                 submittedAssignmentCount,
                 gradedAssignmentCount,
                 List.copyOf(grades));
@@ -523,9 +576,13 @@ public class GradebookApplicationService {
             SubmissionScoreSummaryView summary) {
         if (!applicable) {
             return new GradebookPageView.GradeCellView(
-                    assignment.getId(), false, false, null, null, null, null, null, null, null, null);
+                    assignment.getId(), false, false, null, null, null, null, null, null, null, null, null);
         }
         boolean submitted = submission != null;
+        Double weightedScore = summary == null
+                ? null
+                : weightedScore(
+                        summary.finalScore(), assignmentMaxScore, defaultGradeWeight(assignment.getGradeWeight()));
         return new GradebookPageView.GradeCellView(
                 assignment.getId(),
                 true,
@@ -536,6 +593,7 @@ public class GradebookApplicationService {
                 summary,
                 summary == null ? null : summary.finalScore(),
                 assignmentMaxScore,
+                weightedScore,
                 summary == null ? null : summary.fullyGraded(),
                 summary == null ? assignment.getGradePublishedAt() != null : summary.gradePublished());
     }
@@ -551,6 +609,7 @@ public class GradebookApplicationService {
                 assignment.getOpenAt(),
                 assignment.getDueAt(),
                 maxScore,
+                defaultGradeWeight(assignment.getGradeWeight()),
                 assignment.getGradePublishedAt() != null);
     }
 
@@ -771,7 +830,20 @@ public class GradebookApplicationService {
         return score == null ? 0 : score;
     }
 
+    private int defaultGradeWeight(Integer gradeWeight) {
+        return gradeWeight == null ? 100 : gradeWeight;
+    }
+
     private double average(int value, int count) {
+        if (count <= 0) {
+            return 0.0;
+        }
+        return BigDecimal.valueOf(value)
+                .divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private double average(double value, int count) {
         if (count <= 0) {
             return 0.0;
         }
@@ -787,6 +859,29 @@ public class GradebookApplicationService {
         return BigDecimal.valueOf(numerator)
                 .divide(BigDecimal.valueOf(denominator), 4, RoundingMode.HALF_UP)
                 .doubleValue();
+    }
+
+    private double ratio(double numerator, int denominator) {
+        if (denominator <= 0) {
+            return 0.0;
+        }
+        return BigDecimal.valueOf(numerator)
+                .divide(BigDecimal.valueOf(denominator), 4, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private double weightedScore(Integer finalScore, Integer maxScore, Integer gradeWeight) {
+        if (finalScore == null || maxScore == null || maxScore <= 0) {
+            return 0.0;
+        }
+        return BigDecimal.valueOf(finalScore)
+                .multiply(BigDecimal.valueOf(defaultGradeWeight(gradeWeight)))
+                .divide(BigDecimal.valueOf(maxScore), 2, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private double roundDecimal(BigDecimal value, int scale) {
+        return value.setScale(scale, RoundingMode.HALF_UP).doubleValue();
     }
 
     private String teachingClassSortKey(TeachingClassEntity teachingClass) {
@@ -829,6 +924,8 @@ public class GradebookApplicationService {
         private int publishedAssignmentCount;
         private int totalFinalScore;
         private int totalMaxScore;
+        private int totalWeight;
+        private BigDecimal totalWeightedScore = BigDecimal.ZERO;
 
         private MutableTeachingClassStat(Long teachingClassId, String teachingClassCode, String teachingClassName) {
             this.teachingClassId = teachingClassId;

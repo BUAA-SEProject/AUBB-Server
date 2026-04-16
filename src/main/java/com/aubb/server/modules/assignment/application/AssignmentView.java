@@ -17,6 +17,7 @@ public record AssignmentView(
         OffsetDateTime openAt,
         OffsetDateTime dueAt,
         Integer maxSubmissions,
+        Integer gradeWeight,
         AssignmentPaperView paper,
         AssignmentJudgeConfigView judgeConfig,
         OffsetDateTime publishedAt,

@@ -91,6 +91,40 @@
   - `bash ./mvnw clean verify`
   - 当前结果：`BUILD SUCCESS`，全量 `86` 个测试通过
 
+## Session: 2026-04-16 assignment 权重与加权总评第一阶段
+
+### Phase 32：成绩能力从“可导出 / 可统计”推进到“可表达基础总评规则”
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 新增 `V20__assignment_grade_weights_phase1.sql`，为 `assignments` 补齐 assignment 级 `grade_weight`
+  - 扩展教师侧创建 / 编辑草稿作业接口，允许设置 `gradeWeight`，并在发布后保持不可变
+  - 在 `GradebookApplicationService` 中为教师 / 学生成绩册补齐加权总分、权重合计和加权得分率
+  - 在课程 / 班级 CSV 导出中补齐作业权重和每格加权得分，在统计报告中补齐加权总分与作业权重第一阶段
+  - 扩展 `AssignmentIntegrationTests`、`StructuredAssignmentIntegrationTests`、`GradebookIntegrationTests`，固定 assignment 权重、加权总分和报表导出语义
+  - 同步 `README.md`、assignment / grading 规格、数据库结构、`todo.md` 与工作记忆
+- Files created/modified:
+  - `src/main/resources/db/migration/V20__assignment_grade_weights_phase1.sql`
+  - `src/main/java/com/aubb/server/modules/assignment/**`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/**`
+  - `src/test/java/com/aubb/server/integration/AssignmentIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredAssignmentIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+  - `README.md`
+  - `docs/product-specs/assignment-system.md`
+  - `docs/product-specs/grading-system.md`
+  - `docs/generated/db-schema.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=AssignmentIntegrationTests,StructuredAssignmentIntegrationTests,GradebookIntegrationTests,GradingIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `86` 个测试通过
+
 ## Session: 2026-04-16 仓库状态复核与入口文档三次收口
 
 ### Phase 26：接手入口与仓库口径再次校准

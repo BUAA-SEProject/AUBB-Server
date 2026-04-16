@@ -29,6 +29,7 @@ public record GradebookPageView(
             OffsetDateTime openAt,
             OffsetDateTime dueAt,
             Integer maxScore,
+            Integer gradeWeight,
             Boolean gradePublished) {}
 
     public record StudentRowView(
@@ -40,6 +41,9 @@ public record GradebookPageView(
             String teachingClassName,
             Integer totalFinalScore,
             Integer totalMaxScore,
+            double totalWeightedScore,
+            Integer totalWeight,
+            double weightedScoreRate,
             Integer submittedAssignmentCount,
             Integer gradedAssignmentCount,
             List<GradeCellView> grades) {}
@@ -55,6 +59,7 @@ public record GradebookPageView(
             SubmissionScoreSummaryView scoreSummary,
             Integer finalScore,
             Integer maxScore,
+            Double weightedScore,
             Boolean fullyGraded,
             Boolean gradePublished) {}
 }

@@ -19,7 +19,9 @@ public record GradebookReportView(
             double gradingRate,
             double publicationRate,
             double averageTotalFinalScore,
-            double averageTotalScoreRate) {}
+            double averageTotalScoreRate,
+            double averageTotalWeightedScore,
+            double averageWeightedScoreRate) {}
 
     public record AssignmentStatView(
             Long assignmentId,
@@ -27,6 +29,7 @@ public record GradebookReportView(
             String teachingClassName,
             String title,
             int maxScore,
+            int gradeWeight,
             int applicableStudentCount,
             int submittedStudentCount,
             int fullyGradedStudentCount,
@@ -35,7 +38,8 @@ public record GradebookReportView(
             double gradingRate,
             double publicationRate,
             double averageSubmittedFinalScore,
-            double averageSubmittedScoreRate) {}
+            double averageSubmittedScoreRate,
+            double averageSubmittedWeightedScore) {}
 
     public record TeachingClassStatView(
             Long teachingClassId,
@@ -50,5 +54,7 @@ public record GradebookReportView(
             double gradingRate,
             double publicationRate,
             double averageTotalFinalScore,
-            double averageTotalScoreRate) {}
+            double averageTotalScoreRate,
+            double averageTotalWeightedScore,
+            double averageWeightedScoreRate) {}
 }

@@ -21,6 +21,7 @@
 - `src/main/resources/db/migration/V17__online_ide_phase2.sql`
 - `src/main/resources/db/migration/V18__question_bank_categories_phase2.sql`
 - `src/main/resources/db/migration/V19__judge_environment_profiles_phase1.sql`
+- `src/main/resources/db/migration/V20__assignment_grade_weights_phase1.sql`
 
 ## 总览
 
@@ -242,6 +243,7 @@
 | `open_at` | `timestamptz` | 必填，开放时间 |
 | `due_at` | `timestamptz` | 必填，截止时间，且不早于 `open_at` |
 | `max_submissions` | `integer` | 必填，`> 0` |
+| `grade_weight` | `integer` | 必填，默认 `100`，`> 0` |
 | `published_at` | `timestamptz` | 发布时间 |
 | `closed_at` | `timestamptz` | 关闭时间，若存在则不早于 `published_at` |
 | `grade_published_at` | `timestamptz` | assignment 级成绩发布时间 |
@@ -256,6 +258,7 @@
 - `ix_assignments_teaching_class_id_status`
 - `ix_assignments_open_at_due_at`
 - `idx_assignments_grade_published_at`
+- `ck_assignments_grade_weight_positive`
 
 ### `question_bank_questions`
 

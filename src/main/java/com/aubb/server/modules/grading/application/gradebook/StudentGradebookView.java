@@ -17,7 +17,14 @@ public record StudentGradebookView(
             String teachingClassName) {}
 
     public record SummaryView(
-            int assignmentCount, int submittedCount, int gradedCount, int totalFinalScore, int totalMaxScore) {}
+            int assignmentCount,
+            int submittedCount,
+            int gradedCount,
+            int totalFinalScore,
+            int totalMaxScore,
+            double totalWeightedScore,
+            int totalWeight,
+            double weightedScoreRate) {}
 
     public record AssignmentGradeView(
             GradebookPageView.AssignmentColumnView assignment, GradebookPageView.GradeCellView grade) {}

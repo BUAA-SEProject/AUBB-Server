@@ -45,6 +45,8 @@ public class AssignmentApplicationService {
     private static final String JUDGE_SOURCE_TYPE = "TEXT_BODY";
     private static final String JUDGE_ENTRY_FILE_NAME = "main.py";
     private static final int MAX_JUDGE_CASES = 20;
+    private static final int DEFAULT_GRADE_WEIGHT = 100;
+    private static final int MAX_GRADE_WEIGHT = 1000;
 
     private final AssignmentMapper assignmentMapper;
     private final AssignmentJudgeProfileMapper assignmentJudgeProfileMapper;
@@ -64,6 +66,7 @@ public class AssignmentApplicationService {
             OffsetDateTime openAt,
             OffsetDateTime dueAt,
             Integer maxSubmissions,
+            Integer gradeWeight,
             AssignmentPaperInput paper,
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
@@ -83,6 +86,7 @@ public class AssignmentApplicationService {
         entity.setOpenAt(openAt);
         entity.setDueAt(dueAt);
         entity.setMaxSubmissions(maxSubmissions);
+        entity.setGradeWeight(normalizeGradeWeight(gradeWeight));
         entity.setCreatedByUserId(principal.getUserId());
         assignmentMapper.insert(entity);
         assignmentPaperApplicationService.persistPaper(entity.getId(), offeringId, paper);
@@ -94,6 +98,7 @@ public class AssignmentApplicationService {
         metadata.put("title", entity.getTitle());
         metadata.put("judgeEnabled", judgeConfig != null);
         metadata.put("structuredPaperEnabled", paper != null);
+        metadata.put("gradeWeight", entity.getGradeWeight());
 
         auditLogApplicationService.record(
                 principal.getUserId(),
@@ -119,6 +124,7 @@ public class AssignmentApplicationService {
             OffsetDateTime openAt,
             OffsetDateTime dueAt,
             Integer maxSubmissions,
+            Integer gradeWeight,
             AssignmentPaperInput paper,
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
@@ -139,6 +145,7 @@ public class AssignmentApplicationService {
         entity.setOpenAt(openAt);
         entity.setDueAt(dueAt);
         entity.setMaxSubmissions(maxSubmissions);
+        entity.setGradeWeight(normalizeGradeWeight(gradeWeight));
         assignmentMapper.updateById(entity);
         assignmentPaperApplicationService.replacePaper(entity.getId(), entity.getOfferingId(), paper);
         replaceJudgeConfig(entity.getId(), judgeConfig);
@@ -149,6 +156,7 @@ public class AssignmentApplicationService {
         metadata.put("title", entity.getTitle());
         metadata.put("judgeEnabled", judgeConfig != null);
         metadata.put("structuredPaperEnabled", paper != null);
+        metadata.put("gradeWeight", entity.getGradeWeight());
 
         auditLogApplicationService.record(
                 principal.getUserId(),
@@ -344,6 +352,7 @@ public class AssignmentApplicationService {
                 entity.getOpenAt(),
                 entity.getDueAt(),
                 entity.getMaxSubmissions(),
+                entity.getGradeWeight(),
                 paper,
                 judgeConfigView == null
                         ? new AssignmentJudgeConfigView(false, null, null, null, null, 0)
@@ -402,6 +411,17 @@ public class AssignmentApplicationService {
         if (maxSubmissions == null || maxSubmissions <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_MAX_SUBMISSIONS_INVALID", "最大提交次数必须大于 0");
         }
+    }
+
+    private Integer normalizeGradeWeight(Integer gradeWeight) {
+        int normalized = gradeWeight == null ? DEFAULT_GRADE_WEIGHT : gradeWeight;
+        if (normalized <= 0 || normalized > MAX_GRADE_WEIGHT) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST,
+                    "ASSIGNMENT_GRADE_WEIGHT_INVALID",
+                    "成绩权重必须在 1 到 %s 之间".formatted(MAX_GRADE_WEIGHT));
+        }
+        return normalized;
     }
 
     private String normalizeTitle(String title) {
