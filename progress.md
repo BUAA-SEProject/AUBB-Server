@@ -309,3 +309,30 @@
   - `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests,SubmissionIntegrationTests,StructuredAssignmentIntegrationTests test`
   - `bash ./mvnw clean verify`
   - 当前结果：`BUILD SUCCESS`，全量 `62` 个测试通过
+
+## Session: 2026-04-16 学生侧成绩册第一阶段
+
+### Phase 18：学生侧成绩视图最小闭环
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `MyGradebookController`，补齐学生侧 `GET /api/v1/me/course-offerings/{offeringId}/gradebook`
+  - 在 `GradebookApplicationService` 中新增 `getMyGradebook(...)`，复用既有读模型，不新增成绩表
+  - 调整学生侧成绩册的 score summary 可见性：未发布成绩时仅保留客观题即时分与提交状态，不提前泄露人工分
+  - 扩展 `GradebookIntegrationTests`，覆盖“只看自己”和“未发布人工分隐藏”两条边界
+  - 同步 grading 产品规格、路线图与工作记忆，明确学生侧成绩册第一阶段已完成
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/api/MyGradebookController.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookApplicationService.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+  - `docs/product-specs/grading-system.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - `BUILD SUCCESS`，全量 `65` 个测试通过

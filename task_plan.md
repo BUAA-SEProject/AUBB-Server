@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-Phase 15 in progress
+Phases 15 / 16 / 18 in progress
 
 ## Skills 选择
 
@@ -65,11 +65,11 @@ Phase 15 in progress
 
 ### Phase 18：成绩与反馈第二阶段
 
-- [ ] 补齐学生侧成绩视图与已发布成绩面板
+- [x] 补齐学生侧成绩视图与已发布成绩面板
 - [ ] 增加课程 / 班级成绩导出与报表第一阶段
 - [ ] 为多作业聚合与加权总评预留扩展位
 - [ ] 保持“发布前隐藏人工评分”的现有可见性边界
-- **Status:** pending
+- **Status:** in_progress
 
 ### Phase 19：判题可复现性与日志第二阶段
 

@@ -79,20 +79,34 @@ public class GradebookApplicationService {
             Long offeringId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        return buildStudentGradebook(offering, studentUserId, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中");
+    }
 
-        List<StudentRosterEntry> roster = loadRoster(offeringId, null, studentUserId);
+    @Transactional(readOnly = true)
+    public StudentGradebookView getMyGradebook(Long offeringId, AuthenticatedUserPrincipal principal) {
+        CourseOfferingEntity offering = requireOffering(offeringId);
+        return buildStudentGradebook(offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册");
+    }
+
+    private StudentGradebookView buildStudentGradebook(
+            CourseOfferingEntity offering,
+            Long studentUserId,
+            boolean revealNonObjectiveScores,
+            HttpStatus missingStudentStatus,
+            String missingStudentMessage) {
+        List<StudentRosterEntry> roster = loadRoster(offering.getId(), null, studentUserId);
         StudentRosterEntry student = roster.stream()
                 .filter(candidate -> Objects.equals(candidate.user().getId(), studentUserId))
                 .findFirst()
-                .orElseThrow(
-                        () -> new BusinessException(HttpStatus.NOT_FOUND, "COURSE_STUDENT_NOT_FOUND", "当前学生不在课程名册中"));
+                .orElseThrow(() ->
+                        new BusinessException(missingStudentStatus, "COURSE_STUDENT_NOT_FOUND", missingStudentMessage));
 
-        List<AssignmentEntity> assignments = loadStructuredAssignments(offeringId, null);
+        List<AssignmentEntity> assignments = loadStructuredAssignments(offering.getId(), null);
         Map<Long, Integer> assignmentMaxScores = loadAssignmentMaxScores(assignments);
         Map<Long, SubmissionEntity> latestSubmissions =
                 loadLatestSubmissions(assignments, List.of(student.user().getId()));
         Map<Long, SubmissionScoreSummaryView> scoreSummaries =
-                loadScoreSummaries(latestSubmissions.values(), assignments);
+                loadScoreSummaries(latestSubmissions.values(), assignments, revealNonObjectiveScores);
         Map<Long, TeachingClassEntity> classIndex = loadTeachingClassIndex(assignments, roster);
 
         List<StudentGradebookView.AssignmentGradeView> assignmentViews = new ArrayList<>();
@@ -154,7 +168,7 @@ public class GradebookApplicationService {
                 roster.stream().map(entry -> entry.user().getId()).toList();
         Map<Long, SubmissionEntity> latestSubmissions = loadLatestSubmissions(assignments, studentUserIds);
         Map<Long, SubmissionScoreSummaryView> scoreSummaries =
-                loadScoreSummaries(latestSubmissions.values(), assignments);
+                loadScoreSummaries(latestSubmissions.values(), assignments, true);
         Map<Long, TeachingClassEntity> classIndex = loadTeachingClassIndex(assignments, roster);
 
         List<GradebookPageView.AssignmentColumnView> assignmentColumns = assignments.stream()
@@ -441,7 +455,9 @@ public class GradebookApplicationService {
     }
 
     private Map<Long, SubmissionScoreSummaryView> loadScoreSummaries(
-            Collection<SubmissionEntity> submissions, List<AssignmentEntity> assignments) {
+            Collection<SubmissionEntity> submissions,
+            List<AssignmentEntity> assignments,
+            boolean revealNonObjectiveScores) {
         if (submissions.isEmpty()) {
             return Map.of();
         }
@@ -454,10 +470,14 @@ public class GradebookApplicationService {
             if (assignment == null) {
                 continue;
             }
+            boolean assignmentGradePublished = assignment.getGradePublishedAt() != null;
             summaries.put(
                     submission.getId(),
                     submissionAnswerApplicationService.loadScoreSummary(
-                            submission.getId(), assignment.getId(), true, assignment.getGradePublishedAt() != null));
+                            submission.getId(),
+                            assignment.getId(),
+                            revealNonObjectiveScores || assignmentGradePublished,
+                            assignmentGradePublished));
         }
         return summaries;
     }

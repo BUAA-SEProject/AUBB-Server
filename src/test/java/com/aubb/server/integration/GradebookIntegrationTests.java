@@ -167,6 +167,59 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.assignments[1].grade.gradePublished").value(true));
     }
 
+    @Test
+    void studentReadsOwnGradebookAndUnpublishedManualScoresRemainHidden() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String taAToken = login("ta-a", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
+        addMember(teacherToken, offeringId, 6L, "STUDENT", classAId);
+        addMember(teacherToken, offeringId, 4L, "TA", classAId);
+
+        Long courseWideAssignmentId = createObjectiveAssignment(teacherToken, offeringId, null, "课程公共客观题");
+        publishAssignment(teacherToken, courseWideAssignmentId);
+        submitObjectiveAssignment(studentAToken, courseWideAssignmentId, "A");
+        publishGrades(teacherToken, courseWideAssignmentId);
+
+        Long classAssignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classAId);
+        publishAssignment(teacherToken, classAssignmentId);
+        GradeableSubmission gradeableSubmission = submitGradableAssignment(studentAToken, classAssignmentId);
+        gradeAnswer(
+                taAToken,
+                gradeableSubmission.submissionId(),
+                gradeableSubmission.shortAnswerId(),
+                18,
+                "关键点正确，但没有补充按秩合并。");
+
+        mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/gradebook", offeringId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.student.userId").value(6))
+                .andExpect(jsonPath("$.student.username").value("student-a"))
+                .andExpect(jsonPath("$.summary.assignmentCount").value(2))
+                .andExpect(jsonPath("$.summary.submittedCount").value(2))
+                .andExpect(jsonPath("$.summary.gradedCount").value(2))
+                .andExpect(jsonPath("$.summary.totalFinalScore").value(20))
+                .andExpect(jsonPath("$.summary.totalMaxScore").value(40))
+                .andExpect(jsonPath("$.assignments.length()").value(2))
+                .andExpect(jsonPath("$.assignments[0].grade.gradePublished").value(true))
+                .andExpect(jsonPath("$.assignments[0].grade.finalScore").value(10))
+                .andExpect(jsonPath("$.assignments[1].grade.gradePublished").value(false))
+                .andExpect(jsonPath("$.assignments[1].grade.finalScore").value(10))
+                .andExpect(jsonPath("$.assignments[1].grade.scoreSummary.manualScoredScore")
+                        .doesNotExist());
+
+        mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/gradebook", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isForbidden());
+    }
+
     private GradebookScenario seedGradebookScenario() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
