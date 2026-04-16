@@ -1,5 +1,31 @@
 # 进度日志
 
+## Session: 2026-04-17 judge 详细产物对象化存储
+
+### Phase 43：优先级 6 评测产物对象化收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `todo.md`、`task_plan.md`、`findings.md`、`progress.md`，恢复当前阶段上下文
+  - 复核 `JudgeExecutionService`、`JudgeApplicationService`、`ProgrammingSampleRunApplicationService`、`SubmissionAnswerApplicationService`、`SubmissionApplicationService`、`MinioStorageConfiguration`、`ObjectStorageService` 和 judge / object storage / reliability 文档
+  - 确认当前 `judge_jobs.detail_report_json`、`programming_sample_runs.detail_report_json`、`programming_sample_runs.stdout_text / stderr_text / code_text / source_files_json / source_directories_json` 是本轮对象化的主要大字段
+  - 确认 `JudgeJobStoredReport` 已经天然覆盖详细报告、case outputs 和运行日志；第一阶段无需再把三者拆成多个对象格式
+  - 确认正式评测已有 `submission_answer_id` 作为源码快照稳定引用，样例试运行则需要单独对象化源码快照
+  - 通过子代理并行复核：
+    - MinIO / ObjectStorage 现有测试与可复用入口
+    - judge/submission 当前大字段与 API 读取点
+    - judge 相关 migration / schema 的最小演进方向
+  - 新增 `V25__judge_artifact_object_storage_phase1.sql`
+  - 新增 `JudgeArtifactStorageService` 与 `ProgrammingSampleRunStoredSource`，收敛 judge 详细报告和样例试运行源码快照的对象化读写
+  - 调整 `JudgeExecutionService`、`JudgeApplicationService`、`ProgrammingSampleRunApplicationService`，实现“对象优先、旧列兼容回退”的读写路径
+  - 扩展 `StructuredProgrammingJudgeIntegrationTests`、`ProgrammingWorkspaceIntegrationTests`，新增 `JudgeArtifactStorageServiceTests`
+  - 同步 `README.md`、`docs/product-specs/judge-system.md`、`docs/object-storage.md`、`docs/reliability.md`、`docs/generated/db-schema.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=JudgeArtifactStorageServiceTests,StructuredProgrammingJudgeIntegrationTests,ProgrammingWorkspaceIntegrationTests,MinioStorageIntegrationTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `22` 个测试通过
+
 ## Session: 2026-04-17 Dockerfile、CI 与发布流水线基线
 
 ### Phase 42：优先级 5 工程化交付收口

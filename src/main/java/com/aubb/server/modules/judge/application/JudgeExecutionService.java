@@ -94,6 +94,7 @@ public class JudgeExecutionService {
     private final com.aubb.server.config.GoJudgeConfiguration.GoJudgeProperties goJudgeProperties;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
+    private final JudgeArtifactStorageService judgeArtifactStorageService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
 
@@ -110,6 +111,7 @@ public class JudgeExecutionService {
             com.aubb.server.config.GoJudgeConfiguration.GoJudgeProperties goJudgeProperties,
             AuditLogApplicationService auditLogApplicationService,
             ObjectProvider<ObjectStorageService> objectStorageServiceProvider,
+            JudgeArtifactStorageService judgeArtifactStorageService,
             ObjectMapper objectMapper) {
         this.judgeJobMapper = judgeJobMapper;
         this.submissionMapper = submissionMapper;
@@ -122,6 +124,7 @@ public class JudgeExecutionService {
         this.goJudgeProperties = goJudgeProperties;
         this.auditLogApplicationService = auditLogApplicationService;
         this.objectStorageServiceProvider = objectStorageServiceProvider;
+        this.judgeArtifactStorageService = judgeArtifactStorageService;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
@@ -956,7 +959,11 @@ public class JudgeExecutionService {
         job.setMemoryBytes(outcome.memoryBytes());
         job.setErrorMessage(outcome.errorMessage());
         job.setCaseResultsJson(writeCaseResults(outcome.caseResults()));
-        job.setDetailReportJson(writeDetailReport(outcome.detailReport()));
+        String detailReportObjectKey =
+                judgeArtifactStorageService.storeJudgeJobDetailReport(judgeJobId, outcome.detailReport());
+        job.setDetailReportObjectKey(detailReportObjectKey);
+        job.setDetailReportJson(
+                StringUtils.hasText(detailReportObjectKey) ? null : writeDetailReport(outcome.detailReport()));
         job.setStatus(outcome.failed() ? JudgeJobStatus.FAILED.name() : JudgeJobStatus.SUCCEEDED.name());
         judgeJobMapper.updateById(job);
         if (outcome.failed()) {
@@ -1421,6 +1428,14 @@ public class JudgeExecutionService {
         metadata.put("sourceFiles", sourceBundle.sourceFiles());
         metadata.put("supportFiles", sourceBundle.supportFiles());
         metadata.put("artifactIds", payload.artifactIds());
+        metadata.put(
+                "sourceSnapshotRef",
+                Map.of(
+                        "mode", "SUBMISSION_ANSWER",
+                        "submissionAnswerId", context.job().getSubmissionAnswerId(),
+                        "entryFilePath", sourceBundle.entryFileName(),
+                        "sourceFiles", sourceBundle.sourceFiles(),
+                        "artifactIds", payload.artifactIds()));
         metadata.put("compileArgs", normalizeCommandArgs(config.compileArgs()));
         metadata.put("runArgs", normalizeCommandArgs(config.runArgs()));
         metadata.put("executionEnvironment", buildExecutionEnvironmentMetadata(config, payload.programmingLanguage()));

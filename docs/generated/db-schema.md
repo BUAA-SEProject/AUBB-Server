@@ -26,6 +26,7 @@
 - `src/main/resources/db/migration/V22__programming_judge_failed_status.sql`
 - `src/main/resources/db/migration/V23__auth_sessions_refresh_tokens.sql`
 - `src/main/resources/db/migration/V24__single_school_root_guard.sql`
+- `src/main/resources/db/migration/V25__judge_artifact_object_storage_phase1.sql`
 
 ## 总览
 
@@ -685,7 +686,8 @@
 | `memory_bytes` | `bigint` | 可空，聚合内存峰值，`>= 0` |
 | `error_message` | `text` | 可空，基础设施失败信息 |
 | `case_results_json` | `text` | 可空，逐测试点摘要 JSON |
-| `detail_report_json` | `text` | 可空，详细评测报告 JSON |
+| `detail_report_json` | `text` | 可空，旧详细评测报告 JSON，保留兼容回退 |
+| `detail_report_object_key` | `text` | 可空，详细评测报告对象引用 |
 | `queued_at` | `timestamptz` | 必填，默认 `now()` |
 | `started_at` | `timestamptz` | 可空 |
 | `finished_at` | `timestamptz` | 可空 |
@@ -715,8 +717,9 @@
 | `programming_language` | `text` | 必填，`PYTHON3 / JAVA21 / CPP17 / GO122`（兼容接受 `JAVA17`） |
 | `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
 | `entry_file_path` | `text` | 可空，本次样例运行入口文件路径 |
-| `source_files_json` | `text` | 必填，默认 `[]`，保存本次样例运行的目录树源码快照 |
-| `source_directories_json` | `text` | 必填，默认 `[]`，保存本次样例运行的目录树目录列表 |
+| `source_files_json` | `text` | 必填，默认 `[]`，旧目录树源码快照字段，保留兼容回退 |
+| `source_directories_json` | `text` | 必填，默认 `[]`，旧目录树目录列表字段，保留兼容回退 |
+| `source_snapshot_object_key` | `text` | 可空，样例试运行源码快照对象引用 |
 | `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
 | `stdin_text` | `text` | 必填，样例输入快照 |
 | `expected_stdout` | `text` | 可空，样例预期输出快照 |
@@ -728,7 +731,8 @@
 | `stderr_text` | `text` | 可空，完整标准错误 |
 | `result_summary` | `text` | 可空，用户可读摘要 |
 | `error_message` | `text` | 可空，执行失败信息 |
-| `detail_report_json` | `text` | 可空，样例试运行详细报告 JSON |
+| `detail_report_json` | `text` | 可空，旧样例试运行详细报告 JSON，保留兼容回退 |
+| `detail_report_object_key` | `text` | 可空，样例试运行详细报告对象引用 |
 | `time_millis` | `bigint` | 可空，`>= 0` |
 | `memory_bytes` | `bigint` | 可空，`>= 0` |
 | `started_at` | `timestamptz` | 可空 |
@@ -910,8 +914,8 @@
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
 - `judge_environment_profiles` 当前作为开课实例内可复用的编程题评测环境模板存在；题库题目和 assignment question 通过 `profileId / profileCode` 引用后，会先解析模板再固化到 `assignment_questions.config_json` 的环境快照中。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
-- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要与详细报告；完整评测产物对象仍未持久化。
-- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会同时持久化入口文件、目录树源码快照、输入模式和详细报告，并可回指工作区修订。
+- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job；逐测试点摘要继续保留在数据库，完整详细报告优先写入对象存储并通过 `detail_report_object_key` 回放。
+- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会把详细报告和源码快照优先对象化存储，并通过 `detail_report_object_key / source_snapshot_object_key` 回放，可继续回指工作区修订。
 - `assignment_questions.config_json.customJudgeScript` 当前按“脚本内容”语义保存，由 judge 模块固定落盘为 Python checker 执行，不额外引入新表。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。

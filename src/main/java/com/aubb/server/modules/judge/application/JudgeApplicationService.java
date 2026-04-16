@@ -51,6 +51,7 @@ public class JudgeApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final JudgeArtifactStorageService judgeArtifactStorageService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -245,8 +246,7 @@ public class JudgeApplicationService {
                 entity.getMemoryBytes(),
                 entity.getErrorMessage(),
                 readCaseResults(entity.getCaseResultsJson()),
-                entity.getDetailReportJson() != null
-                        && !entity.getDetailReportJson().isBlank(),
+                judgeArtifactStorageService.hasJudgeJobDetailReport(entity),
                 entity.getQueuedAt(),
                 entity.getStartedAt(),
                 entity.getFinishedAt(),
@@ -319,10 +319,10 @@ public class JudgeApplicationService {
     }
 
     private JudgeJobReportView toReportView(JudgeJobEntity entity, boolean revealSensitiveFields) {
-        if (entity.getDetailReportJson() == null || entity.getDetailReportJson().isBlank()) {
+        if (!judgeArtifactStorageService.hasJudgeJobDetailReport(entity)) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "JUDGE_JOB_REPORT_NOT_READY", "当前评测任务尚未生成详细报告");
         }
-        JudgeJobStoredReport storedReport = readDetailReport(entity.getDetailReportJson());
+        JudgeJobStoredReport storedReport = readDetailReport(entity);
         List<JudgeJobCaseReportView> caseReports = revealSensitiveFields
                 ? storedReport.caseReports()
                 : storedReport.caseReports().stream()
@@ -368,10 +368,16 @@ public class JudgeApplicationService {
                 entity.getFinishedAt());
     }
 
-    private JudgeJobStoredReport readDetailReport(String detailReportJson) {
+    private JudgeJobStoredReport readDetailReport(JudgeJobEntity entity) {
         try {
-            return objectMapper.readValue(detailReportJson, JudgeJobStoredReport.class);
-        } catch (JacksonException exception) {
+            JudgeJobStoredReport detailReport = judgeArtifactStorageService.loadJudgeJobDetailReport(entity);
+            if (detailReport == null) {
+                throw new BusinessException(HttpStatus.NOT_FOUND, "JUDGE_JOB_REPORT_NOT_READY", "当前评测任务尚未生成详细报告");
+            }
+            return detailReport;
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "JUDGE_JOB_REPORT_BROKEN", "评测详细报告无法读取");
         }
     }

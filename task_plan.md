@@ -2,11 +2,23 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 5 的 Dockerfile、CI 与发布流水线基线已完成并验证通过；下一步进入优先级 6：judge 详细产物对象化存储。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 6 的 judge 详细产物对象化存储已完成并验证通过；下一步进入优先级 7：lab/report MVP。
 
 ## 当前阶段
 
-Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 43：judge 详细产物对象化存储第一阶段
+
+- [x] 复核 `JudgeExecutionService`、`JudgeApplicationService`、`ProgrammingSampleRunApplicationService`、`submission` 相关源码快照与附件链路、MinIO 接入点和 judge 规格
+- [x] 明确正式评测与样例试运行当前哪些大体积字段直接落库，哪些可继续保留为摘要或引用
+- [x] 设计最小对象化模型，保持现有报告 API 兼容，并通过 Flyway 引入必要对象引用字段或元数据表
+- [x] 实现 judge job 详细报告对象化存储与兼容读取；样例试运行同步对象化详细报告和源码快照
+- [x] 保留 `judge_jobs` / `programming_sample_runs` 的摘要、状态、索引字段，避免打断列表查询和已有权限链路
+- [x] 补齐 MinIO 真实链路集成测试，覆盖对象写入、报告查询回放和旧字段兼容回退
+- [x] 同步 README、对象存储文档、judge 规格、可靠性说明、数据库结构和执行计划
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要 judge / MinIO 测试
+- **Status:** completed
 
 ### Phase 42：Dockerfile、CI 与发布流水线基线
 

@@ -10,6 +10,7 @@
 - 默认关闭 MinIO 集成；只有显式设置 `AUBB_MINIO_ENABLED=true` 才会创建对象存储 Bean。
 - 启用后会注册共享服务 `ObjectStorageService`，当前由 `MinioObjectStorageService` 实现。
 - `submission` 模块已经开始消费该共享服务，并通过 `submission_artifacts` 显式保存业务元数据。
+- `judge` 模块当前也开始消费该共享服务，用于保存正式评测详细报告和样例试运行的详细报告 / 源码快照。
 - 当前共享服务支持：
   - 直接上传对象
   - 读取对象
@@ -61,5 +62,10 @@ bash ./mvnw spring-boot:run
 
 - 当前没有“通用匿名上传 API”；附件上传只通过业务模块暴露，并必须显式做授权。
 - `submission` 当前已落地附件元数据表与上传/下载接口；其他业务模块接入时仍应在自己的领域模型中显式落元数据。
+- `judge` 当前约定对象 key：
+  - `judge-jobs/{judgeJobId}/detail-report.json`
+  - `programming-sample-runs/{sampleRunId}/detail-report.json`
+  - `programming-sample-runs/{sampleRunId}/source-snapshot.json`
 - 当前默认 bucket 是单一 bucket，后续是否拆分为 `submission-artifacts`、`judge-outputs` 等专用 bucket，再由具体业务决定。
 - 当前预签名 URL 仍保留在共享服务中，但 `submission` 下载先走服务端鉴权读取，不直接暴露预签名契约。
+- judge 第一阶段当前只对象化详细报告、case outputs、运行日志和样例试运行源码快照；正式评测源码正文仍通过 `submission_answers` 与附件引用链复原，不额外复制大对象。

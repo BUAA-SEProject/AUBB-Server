@@ -35,6 +35,8 @@ public class ProgrammingSampleRunEntity {
 
     private String sourceDirectoriesJson;
 
+    private String sourceSnapshotObjectKey;
+
     private Long workspaceRevisionId;
 
     private String inputMode;
@@ -60,6 +62,8 @@ public class ProgrammingSampleRunEntity {
     private Long memoryBytes;
 
     private String detailReportJson;
+
+    private String detailReportObjectKey;
 
     private OffsetDateTime startedAt;
 

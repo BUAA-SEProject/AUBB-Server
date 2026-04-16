@@ -67,6 +67,8 @@ public class JudgeJobEntity {
 
     private String detailReportJson;
 
+    private String detailReportObjectKey;
+
     private OffsetDateTime queuedAt;
 
     private OffsetDateTime startedAt;

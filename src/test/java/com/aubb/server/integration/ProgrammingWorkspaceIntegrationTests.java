@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aubb.server.common.storage.ObjectStorageService;
 import com.jayway.jsonpath.JsonPath;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -36,6 +37,9 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectStorageService objectStorageService;
 
     @AfterAll
     static void stopServer() {
@@ -604,9 +608,25 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
                 .andExpect(
                         jsonPath("$.detailReport.caseReports[0].runCommand[0]").value("/usr/bin/python3"));
 
+        String detailReportObjectKey = queryForString(
+                "SELECT detail_report_object_key FROM programming_sample_runs WHERE id = ?", sampleRunId);
+        String sourceSnapshotObjectKey = queryForString(
+                "SELECT source_snapshot_object_key FROM programming_sample_runs WHERE id = ?", sampleRunId);
+        assertThat(detailReportObjectKey).isNotBlank();
+        assertThat(sourceSnapshotObjectKey).isNotBlank();
         assertThat(queryForString("SELECT detail_report_json FROM programming_sample_runs WHERE id = ?", sampleRunId))
-                .contains("PROGRAMMING_SAMPLE_RUN")
-                .contains("15\\n");
+                .isNull();
+        assertThat(queryForString("SELECT code_text FROM programming_sample_runs WHERE id = ?", sampleRunId))
+                .isNull();
+        assertThat(new String(
+                        objectStorageService.getObject(detailReportObjectKey).content(), StandardCharsets.UTF_8))
+                .contains("\"mode\":\"PROGRAMMING_SAMPLE_RUN\"")
+                .contains("\"stdoutText\":\"15\\n\"");
+        assertThat(new String(
+                        objectStorageService.getObject(sourceSnapshotObjectKey).content(), StandardCharsets.UTF_8))
+                .contains("\"entryFilePath\":\"src/main.py\"")
+                .contains("\"path\":\"src/runtime.py\"")
+                .contains("\"src/helpers\"");
     }
 
     @Test

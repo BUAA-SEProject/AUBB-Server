@@ -1,5 +1,54 @@
 # 发现与决策
 
+## 2026-04-17 judge 详细产物对象化存储发现
+
+- 当前仓库已经有共享 `ObjectStorageService` / `MinioObjectStorageService`，并且 `submission_artifacts` 已经把附件元数据和对象内容分离；judge 域尚未复用这条能力，仍把大体积评测产物直接塞进 `judge_jobs` 和 `programming_sample_runs`。
+- 当前正式评测的主要大字段是：
+  - `judge_jobs.detail_report_json`：完整详细报告，已经包含执行元数据、逐测试点完整 stdout/stderr、命令、根级 stdout/stderr
+  - `judge_jobs.case_results_json`：列表摘要 JSON，体积相对小，且直接服务 `/judge-jobs` 列表接口
+- 当前样例试运行的主要大字段是：
+  - `programming_sample_runs.detail_report_json`
+  - `programming_sample_runs.stdout_text / stderr_text`
+  - `programming_sample_runs.code_text / source_files_json / source_directories_json`
+- 当前正式评测报告查询链路完全耦合旧列：
+  - `JudgeApplicationService.toView(...)` 通过 `detail_report_json` 判定 `detailReportAvailable`
+  - `JudgeApplicationService.toReportView(...)` 直接反序列化 `detail_report_json`
+- 当前样例试运行查询链路也完全耦合旧列：
+  - `ProgrammingSampleRunApplicationService.toView(...)` 直接读取 `code_text / source_files_json / source_directories_json / stdout_text / stderr_text / detail_report_json`
+- `JudgeJobStoredReport` 已经天然是一个“归档对象”：
+  - 根级 `stdoutText / stderrText`
+  - `caseReports[*].stdoutText / stderrText / compileCommand / runCommand`
+  - `executionMetadata`
+  因此第一阶段没有必要再把“case outputs”和“运行日志”拆成独立对象；把完整 `detailReport` 对象落到对象存储，就已经覆盖了这两类大体积内容。
+- 正式评测与样例试运行对“源码快照”的处理边界不同：
+  - 正式评测已经有 `submission_answer_id` 这个稳定锚点，源码快照可以通过 `submission_answers.answer_payload_json + submission_artifacts + assignment_questions` 复原，第一阶段更稳的是补清晰引用链，而不是再次复制一份源码正文
+  - 样例试运行没有 `submission_answer_id` 这种正式提交锚点，因此需要把本次运行的源码快照对象化存下来，避免继续依赖 `programming_sample_runs.code_text / source_files_json / source_directories_json`
+- 最小兼容层放在 judge application service 最稳：
+  - 新增 judge 专用 artifact persistence/lookup service
+  - `JudgeExecutionService` / `ProgrammingSampleRunApplicationService` 只负责生成语义对象
+  - `JudgeApplicationService` / `ProgrammingSampleRunApplicationService` 读路径优先读对象引用，旧列只作为兼容回退
+- 第一阶段不适合直接删除旧列；更稳的做法是：
+  - 新增对象引用字段
+  - 新写入走对象存储
+  - 读取时优先对象、回退旧列
+  - 让旧 API 无感知切换
+- 可复现链路第一阶段至少依赖这些元数据：
+  - `submission_id / submission_answer_id / assignment_question_id`
+  - `programmingLanguage / entryFilePath / artifactIds / sourceFiles` 或样例试运行源码快照对象
+  - `compileArgs / runArgs / executionEnvironment`
+  - `judgeMode / judgeCaseCount / timeLimit / memoryLimit / outputLimit`
+  - 正式评测或样例试运行对应的详细报告对象
+- 第一阶段先不保留这些更重的元数据：
+  - go-judge 容器镜像 digest
+  - 编译阶段二进制 bundle
+  - 远程对象版本化/归档策略
+  - 更细粒度的对象表分层或冷热分层策略
+- 已按上述结论落地最小模型：
+  - `judge_jobs.detail_report_object_key`
+  - `programming_sample_runs.detail_report_object_key`
+  - `programming_sample_runs.source_snapshot_object_key`
+- 当前读取策略已固定为“对象优先、旧列兼容回退”，因此已有报告 API 和样例试运行查询链路不需要改接口即可继续工作。
+
 ## 2026-04-17 Dockerfile、CI 与发布流水线基线发现
 
 - 当前仓库只有基础设施级 `compose.yaml` 和 `docker/go-judge/Dockerfile`，没有应用自身的 `Dockerfile`、`.dockerignore`、`.github/workflows` 或部署编排文件，因此“本地容器联调”“镜像构建”“最小 deploy”都缺少仓库内标准入口。

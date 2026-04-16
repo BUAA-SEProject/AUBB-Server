@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aubb.server.common.storage.ObjectStorageService;
 import com.jayway.jsonpath.JsonPath;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -35,6 +36,9 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectStorageService objectStorageService;
 
     @AfterAll
     static void stopServer() {
@@ -465,6 +469,18 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$.caseReports[0].compileCommand").isArray())
                 .andExpect(jsonPath("$.caseReports[0].compileCommand", org.hamcrest.Matchers.hasItem("-DANSWER=41")))
                 .andExpect(jsonPath("$.caseReports[0].runCommand[1]").value("1"));
+
+        String detailReportObjectKey =
+                queryForString("SELECT detail_report_object_key FROM judge_jobs WHERE id = ?", judgeJobId);
+        assertThat(detailReportObjectKey).isNotBlank();
+        assertThat(queryForString("SELECT detail_report_json FROM judge_jobs WHERE id = ?", judgeJobId))
+                .isNull();
+        assertThat(new String(
+                        objectStorageService.getObject(detailReportObjectKey).content(), StandardCharsets.UTF_8))
+                .contains("\"compileArgs\":[\"-DANSWER=41\"]")
+                .contains("\"runArgs\":[\"1\"]")
+                .contains("\"submissionAnswerId\":%s".formatted(answerId))
+                .contains("\"mode\":\"SUBMISSION_ANSWER\"");
     }
 
     @Test

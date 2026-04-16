@@ -17,6 +17,7 @@ import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.judge.application.JudgeArtifactStorageService;
 import com.aubb.server.modules.judge.application.JudgeExecutionService;
 import com.aubb.server.modules.judge.application.JudgeExecutionService.ProgrammingSampleRunOutcome;
 import com.aubb.server.modules.judge.application.JudgeJobStoredReport;
@@ -70,6 +71,7 @@ public class ProgrammingSampleRunApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final JudgeExecutionService judgeExecutionService;
+    private final JudgeArtifactStorageService judgeArtifactStorageService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -122,18 +124,34 @@ public class ProgrammingSampleRunApplicationService {
         entity.setAssignmentQuestionId(questionId);
         entity.setUserId(principal.getUserId());
         entity.setProgrammingLanguage(source.programmingLanguage().name());
-        entity.setCodeText(source.sourceSnapshot().entryCodeText());
         entity.setArtifactIdsJson(writeArtifactIds(source.artifactIds()));
         entity.setEntryFilePath(source.sourceSnapshot().entryFilePath());
-        entity.setSourceFilesJson(writeSourceFiles(source.sourceSnapshot().files()));
-        entity.setSourceDirectoriesJson(writeDirectories(source.directories()));
         entity.setWorkspaceRevisionId(source.workspaceRevisionId());
         entity.setInputMode(inputMode.name());
         entity.setStdinText(executionInput.stdinText());
         entity.setExpectedStdout(executionInput.expectedStdout());
         entity.setStatus(ProgrammingSampleRunStatus.RUNNING.name());
         entity.setStartedAt(now);
+        entity.setCodeText(null);
+        entity.setSourceFilesJson(writeSourceFiles(List.of()));
+        entity.setSourceDirectoriesJson(writeDirectories(List.of()));
         programmingSampleRunMapper.insert(entity);
+
+        String sourceSnapshotObjectKey = judgeArtifactStorageService.storeProgrammingSampleRunSourceSnapshot(
+                entity.getId(),
+                new ProgrammingSampleRunStoredSource(
+                        source.programmingLanguage(),
+                        source.sourceSnapshot().entryFilePath(),
+                        source.sourceSnapshot().files(),
+                        source.directories(),
+                        source.artifactIds(),
+                        source.workspaceRevisionId()));
+        entity.setSourceSnapshotObjectKey(sourceSnapshotObjectKey);
+        if (!StringUtils.hasText(sourceSnapshotObjectKey)) {
+            entity.setCodeText(source.sourceSnapshot().entryCodeText());
+            entity.setSourceFilesJson(writeSourceFiles(source.sourceSnapshot().files()));
+            entity.setSourceDirectoriesJson(writeDirectories(source.directories()));
+        }
 
         ProgrammingSampleRunOutcome outcome = judgeExecutionService.runProgrammingSample(
                 context.question(),
@@ -149,13 +167,22 @@ public class ProgrammingSampleRunApplicationService {
                         ? ProgrammingSampleRunStatus.FAILED.name()
                         : ProgrammingSampleRunStatus.SUCCEEDED.name());
         entity.setVerdict(outcome.verdict() == null ? null : outcome.verdict().name());
-        entity.setStdoutText(outcome.stdoutText());
-        entity.setStderrText(outcome.stderrText());
         entity.setResultSummary(outcome.resultSummary());
         entity.setErrorMessage(outcome.errorMessage());
         entity.setTimeMillis(outcome.timeMillis());
         entity.setMemoryBytes(outcome.memoryBytes());
-        entity.setDetailReportJson(writeDetailReport(outcome.detailReport()));
+        String detailReportObjectKey = judgeArtifactStorageService.storeProgrammingSampleRunDetailReport(
+                entity.getId(), outcome.detailReport());
+        entity.setDetailReportObjectKey(detailReportObjectKey);
+        if (StringUtils.hasText(detailReportObjectKey)) {
+            entity.setStdoutText(null);
+            entity.setStderrText(null);
+            entity.setDetailReportJson(null);
+        } else {
+            entity.setStdoutText(outcome.stdoutText());
+            entity.setStderrText(outcome.stderrText());
+            entity.setDetailReportJson(writeDetailReport(outcome.detailReport()));
+        }
         entity.setFinishedAt(OffsetDateTime.now());
         programmingSampleRunMapper.updateById(entity);
 
@@ -212,12 +239,26 @@ public class ProgrammingSampleRunApplicationService {
     }
 
     private ProgrammingSampleRunView toView(ProgrammingSampleRunEntity entity, boolean includeDetailReport) {
-        ProgrammingLanguage programmingLanguage = ProgrammingLanguage.valueOf(entity.getProgrammingLanguage());
-        ProgrammingSourceSnapshot sourceSnapshot = ProgrammingSourceSnapshot.fromInput(
-                programmingLanguage,
-                entity.getCodeText(),
-                entity.getEntryFilePath(),
-                readSourceFiles(entity.getSourceFilesJson()));
+        ProgrammingSampleRunStoredSource storedSource =
+                judgeArtifactStorageService.loadProgrammingSampleRunSourceSnapshot(entity);
+        ProgrammingLanguage programmingLanguage = storedSource == null
+                ? ProgrammingLanguage.valueOf(entity.getProgrammingLanguage())
+                : storedSource.programmingLanguage();
+        ProgrammingSourceSnapshot sourceSnapshot = storedSource == null
+                ? ProgrammingSourceSnapshot.fromInput(
+                        programmingLanguage,
+                        entity.getCodeText(),
+                        entity.getEntryFilePath(),
+                        readSourceFiles(entity.getSourceFilesJson()))
+                : ProgrammingSourceSnapshot.fromInput(
+                        programmingLanguage, null, storedSource.entryFilePath(), storedSource.files());
+        JudgeJobStoredReport detailReport =
+                shouldLoadDetailReport(entity, includeDetailReport) ? readDetailReport(entity) : null;
+        String stdoutText = detailReport == null ? entity.getStdoutText() : detailReport.stdoutText();
+        String stderrText =
+                StringUtils.hasText(detailReport == null ? entity.getStderrText() : detailReport.stderrText())
+                        ? detailReport == null ? entity.getStderrText() : detailReport.stderrText()
+                        : "";
         return new ProgrammingSampleRunView(
                 entity.getId(),
                 entity.getAssignmentId(),
@@ -225,23 +266,30 @@ public class ProgrammingSampleRunApplicationService {
                 programmingLanguage,
                 sourceSnapshot.entryFilePath(),
                 sourceSnapshot.files(),
-                normalizeDirectories(readDirectories(entity.getSourceDirectoriesJson()), sourceSnapshot.files(), true),
-                readArtifactIds(entity.getArtifactIdsJson()),
-                entity.getWorkspaceRevisionId(),
+                storedSource == null
+                        ? normalizeDirectories(
+                                readDirectories(entity.getSourceDirectoriesJson()), sourceSnapshot.files(), true)
+                        : normalizeDirectories(storedSource.directories(), sourceSnapshot.files(), true),
+                storedSource == null ? readArtifactIds(entity.getArtifactIdsJson()) : storedSource.artifactIds(),
+                storedSource == null ? entity.getWorkspaceRevisionId() : storedSource.workspaceRevisionId(),
                 ProgrammingSampleRunInputMode.valueOf(entity.getInputMode()),
                 ProgrammingSampleRunStatus.valueOf(entity.getStatus()),
                 entity.getVerdict() == null ? null : JudgeVerdict.valueOf(entity.getVerdict()),
                 entity.getStdinText(),
                 entity.getExpectedStdout(),
-                entity.getStdoutText(),
-                entity.getStderrText(),
+                stdoutText,
+                stderrText,
                 entity.getResultSummary(),
                 entity.getErrorMessage(),
                 entity.getTimeMillis(),
                 entity.getMemoryBytes(),
-                includeDetailReport ? readDetailReport(entity.getDetailReportJson()) : null,
+                includeDetailReport ? detailReport : null,
                 entity.getCreatedAt(),
                 entity.getFinishedAt());
+    }
+
+    private boolean shouldLoadDetailReport(ProgrammingSampleRunEntity entity, boolean includeDetailReport) {
+        return includeDetailReport || StringUtils.hasText(entity.getDetailReportObjectKey());
     }
 
     private ProgrammingQuestionContext requireVisibleProgrammingQuestion(
@@ -708,13 +756,10 @@ public class ProgrammingSampleRunApplicationService {
         }
     }
 
-    private JudgeJobStoredReport readDetailReport(String detailReportJson) {
-        if (!StringUtils.hasText(detailReportJson)) {
-            return null;
-        }
+    private JudgeJobStoredReport readDetailReport(ProgrammingSampleRunEntity entity) {
         try {
-            return objectMapper.readValue(detailReportJson, JudgeJobStoredReport.class);
-        } catch (JacksonException exception) {
+            return judgeArtifactStorageService.loadProgrammingSampleRunDetailReport(entity);
+        } catch (RuntimeException exception) {
             throw new IllegalStateException("样例试运行详细报告无法读取", exception);
         }
     }
