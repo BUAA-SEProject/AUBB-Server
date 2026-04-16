@@ -2,11 +2,24 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 6 的 judge 详细产物对象化存储已完成并验证通过；下一步进入优先级 7：lab/report MVP。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 7 的 lab/report MVP 已完成并验证通过；下一步进入优先级 8：通知 / 消息中心 MVP。
 
 ## 当前阶段
 
-Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 44：lab / report MVP
+
+- [x] 复核 `todo.md` M3、course/assignment/submission 现状与 `labEnabled` 功能开关边界
+- [x] 确认实验先按教学班级级别落地，避免在 MVP 阶段引入 offering 级实验与不确定的功能开关语义
+- [x] 新增 `labs / lab_reports / lab_report_attachments` 最小模型与 Flyway migration
+- [x] 落地教师侧实验创建 / 更新 / 发布 / 关闭、报告列表 / 详情、批注 / 评语 / 发布 API
+- [x] 落地学生侧实验列表 / 详情、附件上传、实验报告草稿 / 提交、我的报告与附件下载 API
+- [x] 将 `labEnabled=false` 接入 `CourseAuthorizationService`，实现真实后端拦截
+- [x] 补齐领域单元测试与 MinIO 真实链路集成测试
+- [x] 同步 README、产品规格、可靠性说明、数据库结构与执行计划
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要 lab/report 测试
+- **Status:** completed
 
 ### Phase 43：judge 详细产物对象化存储第一阶段
 

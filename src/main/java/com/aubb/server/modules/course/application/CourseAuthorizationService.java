@@ -75,6 +75,18 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanManageLabs(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertCanManageOffering(principal, offeringId);
+        assertLabFeatureEnabled(offeringId, teachingClassId);
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanReviewLabReports(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertLabFeatureEnabled(offeringId, teachingClassId);
+        assertCanGradeSubmission(principal, offeringId, teachingClassId);
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanGradeSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         if (canManageOfferingAsAdmin(principal, offeringId) || isInstructor(principal.getUserId(), offeringId)) {
             return;
@@ -102,6 +114,18 @@ public class CourseAuthorizationService {
             return;
         }
         throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程成员");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewLab(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertLabFeatureEnabled(offeringId, teachingClassId);
+        if (canManageOfferingAsAdmin(principal, offeringId)
+                || isInstructor(principal.getUserId(), offeringId)
+                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
+                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该实验");
     }
 
     @Transactional(readOnly = true)
@@ -208,6 +232,15 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public TeachingClassEntity requireTeachingClassInOffering(Long offeringId, Long teachingClassId) {
+        TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
+        if (!Objects.equals(offeringId, teachingClass.getOfferingId())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "TEACHING_CLASS_NOT_FOUND", "教学班不属于当前开课");
+        }
+        return teachingClass;
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasActiveMemberRole(Long userId, Long offeringId, Long teachingClassId, CourseMemberRole role) {
         return courseMemberMapper.selectOne(Wrappers.<CourseMemberEntity>lambdaQuery()
                         .eq(CourseMemberEntity::getUserId, userId)
@@ -217,6 +250,13 @@ public class CourseAuthorizationService {
                         .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
                         .last("LIMIT 1"))
                 != null;
+    }
+
+    private void assertLabFeatureEnabled(Long offeringId, Long teachingClassId) {
+        TeachingClassEntity teachingClass = requireTeachingClassInOffering(offeringId, teachingClassId);
+        if (!Boolean.TRUE.equals(teachingClass.getLabEnabled())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "LAB_DISABLED", "当前教学班未启用实验功能");
+        }
     }
 
     private Long rootSchoolId(Long orgUnitId, Map<Long, OrgUnitEntity> index) {

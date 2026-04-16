@@ -1,5 +1,26 @@
 # 发现与决策
 
+## 2026-04-17 lab / report MVP 发现
+
+- `todo.md` 的 M3 已明确 `labEnabled` 只是 feature 开关，而 `lab / report` 模块本身尚不存在；真实缺口不是权限体系，而是业务域缺席。
+- 课程粒度权限目前都集中在 `CourseAuthorizationService`；controller 普遍只做 `isAuthenticated()`，因此 `labEnabled` 和课程成员访问控制最稳的接线点就是课程授权服务，而不是新模块内零散查表。
+- `TeachingClassEntity.labEnabled` 当前只有配置与回显，没有任何业务真正消费它；如果直接在 controller 上做条件判断，后续一定会漂移。
+- assignment/submission 已经提供两条可复用能力：
+  - 教师侧 `create / update / publish / close / list / detail` 状态流转骨架
+  - 学生侧“对象存储附件 + 数据库元数据引用”的写法
+- lab/report 不能简单复用 assignment/submission：
+  - 实验报告需要草稿、教师评阅、评语发布等独立状态
+  - 把实验报告塞进 submission 会把作业次数、评测、成绩发布等错误语义带进实验域
+- 为了让 `labEnabled` 有唯一、确定的判断来源，MVP 最稳的实现是先收敛为“教学班级级实验”，让 `teachingClassId` 成为必填；开课实例级公共实验留到后续扩展。
+- 当前最小模型足以闭环：
+  - `labs`
+  - `lab_reports`
+  - `lab_report_attachments`
+  - 状态流转：`DRAFT / PUBLISHED / CLOSED` 与 `DRAFT / SUBMITTED / REVIEWED / PUBLISHED`
+- 实验报告第一阶段先固定为“每学生每实验一份当前报告”，这样能最小化 API、状态和权限复杂度；如果后续需要历史版本，应新增版本化结构而不是污染当前表语义。
+- 学生视角下，`REVIEWED` 阶段先只暴露状态，不暴露教师批注 / 评语；只有 `PUBLISHED` 后才回放给学生。这能保留教师“先内部评阅、再发布结果”的最小语义。
+- 实验报告附件最稳的模型仍是“先上传附件对象，再在保存 / 提交报告时绑定到报告”；这样可以直接复用现有对象存储能力并支持失败回滚。
+
 ## 2026-04-17 judge 详细产物对象化存储发现
 
 - 当前仓库已经有共享 `ObjectStorageService` / `MinioObjectStorageService`，并且 `submission_artifacts` 已经把附件元数据和对象内容分离；judge 域尚未复用这条能力，仍把大体积评测产物直接塞进 `judge_jobs` 和 `programming_sample_runs`。

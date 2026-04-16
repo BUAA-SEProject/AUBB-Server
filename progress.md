@@ -1,5 +1,25 @@
 # 进度日志
 
+## Session: 2026-04-17 lab / report MVP
+
+### Phase 44：优先级 7 实验与实验报告收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `todo.md` M3、`course` / `assignment` / `submission` 相关代码与文档，确认 `labEnabled` 当前只有配置位没有业务消费
+  - 通过子代理并行复核课程授权边界和 M3 范围，收敛出“教学班级级实验 + 课程授权服务集中拦截”的最小方案
+  - 新增 `V26__lab_report_mvp.sql`，引入 `labs`、`lab_reports`、`lab_report_attachments`
+  - 新增 `modules/lab` 模块，补齐教师侧实验定义与报告评阅、学生侧实验报告与附件 API
+  - 在 `CourseAuthorizationService` 中新增 lab 相关授权与 `labEnabled` 断言入口
+  - 复用现有 `ObjectStorageService`，让实验报告附件走 MinIO 真链路
+  - 新增 `LabReportLifecyclePolicyTests` 与 `LabReportIntegrationTests`，覆盖对象存储附件、状态流转和 `labEnabled=false` 后端拦截
+  - 同步 `README.md`、`docs/product-specs/lab-system.md`、`docs/product-specs/index.md`、`docs/index.md`、`docs/reliability.md`、`docs/generated/db-schema.md` 与完成执行计划
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=LabReportLifecyclePolicyTests,LabReportIntegrationTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `6` 个测试通过
+
 ## Session: 2026-04-17 judge 详细产物对象化存储
 
 ### Phase 43：优先级 6 评测产物对象化收口

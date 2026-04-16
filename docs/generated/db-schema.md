@@ -27,6 +27,7 @@
 - `src/main/resources/db/migration/V23__auth_sessions_refresh_tokens.sql`
 - `src/main/resources/db/migration/V24__single_school_root_guard.sql`
 - `src/main/resources/db/migration/V25__judge_artifact_object_storage_phase1.sql`
+- `src/main/resources/db/migration/V26__lab_report_mvp.sql`
 
 ## 总览
 
@@ -46,6 +47,9 @@
 - `teaching_classes`：教学班
 - `course_members`：课程成员
 - `assignments`：作业主数据
+- `labs`：教学班级实验主数据
+- `lab_reports`：学生当前实验报告
+- `lab_report_attachments`：实验报告附件元数据
 - `question_bank_questions`：开课实例内题库题目
 - `question_bank_question_options`：题库客观题选项
 - `question_bank_categories`：开课实例内题库分类字典
@@ -291,6 +295,76 @@
 - `ix_assignments_open_at_due_at`
 - `idx_assignments_grade_published_at`
 - `ck_assignments_grade_weight_positive`
+
+### `labs`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `teaching_class_id` | `bigint` | 必填，外键到 `teaching_classes.id` |
+| `title` | `text` | 必填，最长 `200` |
+| `description` | `text` | 实验说明 |
+| `status` | `text` | 必填，`DRAFT / PUBLISHED / CLOSED` |
+| `published_at` | `timestamptz` | 发布时间 |
+| `closed_at` | `timestamptz` | 关闭时间 |
+| `created_by_user_id` | `bigint` | 必填，外键到 `users.id` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_labs_offering_id_status_created_at`
+- `ix_labs_teaching_class_id_status_created_at`
+
+### `lab_reports`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `lab_id` | `bigint` | 必填，外键到 `labs.id` |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `teaching_class_id` | `bigint` | 必填，外键到 `teaching_classes.id` |
+| `student_user_id` | `bigint` | 必填，外键到 `users.id` |
+| `status` | `text` | 必填，`DRAFT / SUBMITTED / REVIEWED / PUBLISHED` |
+| `report_content_text` | `text` | 正文，可空，最长 `20000` |
+| `teacher_annotation_text` | `text` | 教师批注，可空，最长 `5000` |
+| `teacher_comment_text` | `text` | 教师评语，可空，最长 `5000` |
+| `submitted_at` | `timestamptz` | 学生正式提交时间 |
+| `reviewed_at` | `timestamptz` | 教师评阅时间 |
+| `published_at` | `timestamptz` | 教师评语发布时间 |
+| `reviewer_user_id` | `bigint` | 评阅人，外键到 `users.id` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_lab_reports_lab_student`
+- `ix_lab_reports_lab_id_status_updated_at`
+- `ix_lab_reports_student_user_id_updated_at`
+
+### `lab_report_attachments`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `lab_id` | `bigint` | 必填，外键到 `labs.id` |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
+| `teaching_class_id` | `bigint` | 必填，外键到 `teaching_classes.id` |
+| `lab_report_id` | `bigint` | 外键到 `lab_reports.id`，可空 |
+| `uploader_user_id` | `bigint` | 必填，外键到 `users.id` |
+| `object_key` | `text` | 必填，唯一，最长 `255` |
+| `original_filename` | `text` | 必填，最长 `255` |
+| `content_type` | `text` | 必填，最长 `128` |
+| `size_bytes` | `bigint` | 必填，`> 0` 且 `<= 20971520` |
+| `uploaded_at` | `timestamptz` | 必填，默认 `now()` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_lab_report_attachments_lab_id_uploader_uploaded_at`
+- `ix_lab_report_attachments_lab_report_id`
 
 ### `question_bank_questions`
 
