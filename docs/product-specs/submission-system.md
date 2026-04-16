@@ -2,7 +2,7 @@
 
 ## 目标
 
-把 submission 从“整份文本/附件提交”推进到“整份提交头 + 分题答案 + 客观题自动评分 + 编程题自动入队”的当前阶段实现。当前既保留 legacy 文本与附件提交通道，也支持结构化作业的按题提交、题目级编程评测入队和评分摘要；人工批改与成绩发布已转入 grading 模块，submission 继续承担提交事实来源与学生自查入口。
+把 submission 从“整份文本/附件提交”推进到“整份提交头 + 分题答案 + 客观题自动评分 + 编程题自动入队 + 工作区最小闭环”的当前阶段实现。当前既保留 legacy 文本与附件提交通道，也支持结构化作业的按题提交、题目级编程评测入队、编程题工作区草稿保存和评分摘要；人工批改与成绩发布已转入 grading 模块，submission 继续承担提交事实来源与学生自查入口。
 
 ## 覆盖范围
 
@@ -23,13 +23,15 @@
 - 学生下载自己的提交附件
 - 教师下载已关联到正式提交的附件
 - 提交详情返回分题答案和评分摘要
+- 学生按编程题保存和读取工作区草稿
 - 提交受理写入审计日志
 - 附件上传写入审计日志
+- 工作区保存写入审计日志
 
 ### 不在范围
 
-- 在线工作区、草稿恢复、试运行会话
-- 目录级工程快照和草稿同步
+- 完整目录树工程快照和草稿同步
+- 试运行执行本身与运行结果明细持久化（当前已由 judge 模块承担）
 - 多作业成绩册
 - 助教独立批改范围和更细粒度 staff scope
 
@@ -56,6 +58,8 @@
 17. legacy assignment 已配置 assignment 级自动评测时，正式提交后会自动创建 submission 级 judge job。
 18. 结构化作业中的编程题提交后会按 `submission_answer_id` 自动创建题目级 judge job。
 19. assignment 成绩发布前，学生只能看到客观题即时分与非客观题批改状态；人工评分与反馈由 grading 发布控制。
+20. 工作区按 `assignmentId + assignmentQuestionId + userId` 唯一保存，避免不同编程题之间的草稿相互污染。
+21. 工作区只保存代码正文、语言和附件引用，不改变正式提交次数、正式提交版本和成绩。
 
 ## 核心数据模型
 
@@ -86,9 +90,15 @@
   - `graded_by_user_id / graded_at`：最近人工批改人和时间
 - `assignments`
   - 提供开放时间、截止时间、最大提交次数、结构化试卷快照和成绩发布时间
+- `programming_workspaces`
+  - `assignment_id + assignment_question_id + user_id`：唯一定位一个学生在一道编程题上的工作区
+  - `programming_language`：当前工作区语言
+  - `code_text`：当前入口文件正文
+  - `artifact_ids_json`：工作区引用的附件列表
 - `audit_logs`
   - 记录 `SUBMISSION_CREATED`
   - 记录 `SUBMISSION_ARTIFACT_UPLOADED`
+  - 记录 `PROGRAMMING_WORKSPACE_SAVED`
 
 详细字段以 [../generated/db-schema.md](../generated/db-schema.md) 为准。
 
@@ -118,6 +128,8 @@
 
 - `POST /api/v1/me/assignments/{assignmentId}/submissions`
 - `POST /api/v1/me/assignments/{assignmentId}/submission-artifacts`
+- `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace`
+- `PUT /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace`
 - `GET /api/v1/me/assignments/{assignmentId}/submissions`
 - `GET /api/v1/me/submissions/{submissionId}`
 - `GET /api/v1/me/submission-artifacts/{artifactId}/download`
@@ -132,13 +144,13 @@
 
 ## 当前实现边界
 
-- 当前切片支持 legacy 文本 / 附件正式提交，也支持结构化作业的分题提交，但不包含工作区、试运行和目录级工程快照。
+- 当前切片支持 legacy 文本 / 附件正式提交，也支持结构化作业的分题提交和编程题工作区最小草稿能力。
 - 提交状态当前固定为 `SUBMITTED`，评测态通过 `judge_jobs` 独立表达；人工评分结果写回 `submission_answers`，学生可见性由 grading 模块控制。
 - 人工评分与反馈已经可写回 `submission_answers`，但是否对学生可见由 grading 模块控制。
 - 附件当前采用“先上传，再在正式提交时关联”的两阶段模型，不支持草稿恢复。
 - 附件下载当前统一走服务端鉴权后再读取对象存储，不直接暴露预签名下载契约。
-- 编程题答案当前已接入题目级 go-judge 第一阶段，支持代码正文和附件一起装配为评测输入；样例试运行和更复杂工作区状态仍未实现。
-- 当前没有工作区、试运行会话和多文件工程快照。
+- 编程题答案当前已接入题目级 go-judge，并支持代码正文和附件一起装配为评测输入。
+- 当前工作区只保存“入口代码正文 + 附件引用 + 语言”三类状态，不提供目录树级文件操作和实时协同。
 
 ## 验收标准
 

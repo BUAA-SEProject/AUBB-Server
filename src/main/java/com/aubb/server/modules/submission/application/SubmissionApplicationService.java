@@ -71,7 +71,6 @@ public class SubmissionApplicationService {
         AssignmentEntity assignment = requireAssignment(assignmentId);
         OffsetDateTime now = OffsetDateTime.now();
         assertCanPrepareSubmission(principal, assignment, now);
-        assertSubmissionAttemptsAvailable(assignment, principal.getUserId());
 
         byte[] content = readArtifactContent(file);
         String originalFilename = normalizeOriginalFilename(file.getOriginalFilename());

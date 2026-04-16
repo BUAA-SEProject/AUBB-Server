@@ -12,6 +12,8 @@
 - `src/main/resources/db/migration/V8__judge_go_judge_execution.sql`
 - `src/main/resources/db/migration/V9__structured_assignment_foundation.sql`
 - `src/main/resources/db/migration/V10__grading_first_slice.sql`
+- `src/main/resources/db/migration/V11__structured_programming_judge_phase1.sql`
+- `src/main/resources/db/migration/V12__programming_workspace_and_sample_runs.sql`
 
 ## 总览
 
@@ -40,7 +42,9 @@
 - `submissions`：正式提交记录
 - `submission_artifacts`：提交附件元数据
 - `submission_answers`：分题答案、人工批改与题目级评测回写状态
+- `programming_workspaces`：编程题工作区草稿
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
+- `programming_sample_runs`：样例试运行日志
 - `audit_logs`：关键治理与认证审计日志
 
 ## 表结构
@@ -446,6 +450,25 @@
 - `idx_submission_answers_graded_by_user_id`
 - `ck_submission_answers_score_consistency`
 
+### `programming_workspaces`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
+| `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `programming_language` | `text` | 必填，`PYTHON3 / JAVA17 / CPP17` |
+| `code_text` | `text` | 可空，当前入口文件正文 |
+| `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_programming_workspaces_question_user`
+- `ix_programming_workspaces_assignment_user_updated_at`
+
 ### `judge_jobs`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -492,6 +515,36 @@
 - `ck_judge_jobs_case_progress`
 - `ck_judge_jobs_score_progress`
 - `ck_judge_jobs_answer_scope`
+
+### `programming_sample_runs`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
+| `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `programming_language` | `text` | 必填，`PYTHON3 / JAVA17 / CPP17` |
+| `code_text` | `text` | 可空，本次样例运行入口文件正文 |
+| `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
+| `stdin_text` | `text` | 必填，样例输入快照 |
+| `expected_stdout` | `text` | 可空，样例预期输出快照 |
+| `status` | `text` | 必填，`RUNNING / SUCCEEDED / FAILED` |
+| `verdict` | `text` | 可空，沿用 judge verdict 语义 |
+| `stdout_text` | `text` | 可空，完整标准输出 |
+| `stderr_text` | `text` | 可空，完整标准错误 |
+| `result_summary` | `text` | 可空，用户可读摘要 |
+| `error_message` | `text` | 可空，执行失败信息 |
+| `time_millis` | `bigint` | 可空，`>= 0` |
+| `memory_bytes` | `bigint` | 可空，`>= 0` |
+| `started_at` | `timestamptz` | 可空 |
+| `finished_at` | `timestamptz` | 可空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ix_programming_sample_runs_question_user_created_at`
 
 ### `academic_profiles`
 
@@ -603,6 +656,9 @@
 - `submission_answers.submission_id -> submissions.id`
 - `submission_answers.assignment_question_id -> assignment_questions.id`
 - `submission_answers.graded_by_user_id -> users.id`
+- `programming_workspaces.assignment_id -> assignments.id`
+- `programming_workspaces.assignment_question_id -> assignment_questions.id`
+- `programming_workspaces.user_id -> users.id`
 - `judge_jobs.submission_id -> submissions.id`
 - `judge_jobs.submission_answer_id -> submission_answers.id`
 - `judge_jobs.assignment_id -> assignments.id`
@@ -611,6 +667,9 @@
 - `judge_jobs.teaching_class_id -> teaching_classes.id`
 - `judge_jobs.submitter_user_id -> users.id`
 - `judge_jobs.requested_by_user_id -> users.id`
+- `programming_sample_runs.assignment_id -> assignments.id`
+- `programming_sample_runs.assignment_question_id -> assignment_questions.id`
+- `programming_sample_runs.user_id -> users.id`
 - `audit_logs.actor_user_id -> users.id`
 
 ## 设计说明
@@ -625,10 +684,12 @@
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
 - `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕。
+- `programming_workspaces` 用于保存学生在单道编程题上的最小工作区状态，不改变正式提交版本号和成绩语义。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
 - `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与评测产物对象仍未持久化。
+- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。

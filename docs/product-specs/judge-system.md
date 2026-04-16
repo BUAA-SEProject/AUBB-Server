@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并保留教师手动重新评测入口，为后续样例试运行、在线 IDE 和更复杂实验环境提供稳定链路。
+交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并补齐学生侧样例试运行与运行日志最小闭环，为后续 `CUSTOM_SCRIPT`、完整在线 IDE 和更复杂实验环境提供稳定链路。
 
 ## 覆盖范围
 
@@ -17,8 +17,13 @@
   - `submission_answer_id` 级 job 关联
   - 代码正文 + 附件装配为多文件输入
   - 逐测试点结果明细回写到 `judge_jobs.case_results_json`
+- 当前支持结构化编程题样例试运行：
+  - 独立的 `programming_sample_runs` 历史
+  - 单样例输入输出比对
+  - 完整 `stdout / stderr` 记录
 - 学生按提交查看自己的评测作业列表
 - 学生按答案查看自己的题目级评测作业列表
+- 学生按题目查看自己的样例试运行历史
 - 教师按提交查看评测作业列表
 - 教师按答案查看和重排题目级评测作业
 - 教师手动重新排队，生成新的评测作业历史
@@ -26,7 +31,6 @@
 
 ### 不在范围
 
-- 样例试运行 API
 - 在线 IDE 工作区
 - `CUSTOM_SCRIPT` 真实执行与更复杂断言
 - 评测产物对象存储留存
@@ -44,6 +48,7 @@
 7. 当前固定使用 `GO_JUDGE` 作为引擎代码，当前执行方式是服务端 AFTER_COMMIT 异步触发 + go-judge `/run`。
 8. `SUCCEEDED` 表示评测流程执行成功并拿到了结论，最终判定由 `verdict` 表达；`FAILED` 表示评测基础设施或配置失败。
 9. 结构化编程题当前只对 `STANDARD_IO` 模式做真实执行；`CUSTOM_SCRIPT` 仍保留为配置扩展位。
+10. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
 
 ## 核心数据模型
 
@@ -78,8 +83,19 @@
   - `case_results_json`：逐测试点明细摘要
   - `result_summary`：用户可读摘要
   - `queued_at / started_at / finished_at`：状态时间戳
+- `programming_sample_runs`
+  - `assignment_id + assignment_question_id + user_id`：运行范围与归属
+  - `programming_language / code_text / artifact_ids_json`：本次样例运行的代码快照
+  - `stdin_text / expected_stdout`：样例输入输出快照
+  - `status`：`RUNNING / SUCCEEDED / FAILED`
+  - `verdict`：样例运行的最终判定
+  - `stdout_text / stderr_text`：完整运行日志
+  - `result_summary / error_message`：摘要与失败信息
+  - `time_millis / memory_bytes`：资源指标
+  - `started_at / finished_at`：执行时间戳
 - `audit_logs`
   - 记录 `JUDGE_JOB_ENQUEUED / JUDGE_JOB_STARTED / JUDGE_JOB_COMPLETED / JUDGE_JOB_FAILED`
+  - 记录 `PROGRAMMING_SAMPLE_RUN_CREATED`
 
 详细字段以 [../generated/db-schema.md](../generated/db-schema.md) 为准。
 
@@ -89,6 +105,8 @@
 
 - `GET /api/v1/me/submissions/{submissionId}/judge-jobs`
 - `GET /api/v1/me/submission-answers/{answerId}/judge-jobs`
+- `POST /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
+- `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
 
 ### 教师侧
 
@@ -101,7 +119,8 @@
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
 - 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把附件作为辅助源文件写入运行目录；自动化验证目前覆盖 `PYTHON3`。
-- 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回，但尚未把完整日志和产物持久化到对象存储。
+- 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回，但尚未把完整正式评测日志和产物持久化到对象存储。
+- 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果落到 `programming_sample_runs`。
 - 当前采用应用内异步执行，不走 RabbitMQ worker。
 - 当前只支持严格输出匹配（规范化行尾后比较），更复杂容错判定留待后续扩展。
 
@@ -113,4 +132,5 @@
 - go-judge 不可用或配置异常时，提交受理不被阻断，但评测作业会回写 `FAILED + SYSTEM_ERROR`。
 - 结构化编程题自动评测成功后，会把结果回写到 `submission_answers`，使 grading 可继续发布成绩。
 - 教师重新排队后会新增一条新的评测作业历史。
+- 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`。
 - `./mvnw verify` 提供自动化测试证据。

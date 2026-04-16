@@ -1,0 +1,28 @@
+package com.aubb.server.modules.judge.application.sample;
+
+import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
+import com.aubb.server.modules.judge.domain.JudgeVerdict;
+import com.aubb.server.modules.judge.domain.ProgrammingSampleRunStatus;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import java.time.OffsetDateTime;
+import java.util.List;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record ProgrammingSampleRunView(
+        Long id,
+        Long assignmentId,
+        Long assignmentQuestionId,
+        ProgrammingLanguage programmingLanguage,
+        List<Long> artifactIds,
+        ProgrammingSampleRunStatus status,
+        JudgeVerdict verdict,
+        String stdinText,
+        String expectedStdout,
+        String stdoutText,
+        String stderrText,
+        String resultSummary,
+        String errorMessage,
+        Long timeMillis,
+        Long memoryBytes,
+        OffsetDateTime createdAt,
+        OffsetDateTime finishedAt) {}

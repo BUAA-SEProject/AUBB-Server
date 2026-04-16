@@ -52,8 +52,8 @@ Phase 5 in_progress
 
 ### Phase 5：试运行与 IDE 扩展位
 
-- [ ] 样例试运行 API
-- [ ] 在线 IDE / 工作区模型
+- [x] 样例试运行 API
+- [x] 在线 IDE / 工作区模型
 - [ ] `CUSTOM_SCRIPT` 真实执行
 - **Status:** in_progress
 
@@ -71,6 +71,7 @@ Phase 5 in_progress
 | `grading` 独立成逻辑模块，但第一阶段不新建成绩表 | 当前最小闭环只需要 assignment 级发布与分题人工评分，不值得提前引入成绩册复杂度 |
 | 学生成绩发布前只保留客观题即时分可见 | 兼容既有客观题即时反馈，又给非客观题评分和反馈留出正式发布入口 |
 | question-level judge 必须先补题目级隐藏测试模型 | 只有样例输入输出不足以支撑真实编程题自动评测 |
+| 样例试运行不能复用 `judge_jobs` | 否则会污染正式评测历史、成绩和审计语义 |
 | 题目级隐藏测试点当前先挂在 `assignment_questions.config_json` | 先复用现有题目快照链路，避免提前引入额外表拆分；后续若需要更复杂查询再拆表 |
 
 ## 错误记录

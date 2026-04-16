@@ -188,6 +188,56 @@ public class JudgeExecutionService {
         return runLegacyJudge(context);
     }
 
+    public ProgrammingSampleRunOutcome runProgrammingSample(
+            AssignmentQuestionSnapshot question,
+            String answerText,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage) {
+        if (!goJudgeProperties.enabled()) {
+            return ProgrammingSampleRunOutcome.failed("go-judge 未启用", null, null);
+        }
+        if (question == null || question.config() == null) {
+            return ProgrammingSampleRunOutcome.failed("结构化编程题样例试运行上下文不完整", null, null);
+        }
+        AssignmentQuestionConfigInput config = question.config();
+        if (ProgrammingJudgeMode.CUSTOM_SCRIPT.equals(config.judgeMode())) {
+            return ProgrammingSampleRunOutcome.failed("当前结构化编程题样例试运行暂仅支持 STANDARD_IO", null, null);
+        }
+        if (programmingLanguage == null) {
+            return ProgrammingSampleRunOutcome.failed("编程题样例试运行缺少语言信息", null, null);
+        }
+        if (config.supportedLanguages() != null && !config.supportedLanguages().contains(programmingLanguage)) {
+            return ProgrammingSampleRunOutcome.failed("提交语言不在题目支持范围内", null, null);
+        }
+        if (!StringUtils.hasText(config.sampleStdinText())) {
+            return ProgrammingSampleRunOutcome.failed("当前编程题未配置样例输入", null, null);
+        }
+        try {
+            SourceBundle sourceBundle = buildSourceBundle(answerText, artifactIds, programmingLanguage);
+            RunResult result = executeCase(
+                    buildProgramCommand(programmingLanguage, sourceBundle.entryFileName()),
+                    sourceBundle.copyIn(),
+                    config.sampleStdinText(),
+                    safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS),
+                    safeInt(config.memoryLimitMb(), DEFAULT_MEMORY_LIMIT_MB),
+                    safeInt(config.outputLimitKb(), DEFAULT_OUTPUT_LIMIT_KB));
+            CaseOutcome caseOutcome = toCaseOutcome(result, config.sampleExpectedStdout(), false);
+            if (caseOutcome.verdict() == JudgeVerdict.SYSTEM_ERROR) {
+                return ProgrammingSampleRunOutcome.failed(
+                        caseOutcome.errorMessage(), caseOutcome.stdoutExcerpt(), caseOutcome.stderrExcerpt());
+            }
+            return ProgrammingSampleRunOutcome.completed(
+                    caseOutcome.verdict(),
+                    caseOutcome.stdoutExcerpt(),
+                    caseOutcome.stderrExcerpt(),
+                    caseOutcome.timeMillis(),
+                    caseOutcome.memoryBytes(),
+                    sampleRunSummary(caseOutcome, config.sampleExpectedStdout()));
+        } catch (RuntimeException exception) {
+            return ProgrammingSampleRunOutcome.failed("样例试运行执行失败：" + safeMessage(exception), null, null);
+        }
+    }
+
     private JudgeFinalization runLegacyJudge(JudgeExecutionContext context) {
         if (context.legacyProfile() == null || context.legacyCases().isEmpty()) {
             return JudgeFinalization.failed("任务未配置自动评测规则");
@@ -281,7 +331,8 @@ public class JudgeExecutionService {
             return JudgeFinalization.failed("提交语言不在题目支持范围内");
         }
 
-        SourceBundle sourceBundle = buildSourceBundle(context.answer(), payload, config);
+        SourceBundle sourceBundle = buildSourceBundle(
+                context.answer().getAnswerText(), payload.artifactIds(), payload.programmingLanguage());
         List<JudgeJobCaseResultView> caseResults = new ArrayList<>();
         int passedCaseCount = 0;
         int totalCaseCount = config.judgeCases().size();
@@ -373,10 +424,14 @@ public class JudgeExecutionService {
     }
 
     private CaseOutcome toCaseOutcome(RunResult result, String expectedStdout) {
-        String stdout = clip(normalizeLineEndings(
-                result.files() == null ? null : result.files().get("stdout")));
-        String stderr = clip(normalizeLineEndings(
-                result.files() == null ? null : result.files().get("stderr")));
+        return toCaseOutcome(result, expectedStdout, true);
+    }
+
+    private CaseOutcome toCaseOutcome(RunResult result, String expectedStdout, boolean clipOutput) {
+        String stdout = formatProgramOutput(
+                result.files() == null ? null : result.files().get("stdout"), clipOutput);
+        String stderr = formatProgramOutput(
+                result.files() == null ? null : result.files().get("stderr"), clipOutput);
         JudgeVerdict engineVerdict = mapEngineVerdict(result.status());
         if (engineVerdict == JudgeVerdict.SYSTEM_ERROR) {
             return new CaseOutcome(
@@ -496,11 +551,11 @@ public class JudgeExecutionService {
     }
 
     private SourceBundle buildSourceBundle(
-            SubmissionAnswerEntity answer, ProgrammingAnswerPayload payload, AssignmentQuestionConfigInput config) {
-        String entryFileName = defaultEntryFileName(payload.programmingLanguage());
-        Map<String, CopyInFile> copyIn = readArtifactSourceFiles(payload.artifactIds());
-        if (StringUtils.hasText(answer.getAnswerText())) {
-            copyIn.put(entryFileName, new CopyInFile(answer.getAnswerText()));
+            String answerText, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {
+        String entryFileName = defaultEntryFileName(programmingLanguage);
+        Map<String, CopyInFile> copyIn = readArtifactSourceFiles(artifactIds);
+        if (StringUtils.hasText(answerText)) {
+            copyIn.put(entryFileName, new CopyInFile(answerText));
         }
         if (!copyIn.containsKey(entryFileName)) {
             throw new IllegalStateException("当前自动评测需要代码文本或包含入口文件的附件");
@@ -594,6 +649,11 @@ public class JudgeExecutionService {
         return value.length() <= MAX_EXCERPT_LENGTH ? value : value.substring(0, MAX_EXCERPT_LENGTH);
     }
 
+    private String formatProgramOutput(String value, boolean clipOutput) {
+        String normalized = normalizeLineEndings(value);
+        return clipOutput ? clip(normalized) : normalized;
+    }
+
     private long nanosToMillis(Long nanos) {
         return nanos == null ? 0L : Math.max(0L, nanos / 1_000_000L);
     }
@@ -602,8 +662,52 @@ public class JudgeExecutionService {
         return value == null ? 0L : value;
     }
 
+    private String sampleRunSummary(CaseOutcome caseOutcome, String expectedStdout) {
+        if (JudgeVerdict.ACCEPTED.equals(caseOutcome.verdict()) && StringUtils.hasText(expectedStdout)) {
+            return "ACCEPTED，样例输出与预期一致";
+        }
+        if (JudgeVerdict.WRONG_ANSWER.equals(caseOutcome.verdict())) {
+            return "WRONG_ANSWER，样例输出与预期不一致";
+        }
+        return "样例试运行结果：" + caseOutcome.verdict().name();
+    }
+
     private String safeMessage(Exception exception) {
         return exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
+    }
+
+    public record ProgrammingSampleRunOutcome(
+            boolean failed,
+            JudgeVerdict verdict,
+            String stdoutText,
+            String stderrText,
+            Long timeMillis,
+            Long memoryBytes,
+            String resultSummary,
+            String errorMessage) {
+
+        public static ProgrammingSampleRunOutcome completed(
+                JudgeVerdict verdict,
+                String stdoutText,
+                String stderrText,
+                Long timeMillis,
+                Long memoryBytes,
+                String resultSummary) {
+            return new ProgrammingSampleRunOutcome(
+                    false, verdict, stdoutText, stderrText, timeMillis, memoryBytes, resultSummary, null);
+        }
+
+        public static ProgrammingSampleRunOutcome failed(String errorMessage, String stdoutText, String stderrText) {
+            return new ProgrammingSampleRunOutcome(
+                    true,
+                    null,
+                    stdoutText,
+                    stderrText,
+                    0L,
+                    0L,
+                    errorMessage == null ? "样例试运行失败" : errorMessage,
+                    errorMessage);
+        }
     }
 
     private record JudgeExecutionContext(

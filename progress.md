@@ -164,3 +164,22 @@
 - Actions taken:
   - 将 question-level judge 第一阶段标记为已完成
   - 下一优先级切换为“样例试运行 / 在线 IDE / CUSTOM_SCRIPT 执行”
+
+## Session: 2026-04-16 样例试运行与工作区最小闭环
+
+### Phase 11：工作区与样例试运行
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V12__programming_workspace_and_sample_runs.sql`，引入 `programming_workspaces` 与 `programming_sample_runs`
+  - 在 `modules.submission` 中新增编程题工作区读写服务与学生侧 API
+  - 在 `modules.judge` 中新增样例试运行服务与学生侧 API，并与正式 `judge_jobs` 分开建模
+  - 调整附件上传语义，使附件上传不再受正式提交次数限制，便于工作区和样例试运行复用
+  - 复用 `JudgeExecutionService` 的源码装配与标准输入输出比对能力，避免出现两套 go-judge 运行时
+  - 新增 `ProgrammingWorkspaceIntegrationTests`，覆盖工作区保存、样例试运行、多文件装配、不生成正式提交和不生成 `judge_jobs`
+- Files created/modified:
+  - `src/main/resources/db/migration/V12__programming_workspace_and_sample_runs.sql`
+  - `src/main/java/com/aubb/server/modules/submission/**/workspace/**`
+  - `src/main/java/com/aubb/server/modules/judge/**/sample/**`
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`

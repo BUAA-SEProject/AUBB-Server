@@ -264,6 +264,16 @@ public class SubmissionAnswerApplicationService {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_MULTIPLE_FILES_FORBIDDEN", "当前编程题不允许提交多个代码附件");
         }
+        if (config != null && config.maxFileSizeMb() != null) {
+            long maxFileSizeBytes = config.maxFileSizeMb() * 1024L * 1024L;
+            for (Long artifactId : artifactIds) {
+                if (artifactsById.get(artifactId).getSizeBytes() != null
+                        && artifactsById.get(artifactId).getSizeBytes() > maxFileSizeBytes) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_FILE_SIZE_EXCEEDED", "当前编程题附件大小超过限制");
+                }
+            }
+        }
         if (config != null
                 && config.acceptedExtensions() != null
                 && !config.acceptedExtensions().isEmpty()) {
