@@ -297,6 +297,108 @@ class ProgrammingWorkspaceIntegrationTests {
     }
 
     @Test
+    void studentRunsJavaAndCppSampleRunsWithLanguageSpecificCommands() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JC", "多语言班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long javaAssignmentId = createJavaProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, javaAssignmentId);
+        Long javaQuestionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", javaAssignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        GO_JUDGE_SERVER.reset();
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                javaAssignmentId,
+                                javaQuestionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"Main.java",
+                                  "files":[
+                                    {
+                                      "path":"Main.java",
+                                      "content":"import java.util.Scanner;\\npublic class Main {\\n  public static void main(String[] args) {\\n    Scanner scanner = new Scanner(System.in);\\n    int a = scanner.nextInt();\\n    int b = scanner.nextInt();\\n    System.out.println(Calculator.add(a, b));\\n  }\\n}"
+                                    },
+                                    {
+                                      "path":"Calculator.java",
+                                      "content":"final class Calculator {\\n  private Calculator() {}\\n  static int add(int left, int right) {\\n    return left + right;\\n  }\\n}"
+                                    }
+                                  ],
+                                  "programmingLanguage":"JAVA17"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.programmingLanguage").value("JAVA17"))
+                .andExpect(jsonPath("$.entryFilePath").value("Main.java"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.files[1].path").value("Calculator.java"));
+
+        JsonNode javaRequest = GO_JUDGE_SERVER.requests().getFirst();
+        assertThat(javaRequest.at("/cmd/0/args/2").asText()).contains("/usr/bin/javac Main.java && /usr/bin/java Main");
+        assertThat(javaRequest.at("/cmd/0/copyIn/Main.java/content").asText()).contains("Calculator.add(a, b)");
+        assertThat(javaRequest.at("/cmd/0/copyIn/Calculator.java/content").asText())
+                .contains("static int add");
+
+        Long cppAssignmentId = createCppProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, cppAssignmentId);
+        Long cppQuestionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", cppAssignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        GO_JUDGE_SERVER.reset();
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                cppAssignmentId,
+                                cppQuestionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.cpp",
+                                  "files":[
+                                    {
+                                      "path":"main.cpp",
+                                      "content":"#include <iostream>\\n#include \\\"calc.h\\\"\\nint main() {\\n  int a, b;\\n  std::cin >> a >> b;\\n  std::cout << add(a, b) << '\\\\n';\\n  return 0;\\n}"
+                                    },
+                                    {
+                                      "path":"calc.h",
+                                      "content":"inline int add(int left, int right) {\\n  return left + right;\\n}"
+                                    }
+                                  ],
+                                  "programmingLanguage":"CPP17"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.programmingLanguage").value("CPP17"))
+                .andExpect(jsonPath("$.entryFilePath").value("main.cpp"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.files[1].path").value("calc.h"));
+
+        JsonNode cppRequest = GO_JUDGE_SERVER.requests().getFirst();
+        assertThat(cppRequest.at("/cmd/0/args/2").asText())
+                .contains("/usr/bin/g++ -std=c++17 -O2 main.cpp -o main && ./main");
+        assertThat(cppRequest.at("/cmd/0/copyIn/main.cpp/content").asText()).contains("#include \"calc.h\"");
+        assertThat(cppRequest.at("/cmd/0/copyIn/calc.h/content").asText()).contains("inline int add");
+    }
+
+    @Test
     void studentRunsCustomJudgeSampleRunAndReceivesCustomVerdict() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -509,11 +611,23 @@ class ProgrammingWorkspaceIntegrationTests {
     }
 
     private Long createStructuredProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
-        return createProgrammingAssignment(token, offeringId, classId, "STANDARD_IO", null);
+        return createProgrammingAssignment(
+                token, offeringId, classId, "[\"PYTHON3\"]", "[\"py\"]", "STANDARD_IO", null);
+    }
+
+    private Long createJavaProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        return createProgrammingAssignment(
+                token, offeringId, classId, "[\"JAVA17\"]", "[\"java\"]", "STANDARD_IO", null);
+    }
+
+    private Long createCppProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
+        return createProgrammingAssignment(
+                token, offeringId, classId, "[\"CPP17\"]", "[\"cpp\",\"h\"]", "STANDARD_IO", null);
     }
 
     private Long createCustomScriptProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
-        return createProgrammingAssignment(token, offeringId, classId, "CUSTOM_SCRIPT", """
+        return createProgrammingAssignment(
+                token, offeringId, classId, "[\"PYTHON3\"]", "[\"py\"]", "CUSTOM_SCRIPT", """
                 #ALLOW_OFF_BY_ONE
                 import json
                 import pathlib
@@ -530,7 +644,14 @@ class ProgrammingWorkspaceIntegrationTests {
     }
 
     private Long createProgrammingAssignment(
-            String token, Long offeringId, Long classId, String judgeMode, String customJudgeScript) throws Exception {
+            String token,
+            Long offeringId,
+            Long classId,
+            String supportedLanguagesJson,
+            String acceptedExtensionsJson,
+            String judgeMode,
+            String customJudgeScript)
+            throws Exception {
         String customJudgeScriptJson = customJudgeScript == null
                 ? "null"
                 : tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(customJudgeScript);
@@ -556,8 +677,8 @@ class ProgrammingWorkspaceIntegrationTests {
                                             "questionType":"PROGRAMMING",
                                             "score":100,
                                             "config":{
-                                              "supportedLanguages":["PYTHON3"],
-                                              "acceptedExtensions":["py"],
+                                              "supportedLanguages":%s,
+                                              "acceptedExtensions":%s,
                                               "allowMultipleFiles":true,
                                               "allowSampleRun":true,
                                               "sampleStdinText":"1 2\\n",
@@ -583,6 +704,8 @@ class ProgrammingWorkspaceIntegrationTests {
                                                 .minusDays(1)),
                                         OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
                                                 .plusDays(3)),
+                                        supportedLanguagesJson,
+                                        acceptedExtensionsJson,
                                         judgeMode,
                                         customJudgeScriptJson)))
                 .andExpect(status().isCreated())
@@ -674,13 +797,8 @@ class ProgrammingWorkspaceIntegrationTests {
                 return;
             }
 
-            String source = request.at("/cmd/0/copyIn/main.py/content").asText();
             String stdin = request.at("/cmd/0/files/0/content").asText();
-            String stdout = "3\n";
-            if (source.contains("print(a + b - 1)")) {
-                String[] parts = stdin.strip().split(" ");
-                stdout = (Integer.parseInt(parts[0]) + Integer.parseInt(parts[1]) - 1) + "\n";
-            }
+            String stdout = simulateProgramStdout(request, stdin);
             byte[] responseBytes = OBJECT_MAPPER.writeValueAsBytes(List.of(Map.of(
                     "status",
                     "Accepted",
@@ -698,6 +816,50 @@ class ProgrammingWorkspaceIntegrationTests {
             exchange.sendResponseHeaders(200, responseBytes.length);
             exchange.getResponseBody().write(responseBytes);
             exchange.close();
+        }
+
+        private String simulateProgramStdout(JsonNode request, String stdin) {
+            String pythonSource = readCopyInContent(request, "main.py");
+            if (!pythonSource.isEmpty()) {
+                if (pythonSource.contains("print(a + b - 1)")) {
+                    return addFromStdin(stdin, -1);
+                }
+                String helper = readCopyInContent(request, "helpers/math_utils.py");
+                if (pythonSource.contains("from helpers.math_utils import add") && helper.contains("def add")) {
+                    return addFromStdin(stdin, 0);
+                }
+            }
+
+            String javaSource = readCopyInContent(request, "Main.java");
+            if (!javaSource.isEmpty()) {
+                String helper = readCopyInContent(request, "Calculator.java");
+                if (javaSource.contains("Calculator.add(a, b)") && helper.contains("static int add")) {
+                    return addFromStdin(stdin, 0);
+                }
+            }
+
+            String cppSource = readCopyInContent(request, "main.cpp");
+            if (!cppSource.isEmpty()) {
+                String helper = readCopyInContent(request, "calc.h");
+                if (cppSource.contains("#include \"calc.h\"") && helper.contains("inline int add")) {
+                    return addFromStdin(stdin, 0);
+                }
+            }
+            return "0\n";
+        }
+
+        private String readCopyInContent(JsonNode request, String path) {
+            return request.at("/cmd/0/copyIn/" + escapeJsonPointer(path) + "/content")
+                    .asText();
+        }
+
+        private String addFromStdin(String stdin, int delta) {
+            String[] parts = stdin.strip().split("\\s+");
+            return (Integer.parseInt(parts[0]) + Integer.parseInt(parts[1]) + delta) + "\n";
+        }
+
+        private String escapeJsonPointer(String path) {
+            return path.replace("~", "~0").replace("/", "~1");
         }
 
         private void handleCustomJudge(HttpExchange exchange, JsonNode request) throws IOException {

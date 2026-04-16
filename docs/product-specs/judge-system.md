@@ -125,7 +125,7 @@
 ## 当前实现边界
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
-- 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把目录树源码快照和附件一起写入运行目录；自动化验证目前覆盖 `PYTHON3`。
+- 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把目录树源码快照和附件一起写入运行目录；自动化验证当前已覆盖这三种语言的样例试运行与正式评测最小链路。
 - `CUSTOM_SCRIPT` 当前通过固定的 Python checker 执行，checker 读取保留文件：
   - `_aubb_stdin.txt`
   - `_aubb_expected_stdout.txt`

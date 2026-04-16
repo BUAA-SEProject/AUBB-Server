@@ -256,6 +256,31 @@
   - `bash ./mvnw clean verify`
   - `BUILD SUCCESS`，全量 `62` 个测试通过
 
+## Session: 2026-04-16 多语言运行时验证第一阶段
+
+### Phase 16：`JAVA17 / CPP17` 最小链路回归
+
+- **Status:** completed
+- Actions taken:
+  - 扩展 `ProgrammingWorkspaceIntegrationTests`，新增 `JAVA17 / CPP17` 样例试运行回归，固定语言特定命令和多文件装配行为
+  - 扩展 `StructuredProgrammingJudgeIntegrationTests`，新增 `JAVA17 / CPP17` 正式评测回归，确认题目级评测可写回 `submission_answers`
+  - 调整两组 fake go-judge 服务器，使其按 `Main.java / main.cpp` 与辅助源文件模拟最小可运行结果
+  - 同步 `task_plan.md`、`findings.md`、`todo.md` 和 judge 产品规格，明确三语言最小链路已纳入自动化验证
+- Files created/modified:
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `docs/product-specs/judge-system.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `todo.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests test`
+  - `BUILD SUCCESS`，新增后专项共 `6` 个测试通过
+  - `bash ./mvnw clean verify`
+  - `BUILD SUCCESS`，全量 `64` 个测试通过
+
 ## Session: 2026-04-16 教师侧成绩册第一阶段
 
 ### Phase 13：gradebook 聚合与接口
