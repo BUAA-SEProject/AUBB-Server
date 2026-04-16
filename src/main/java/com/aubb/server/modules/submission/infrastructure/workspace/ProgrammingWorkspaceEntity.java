@@ -29,6 +29,10 @@ public class ProgrammingWorkspaceEntity {
 
     private String artifactIdsJson;
 
+    private String entryFilePath;
+
+    private String sourceFilesJson;
+
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;
 

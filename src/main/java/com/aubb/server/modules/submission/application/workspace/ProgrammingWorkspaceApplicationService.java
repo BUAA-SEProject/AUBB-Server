@@ -1,6 +1,8 @@
 package com.aubb.server.modules.submission.application.workspace;
 
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.common.programming.ProgrammingSourceFile;
+import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionSnapshot;
@@ -26,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -40,6 +43,9 @@ public class ProgrammingWorkspaceApplicationService {
 
     private static final int MAX_CODE_TEXT_LENGTH = 50_000;
     private static final int MAX_ARTIFACT_COUNT = 10;
+    private static final int MAX_SOURCE_FILE_COUNT = 20;
+    private static final int MAX_SOURCE_FILE_PATH_LENGTH = 200;
+    private static final Pattern SAFE_SOURCE_FILE_PATH = Pattern.compile("^[A-Za-z0-9._/-]+$");
 
     private final ProgrammingWorkspaceMapper programmingWorkspaceMapper;
     private final AssignmentMapper assignmentMapper;
@@ -64,6 +70,8 @@ public class ProgrammingWorkspaceApplicationService {
             String codeText,
             List<Long> artifactIds,
             ProgrammingLanguage programmingLanguage,
+            String entryFilePath,
+            List<ProgrammingSourceFile> files,
             AuthenticatedUserPrincipal principal) {
         ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
         List<Long> normalizedArtifactIds = normalizeArtifactIds(artifactIds);
@@ -71,8 +79,10 @@ public class ProgrammingWorkspaceApplicationService {
                 loadScopedArtifacts(assignmentId, principal.getUserId(), normalizedArtifactIds);
         ProgrammingLanguage resolvedLanguage =
                 resolveLanguage(programmingLanguage, context.question().config());
-        validateProgrammingInput(context.question().config(), artifacts, resolvedLanguage);
         String normalizedCodeText = normalizeCodeText(codeText);
+        ProgrammingSourceSnapshot sourceSnapshot =
+                ProgrammingSourceSnapshot.fromInput(resolvedLanguage, normalizedCodeText, entryFilePath, files);
+        validateProgrammingInput(context.question().config(), artifacts, resolvedLanguage, sourceSnapshot);
 
         ProgrammingWorkspaceEntity entity = loadWorkspace(questionId, principal.getUserId());
         if (entity == null) {
@@ -82,8 +92,10 @@ public class ProgrammingWorkspaceApplicationService {
             entity.setUserId(principal.getUserId());
         }
         entity.setProgrammingLanguage(resolvedLanguage.name());
-        entity.setCodeText(normalizedCodeText);
+        entity.setCodeText(sourceSnapshot.entryCodeText());
         entity.setArtifactIdsJson(writeArtifactIds(normalizedArtifactIds));
+        entity.setEntryFilePath(sourceSnapshot.entryFilePath());
+        entity.setSourceFilesJson(writeSourceFiles(sourceSnapshot.files()));
         if (entity.getId() == null) {
             programmingWorkspaceMapper.insert(entity);
         } else {
@@ -103,6 +115,10 @@ public class ProgrammingWorkspaceApplicationService {
                         questionId,
                         "artifactCount",
                         normalizedArtifactIds.size(),
+                        "sourceFileCount",
+                        sourceSnapshot.files().size(),
+                        "entryFilePath",
+                        sourceSnapshot.entryFilePath(),
                         "programmingLanguage",
                         resolvedLanguage.name()));
         return toView(context.assignment(), context.question(), entity);
@@ -117,16 +133,25 @@ public class ProgrammingWorkspaceApplicationService {
 
     private ProgrammingWorkspaceView toView(
             AssignmentEntity assignment, AssignmentQuestionSnapshot question, ProgrammingWorkspaceEntity entity) {
-        AssignmentQuestionConfigInput config = question.config();
         List<Long> artifactIds = entity == null ? List.of() : readArtifactIds(entity.getArtifactIdsJson());
         List<SubmissionArtifactView> artifacts = loadArtifactViews(artifactIds);
-        ProgrammingLanguage programmingLanguage =
-                entity == null ? defaultLanguage(config) : ProgrammingLanguage.valueOf(entity.getProgrammingLanguage());
+        ProgrammingLanguage programmingLanguage = entity == null
+                ? defaultLanguage(question.config())
+                : ProgrammingLanguage.valueOf(entity.getProgrammingLanguage());
+        ProgrammingSourceSnapshot sourceSnapshot = entity == null
+                ? ProgrammingSourceSnapshot.fromInput(programmingLanguage, null, null, List.of())
+                : ProgrammingSourceSnapshot.fromInput(
+                        programmingLanguage,
+                        entity.getCodeText(),
+                        entity.getEntryFilePath(),
+                        readSourceFiles(entity.getSourceFilesJson()));
         return new ProgrammingWorkspaceView(
                 assignment.getId(),
                 question.id(),
                 programmingLanguage,
-                entity == null ? null : entity.getCodeText(),
+                sourceSnapshot.entryCodeText(),
+                sourceSnapshot.entryFilePath(),
+                sourceSnapshot.files(),
                 artifactIds,
                 artifacts,
                 entity == null ? null : entity.getUpdatedAt());
@@ -251,14 +276,17 @@ public class ProgrammingWorkspaceApplicationService {
     private void validateProgrammingInput(
             AssignmentQuestionConfigInput config,
             List<SubmissionArtifactEntity> artifacts,
-            ProgrammingLanguage programmingLanguage) {
+            ProgrammingLanguage programmingLanguage,
+            ProgrammingSourceSnapshot sourceSnapshot) {
         if (programmingLanguage == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_LANGUAGE_REQUIRED", "编程题工作区必须指定编程语言");
         }
         if (config.supportedLanguages() != null && !config.supportedLanguages().contains(programmingLanguage)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_LANGUAGE_UNSUPPORTED", "所选语言不在题目支持范围内");
         }
-        if (config.maxFileCount() != null && artifacts.size() > config.maxFileCount()) {
+        validateSourceFiles(sourceSnapshot);
+        int totalFileCount = artifacts.size() + sourceSnapshot.files().size();
+        if (config.maxFileCount() != null && totalFileCount > config.maxFileCount()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_LIMIT_EXCEEDED", "上传文件数量超过题目限制");
         }
         if (config.maxFileSizeMb() != null) {
@@ -269,8 +297,14 @@ public class ProgrammingWorkspaceApplicationService {
                             HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_SIZE_EXCEEDED", "存在文件大小超过题目限制");
                 }
             }
+            for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+                if (file.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxFileSizeBytes) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_SIZE_EXCEEDED", "存在文件大小超过题目限制");
+                }
+            }
         }
-        if (!Boolean.TRUE.equals(config.allowMultipleFiles()) && artifacts.size() > 1) {
+        if (!Boolean.TRUE.equals(config.allowMultipleFiles()) && totalFileCount > 1) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_MULTIPLE_FILES_DISABLED", "当前题目不允许上传多个文件");
         }
         if (config.acceptedExtensions() != null && !config.acceptedExtensions().isEmpty()) {
@@ -282,6 +316,44 @@ public class ProgrammingWorkspaceApplicationService {
                             HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_EXTENSION_INVALID", "存在文件扩展名不符合题目限制");
                 }
             }
+            for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+                if (!acceptedExtensions.contains(extensionOf(file.path()))) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_EXTENSION_INVALID", "存在文件扩展名不符合题目限制");
+                }
+            }
+        }
+    }
+
+    private void validateSourceFiles(ProgrammingSourceSnapshot sourceSnapshot) {
+        if (sourceSnapshot.files().size() > MAX_SOURCE_FILE_COUNT) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_LIMIT_EXCEEDED", "工作区源码文件数量超过限制");
+        }
+        LinkedHashSet<String> normalizedPaths = new LinkedHashSet<>();
+        for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+            if (!StringUtils.hasText(file.path())
+                    || file.path().length() > MAX_SOURCE_FILE_PATH_LENGTH
+                    || file.path().startsWith("/")
+                    || file.path().endsWith("/")
+                    || file.path().contains("\\")
+                    || file.path().contains("//")
+                    || file.path().contains("/./")
+                    || file.path().startsWith("./")
+                    || file.path().contains("../")
+                    || !SAFE_SOURCE_FILE_PATH.matcher(file.path()).matches()) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_INVALID", "工作区源码文件路径不合法");
+            }
+            if (!normalizedPaths.add(file.path())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_DUPLICATED", "工作区源码文件路径不能重复");
+            }
+            if (file.content().length() > MAX_CODE_TEXT_LENGTH) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_CODE_TOO_LONG", "编程题工作区代码正文长度超过限制");
+            }
+        }
+        if (!sourceSnapshot.files().isEmpty() && !normalizedPaths.contains(sourceSnapshot.entryFilePath())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "PROGRAMMING_ENTRY_FILE_INVALID", "工作区入口文件必须出现在源码文件列表中");
         }
     }
 
@@ -311,6 +383,14 @@ public class ProgrammingWorkspaceApplicationService {
         }
     }
 
+    private String writeSourceFiles(List<ProgrammingSourceFile> files) {
+        try {
+            return objectMapper.writeValueAsString(files == null ? List.of() : files);
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("工作区源码文件列表无法序列化", exception);
+        }
+    }
+
     private List<Long> readArtifactIds(String artifactIdsJson) {
         if (!StringUtils.hasText(artifactIdsJson)) {
             return List.of();
@@ -320,6 +400,18 @@ public class ProgrammingWorkspaceApplicationService {
             return artifactIds == null ? List.of() : Arrays.stream(artifactIds).toList();
         } catch (JacksonException exception) {
             throw new IllegalStateException("工作区附件列表无法读取", exception);
+        }
+    }
+
+    private List<ProgrammingSourceFile> readSourceFiles(String sourceFilesJson) {
+        if (!StringUtils.hasText(sourceFilesJson)) {
+            return List.of();
+        }
+        try {
+            ProgrammingSourceFile[] files = objectMapper.readValue(sourceFilesJson, ProgrammingSourceFile[].class);
+            return files == null ? List.of() : Arrays.stream(files).toList();
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("工作区源码文件列表无法读取", exception);
         }
     }
 

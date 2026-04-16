@@ -1,5 +1,6 @@
 package com.aubb.server.modules.submission.api;
 
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.submission.application.workspace.ProgrammingWorkspaceApplicationService;
@@ -47,9 +48,15 @@ public class MyProgrammingWorkspaceController {
                 request.codeText(),
                 request.artifactIds(),
                 request.programmingLanguage(),
+                request.entryFilePath(),
+                request.files(),
                 principal);
     }
 
     public record SaveWorkspaceRequest(
-            String codeText, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {}
+            String codeText,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage,
+            String entryFilePath,
+            List<ProgrammingSourceFile> files) {}
 }

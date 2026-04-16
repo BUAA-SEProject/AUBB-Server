@@ -1,5 +1,6 @@
 package com.aubb.server.modules.submission.application.workspace;
 
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -12,6 +13,8 @@ public record ProgrammingWorkspaceView(
         Long assignmentQuestionId,
         ProgrammingLanguage programmingLanguage,
         String codeText,
+        String entryFilePath,
+        List<ProgrammingSourceFile> files,
         List<Long> artifactIds,
         List<SubmissionArtifactView> artifacts,
         OffsetDateTime updatedAt) {}

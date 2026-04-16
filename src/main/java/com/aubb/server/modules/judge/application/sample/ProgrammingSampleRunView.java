@@ -1,5 +1,6 @@
 package com.aubb.server.modules.judge.application.sample;
 
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.judge.domain.JudgeVerdict;
 import com.aubb.server.modules.judge.domain.ProgrammingSampleRunStatus;
@@ -13,6 +14,8 @@ public record ProgrammingSampleRunView(
         Long assignmentId,
         Long assignmentQuestionId,
         ProgrammingLanguage programmingLanguage,
+        String entryFilePath,
+        List<ProgrammingSourceFile> files,
         List<Long> artifactIds,
         ProgrammingSampleRunStatus status,
         JudgeVerdict verdict,

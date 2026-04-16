@@ -176,11 +176,6 @@ class ProgrammingWorkspaceIntegrationTests {
                 .andReturn();
         Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
 
-        Long artifactId = uploadArtifact(studentToken, assignmentId, "helper.py", "text/x-python", """
-                def add(left, right):
-                    return left + right
-                """);
-
         mockMvc.perform(put(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
                                 assignmentId,
@@ -189,17 +184,34 @@ class ProgrammingWorkspaceIntegrationTests {
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "codeText":"from helper import add\\na, b = map(int, input().split())\\nprint(add(a, b))",
-                                  "artifactIds":[%s],
+                                  "entryFilePath":"main.py",
+                                  "files":[
+                                    {
+                                      "path":"main.py",
+                                      "content":"from helpers.math_utils import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                    },
+                                    {
+                                      "path":"helpers/__init__.py",
+                                      "content":""
+                                    },
+                                    {
+                                      "path":"helpers/math_utils.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    }
+                                  ],
                                   "programmingLanguage":"PYTHON3"
                                 }
-                                """.formatted(artifactId)))
+                                """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assignmentId").value(assignmentId))
                 .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
                 .andExpect(jsonPath("$.programmingLanguage").value("PYTHON3"))
-                .andExpect(jsonPath("$.artifactIds[0]").value(artifactId))
-                .andExpect(jsonPath("$.artifacts[0].originalFilename").value("helper.py"));
+                .andExpect(jsonPath("$.entryFilePath").value("main.py"))
+                .andExpect(jsonPath("$.files[0].path").value("main.py"))
+                .andExpect(jsonPath("$.files[1].path").value("helpers/__init__.py"))
+                .andExpect(jsonPath("$.files[2].path").value("helpers/math_utils.py"))
+                .andExpect(jsonPath("$.codeText")
+                        .value(org.hamcrest.Matchers.containsString("from helpers.math_utils import add")));
 
         mockMvc.perform(get(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
@@ -208,9 +220,10 @@ class ProgrammingWorkspaceIntegrationTests {
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.programmingLanguage").value("PYTHON3"))
-                .andExpect(jsonPath("$.artifactIds[0]").value(artifactId))
-                .andExpect(
-                        jsonPath("$.codeText").value(org.hamcrest.Matchers.containsString("from helper import add")));
+                .andExpect(jsonPath("$.entryFilePath").value("main.py"))
+                .andExpect(jsonPath("$.files[2].path").value("helpers/math_utils.py"))
+                .andExpect(jsonPath("$.codeText")
+                        .value(org.hamcrest.Matchers.containsString("from helpers.math_utils import add")));
 
         MvcResult sampleRunResult = mockMvc.perform(post(
                                 "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
@@ -220,14 +233,29 @@ class ProgrammingWorkspaceIntegrationTests {
                         .contentType("application/json")
                         .content("""
                                         {
-                                          "codeText":"from helper import add\\na, b = map(int, input().split())\\nprint(add(a, b))",
-                                          "artifactIds":[%s],
+                                          "entryFilePath":"main.py",
+                                          "files":[
+                                            {
+                                              "path":"main.py",
+                                              "content":"from helpers.math_utils import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                            },
+                                            {
+                                              "path":"helpers/__init__.py",
+                                              "content":""
+                                            },
+                                            {
+                                              "path":"helpers/math_utils.py",
+                                              "content":"def add(left, right):\\n    return left + right"
+                                            }
+                                          ],
                                           "programmingLanguage":"PYTHON3"
                                         }
-                                        """.formatted(artifactId)))
+                                        """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.assignmentId").value(assignmentId))
                 .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$.entryFilePath").value("main.py"))
+                .andExpect(jsonPath("$.files[2].path").value("helpers/math_utils.py"))
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
                 .andExpect(jsonPath("$.stdoutText").value("3\n"))
@@ -245,6 +273,8 @@ class ProgrammingWorkspaceIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].id").value(sampleRunId))
+                .andExpect(jsonPath("$[0].entryFilePath").value("main.py"))
+                .andExpect(jsonPath("$[0].files[2].path").value("helpers/math_utils.py"))
                 .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$[0].verdict").value("ACCEPTED"));
 
@@ -254,12 +284,15 @@ class ProgrammingWorkspaceIntegrationTests {
         assertThat(queryForInt("SELECT COUNT(*) FROM programming_sample_runs")).isEqualTo(1);
         assertThat(queryForString("SELECT programming_language FROM programming_workspaces WHERE user_id = 4"))
                 .isEqualTo("PYTHON3");
-        assertThat(queryForInt("SELECT COUNT(*) FROM submission_artifacts WHERE submission_id IS NOT NULL"))
-                .isZero();
+        assertThat(queryForString("SELECT entry_file_path FROM programming_workspaces WHERE user_id = 4"))
+                .isEqualTo("main.py");
+        assertThat(queryForString("SELECT source_files_json FROM programming_workspaces WHERE user_id = 4"))
+                .contains("helpers/math_utils.py");
 
         JsonNode request = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(request.at("/cmd/0/copyIn/main.py/content").asText()).contains("from helper import add");
-        assertThat(request.at("/cmd/0/copyIn/helper.py/content").asText()).contains("def add");
+        assertThat(request.at("/cmd/0/copyIn/main.py/content").asText()).contains("from helpers.math_utils import add");
+        assertThat(request.at("/cmd/0/copyIn/helpers~1math_utils.py/content").asText())
+                .contains("def add");
         assertThat(request.at("/cmd/0/files/0/content").asText()).isEqualTo("1 2\n");
     }
 

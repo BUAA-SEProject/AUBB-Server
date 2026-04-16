@@ -29,6 +29,10 @@ public class ProgrammingSampleRunEntity {
 
     private String artifactIdsJson;
 
+    private String entryFilePath;
+
+    private String sourceFilesJson;
+
     private String stdinText;
 
     private String expectedStdout;

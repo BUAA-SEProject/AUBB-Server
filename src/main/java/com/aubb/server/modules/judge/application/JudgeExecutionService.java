@@ -1,5 +1,7 @@
 package com.aubb.server.modules.judge.application;
 
+import com.aubb.server.common.programming.ProgrammingSourceFile;
+import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.common.storage.ObjectStorageException;
 import com.aubb.server.common.storage.ObjectStorageService;
 import com.aubb.server.common.storage.StoredObject;
@@ -196,7 +198,7 @@ public class JudgeExecutionService {
 
     public ProgrammingSampleRunOutcome runProgrammingSample(
             AssignmentQuestionSnapshot question,
-            String answerText,
+            ProgrammingSourceSnapshot sourceSnapshot,
             List<Long> artifactIds,
             ProgrammingLanguage programmingLanguage) {
         if (!goJudgeProperties.enabled()) {
@@ -216,7 +218,7 @@ public class JudgeExecutionService {
             return ProgrammingSampleRunOutcome.failed("当前编程题未配置样例输入", null, null);
         }
         try {
-            SourceBundle sourceBundle = buildSourceBundle(answerText, artifactIds, programmingLanguage);
+            SourceBundle sourceBundle = buildSourceBundle(sourceSnapshot, artifactIds, programmingLanguage);
             CaseOutcome caseOutcome = evaluateProgrammingCase(
                     sourceBundle,
                     programmingLanguage,
@@ -333,7 +335,13 @@ public class JudgeExecutionService {
         }
 
         SourceBundle sourceBundle = buildSourceBundle(
-                context.answer().getAnswerText(), payload.artifactIds(), payload.programmingLanguage());
+                ProgrammingSourceSnapshot.fromInput(
+                        payload.programmingLanguage(),
+                        context.answer().getAnswerText(),
+                        payload.entryFilePath(),
+                        payload.files()),
+                payload.artifactIds(),
+                payload.programmingLanguage());
         List<JudgeJobCaseResultView> caseResults = new ArrayList<>();
         int passedCaseCount = 0;
         int totalCaseCount = config.judgeCases().size();
@@ -775,11 +783,14 @@ public class JudgeExecutionService {
     }
 
     private SourceBundle buildSourceBundle(
-            String answerText, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {
-        String entryFileName = defaultEntryFileName(programmingLanguage);
+            ProgrammingSourceSnapshot sourceSnapshot, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {
+        ProgrammingSourceSnapshot normalizedSnapshot = sourceSnapshot == null
+                ? ProgrammingSourceSnapshot.fromInput(programmingLanguage, null, null, List.of())
+                : sourceSnapshot;
+        String entryFileName = normalizedSnapshot.entryFilePath();
         Map<String, CopyInFile> copyIn = readArtifactSourceFiles(artifactIds);
-        if (StringUtils.hasText(answerText)) {
-            copyIn.put(entryFileName, new CopyInFile(answerText));
+        for (ProgrammingSourceFile file : normalizedSnapshot.files()) {
+            copyIn.put(file.path(), new CopyInFile(file.content()));
         }
         if (!copyIn.containsKey(entryFileName)) {
             throw new IllegalStateException("当前自动评测需要代码文本或包含入口文件的附件");
@@ -815,10 +826,15 @@ public class JudgeExecutionService {
 
     private ProgrammingAnswerPayload readProgrammingPayload(String payloadJson) {
         if (!StringUtils.hasText(payloadJson)) {
-            return new ProgrammingAnswerPayload(List.of(), null);
+            return new ProgrammingAnswerPayload(List.of(), null, null, List.of());
         }
         try {
-            return objectMapper.readValue(payloadJson, ProgrammingAnswerPayload.class);
+            ProgrammingAnswerPayload payload = objectMapper.readValue(payloadJson, ProgrammingAnswerPayload.class);
+            return new ProgrammingAnswerPayload(
+                    payload.artifactIds() == null ? List.of() : payload.artifactIds(),
+                    payload.programmingLanguage(),
+                    payload.entryFilePath(),
+                    payload.files() == null ? List.of() : payload.files());
         } catch (JacksonException exception) {
             throw new IllegalStateException("编程题答案载荷无法读取", exception);
         }
@@ -833,14 +849,6 @@ public class JudgeExecutionService {
         } catch (JacksonException exception) {
             throw new IllegalStateException("评测结果详情无法序列化", exception);
         }
-    }
-
-    private String defaultEntryFileName(ProgrammingLanguage language) {
-        return switch (language) {
-            case PYTHON3 -> "main.py";
-            case JAVA17 -> "Main.java";
-            case CPP17 -> "main.cpp";
-        };
     }
 
     private int safeInt(Integer value, int defaultValue) {
@@ -1027,7 +1035,11 @@ public class JudgeExecutionService {
         }
     }
 
-    private record ProgrammingAnswerPayload(List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {}
+    private record ProgrammingAnswerPayload(
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage,
+            String entryFilePath,
+            List<ProgrammingSourceFile> files) {}
 
     private record SourceBundle(String entryFileName, Map<String, CopyInFile> copyIn) {}
 

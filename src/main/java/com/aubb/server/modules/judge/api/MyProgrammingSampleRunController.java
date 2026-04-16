@@ -1,5 +1,6 @@
 package com.aubb.server.modules.judge.api;
 
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.judge.application.sample.ProgrammingSampleRunApplicationService;
@@ -41,6 +42,8 @@ public class MyProgrammingSampleRunController {
                 request.codeText(),
                 request.artifactIds(),
                 request.programmingLanguage(),
+                request.entryFilePath(),
+                request.files(),
                 principal);
     }
 
@@ -54,5 +57,9 @@ public class MyProgrammingSampleRunController {
     }
 
     public record CreateProgrammingSampleRunRequest(
-            String codeText, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {}
+            String codeText,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage,
+            String entryFilePath,
+            List<ProgrammingSourceFile> files) {}
 }

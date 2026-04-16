@@ -1,5 +1,6 @@
 package com.aubb.server.modules.submission.application.answer;
 
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.submission.domain.answer.SubmissionAnswerGradingStatus;
@@ -17,6 +18,8 @@ public record SubmissionAnswerView(
         List<String> selectedOptionKeys,
         List<Long> artifactIds,
         ProgrammingLanguage programmingLanguage,
+        String entryFilePath,
+        List<ProgrammingSourceFile> files,
         Integer autoScore,
         Integer manualScore,
         Integer finalScore,

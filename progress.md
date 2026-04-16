@@ -218,15 +218,43 @@
 - Files created/modified:
   - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
   - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+
+## Session: 2026-04-16 编程工作区目录树快照第一阶段
+
+### Phase 15：工作区快照后端模型
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V13__programming_workspace_file_tree_phase1.sql`，为 `programming_workspaces` 和 `programming_sample_runs` 增加 `entry_file_path / source_files_json`
+  - 引入共享 `ProgrammingSourceSnapshot / ProgrammingSourceFile` 模型，统一工作区、样例试运行和正式编程答案的源码快照表示
+  - 在学生侧工作区、样例试运行和正式提交接口中追加 `entryFilePath + files`，同时保留 legacy `codeText` 兼容语义
+  - 调整 `JudgeExecutionService`，让样例试运行与正式评测复用同一套目录树源码装配逻辑
+  - 扩展 `ProgrammingWorkspaceIntegrationTests` 与 `StructuredProgrammingJudgeIntegrationTests`，覆盖目录树快照持久化、样例试运行与正式评测的多文件装配
+  - 同步 submission / judge 产品规格、数据库结构、路线图与工作记忆，明确当前边界为“后端快照已完成，前端目录树 IDE 仍待后续阶段”
+- Files created/modified:
+  - `src/main/java/com/aubb/server/common/programming/**`
+  - `src/main/java/com/aubb/server/modules/submission/**`
+  - `src/main/java/com/aubb/server/modules/judge/**`
+  - `src/main/resources/db/migration/V13__programming_workspace_file_tree_phase1.sql`
   - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `docs/exec-plans/completed/2026-04-16-programming-workspace-file-tree-phase1.md`
+  - `docs/product-specs/submission-system.md`
+  - `docs/product-specs/judge-system.md`
+  - `docs/generated/db-schema.md`
   - `README.md`
   - `ARCHITECTURE.md`
-  - `docs/product-specs/{assignment,judge}-system.md`
   - `docs/product-sense.md`
-  - `docs/generated/db-schema.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
   - `todo.md`
   - `task_plan.md`
   - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests,SubmissionIntegrationTests,JudgeIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - `BUILD SUCCESS`，全量 `62` 个测试通过
 
 ## Session: 2026-04-16 教师侧成绩册第一阶段
 

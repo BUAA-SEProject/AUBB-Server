@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志和 `CUSTOM_SCRIPT` 第一阶段最小闭环，为后续完整在线 IDE 和更复杂实验环境提供稳定链路。
+交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、异步调用 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志和 `CUSTOM_SCRIPT` 第一阶段闭环。当前样例试运行与正式评测都已复用目录树源码快照装配，为后续前端在线 IDE 和更复杂实验环境提供稳定链路。
 
 ## 覆盖范围
 
@@ -15,7 +15,7 @@
 - 当前支持结构化编程题 question-level judge 第一阶段：
   - 编程题隐藏测试点
   - `submission_answer_id` 级 job 关联
-  - 代码正文 + 附件装配为多文件输入
+  - 目录树源码快照 + 附件装配为多文件输入，并兼容 legacy `codeText`
   - 逐测试点结果明细回写到 `judge_jobs.case_results_json`
 - 当前支持结构化编程题样例试运行：
   - 独立的 `programming_sample_runs` 历史
@@ -46,7 +46,7 @@
 
 1. 只有 assignment 已配置自动评测时，正式提交后才会自动创建 `AUTO` 类型的评测作业。
 2. legacy assignment 级自动评测只消费文本提交体。
-3. 结构化编程题题目级自动评测会从 `submission_answers` 读取语言、代码正文和附件列表，并按答案维度归属。
+3. 结构化编程题题目级自动评测会从 `submission_answers` 读取语言、入口文件、文件树快照和附件列表，并按答案维度归属；若只有 legacy `codeText`，则按单入口文件模式兼容。
 4. 教师手动重新排队不会修改历史评测作业，只会创建新的 `MANUAL_REJUDGE` 作业。
 5. 学生只能查看自己的评测作业。
 6. 教师只能查看和重排队自己课程范围内的评测作业。
@@ -55,6 +55,7 @@
 9. 结构化编程题当前支持 `STANDARD_IO` 和 `CUSTOM_SCRIPT` 两种真实执行模式；`CUSTOM_SCRIPT` 当前固定使用 Python checker，不支持教师自定义命令串。
 10. checker 只能返回 JSON 裁决；checker 自身的 `stdout / stderr` 不覆盖学生程序日志，学生界面看到的仍是学生程序的输出。
 11. 样例试运行与正式评测分开建模：样例试运行不写入 `judge_jobs`，也不影响正式成绩与提交次数。
+12. 样例试运行与正式评测的源码装配优先消费 `entryFilePath + files`；旧 `codeText` 仅作为兼容路径保留。
 
 ## 核心数据模型
 
@@ -91,7 +92,7 @@
   - `queued_at / started_at / finished_at`：状态时间戳
 - `programming_sample_runs`
   - `assignment_id + assignment_question_id + user_id`：运行范围与归属
-  - `programming_language / code_text / artifact_ids_json`：本次样例运行的代码快照
+  - `programming_language / code_text / entry_file_path / source_files_json / artifact_ids_json`：本次样例运行的代码快照
   - `stdin_text / expected_stdout`：样例输入输出快照
   - `status`：`RUNNING / SUCCEEDED / FAILED`
   - `verdict`：样例运行的最终判定
@@ -124,7 +125,7 @@
 ## 当前实现边界
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
-- 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把附件作为辅助源文件写入运行目录；自动化验证目前覆盖 `PYTHON3`。
+- 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把目录树源码快照和附件一起写入运行目录；自动化验证目前覆盖 `PYTHON3`。
 - `CUSTOM_SCRIPT` 当前通过固定的 Python checker 执行，checker 读取保留文件：
   - `_aubb_stdin.txt`
   - `_aubb_expected_stdout.txt`
@@ -133,7 +134,7 @@
   - `_aubb_judge_context.json`
 - `CUSTOM_SCRIPT` 当前约定 checker 输出一段 JSON，例如 `{\"verdict\":\"ACCEPTED\",\"score\":60,\"message\":\"样例通过\"}`；非法 JSON、未知 verdict、越界分数或 checker 执行异常会落成 `SYSTEM_ERROR`。
 - 当前逐测试点明细已经挂到 `judge_jobs.case_results_json` 并通过 API 返回，但尚未把完整正式评测日志和产物持久化到对象存储。
-- 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果落到 `programming_sample_runs`。
+- 样例试运行当前只执行单个样例输入输出，不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果和源码快照落到 `programming_sample_runs`。
 - 当前采用应用内异步执行，不走 RabbitMQ worker。
 - 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
 

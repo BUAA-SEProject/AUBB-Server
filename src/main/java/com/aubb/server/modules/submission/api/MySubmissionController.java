@@ -1,6 +1,7 @@
 package com.aubb.server.modules.submission.api;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.submission.application.SubmissionApplicationService;
@@ -107,7 +108,9 @@ public class MySubmissionController {
                                     answer.answerText(),
                                     answer.selectedOptionKeys(),
                                     answer.artifactIds(),
-                                    answer.programmingLanguage()))
+                                    answer.programmingLanguage(),
+                                    answer.entryFilePath(),
+                                    answer.files()))
                             .toList();
         }
     }
@@ -117,5 +120,7 @@ public class MySubmissionController {
             String answerText,
             List<String> selectedOptionKeys,
             List<Long> artifactIds,
-            ProgrammingLanguage programmingLanguage) {}
+            ProgrammingLanguage programmingLanguage,
+            String entryFilePath,
+            List<ProgrammingSourceFile> files) {}
 }

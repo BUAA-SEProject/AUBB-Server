@@ -21,7 +21,7 @@
 #### 部分完成
 
 - 题库管理只有最小生命周期，缺更新、删除、标签、检索与更完整组卷体验
-- 编程题在线 IDE 只有“代码正文 + 语言 + 附件引用”的最小工作区，不是目录树 IDE
+- 编程题后端已支持 `entryFilePath + files + artifactIds` 的目录树快照、样例试运行和正式评测复用，但前端目录树交互与逐文件操作尚未补齐
 - 多语言运行时已有 `PYTHON3 / JAVA17 / CPP17` 的模型与部分执行链路，但验证与日志一致性不足
 - 成绩发布和教师侧成绩册已完成第一阶段，但学生侧成绩面板、导出和多作业聚合未完成
 - 评测结果已有摘要、`stdout/stderr` 和用例级结果，但完整日志与可复现元数据仍不足
@@ -102,6 +102,7 @@
 - 学生侧 submission API：
   - `POST /api/v1/me/assignments/{assignmentId}/submissions`
   - 现有 `contentText` / `artifactIds` 语义不能被破坏，只能追加结构化字段
+- 编程题工作区、样例试运行和正式编程答案当前已追加 `entryFilePath / files`，旧 `codeText` 仍保留兼容语义
 - 教师侧 submission / judge 查询 API 继续按 `assignmentId` 和 `submissionId` 聚合，不打散已有查询模型
 
 ## 第一阶段最合理的交付边界
@@ -139,8 +140,8 @@
 
 - 现有 `assignment_judge_profiles` 是 legacy assignment 级配置；结构化编程题当前已通过 `assignment_questions.config_json` 挂题目级隐藏测试点。
 - `judge_jobs` 已能同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与产物对象仍未持久化。
-- `programming_workspaces` 已提供最小工作区状态；当前只保存代码正文、语言和附件引用，不提供目录树级文件操作。
-- `programming_sample_runs` 已提供样例试运行历史与完整 stdout / stderr，并已支持 `CUSTOM_SCRIPT`；正式评测与试运行的评测产物对象存储仍未落地。
+- `programming_workspaces` 已支持 `entryFilePath + sourceFilesJson + artifactIdsJson` 的目录树快照，并兼容 legacy `codeText` 语义；前端目录树交互和逐文件操作仍未实现。
+- `programming_sample_runs` 已支持保存样例试运行时的入口文件与文件树快照，并已支持 `CUSTOM_SCRIPT`；正式评测与试运行的评测产物对象存储仍未落地。
 - 结构化作业一旦落地，旧版“整份文本提交”不能误用于新型作业，必须在业务层显式区分。
 - 学生详情接口不能泄露题库正确答案或 assignment 快照中的 `isCorrect` 信息。
 - assignment 级成绩发布当前是全局开关，后续若需要按班级或按学生分批发布，需要单独建模。

@@ -175,11 +175,6 @@ class StructuredProgrammingJudgeIntegrationTests {
                 .andReturn();
         Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
 
-        Long artifactId = uploadArtifact(studentToken, assignmentId, "helper.py", "text/x-python", """
-                def add(left, right):
-                    return left + right
-                """);
-
         MvcResult submissionResult = mockMvc.perform(
                         post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
                                 .header("Authorization", "Bearer " + studentToken)
@@ -189,15 +184,30 @@ class StructuredProgrammingJudgeIntegrationTests {
                                   "answers":[
                                     {
                                       "assignmentQuestionId":%s,
-                                      "answerText":"from helper import add\\na, b = map(int, input().split())\\nprint(add(a, b))",
-                                      "artifactIds":[%s],
+                                      "entryFilePath":"main.py",
+                                      "files":[
+                                        {
+                                          "path":"main.py",
+                                          "content":"from helpers.math_utils import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                        },
+                                        {
+                                          "path":"helpers/__init__.py",
+                                          "content":""
+                                        },
+                                        {
+                                          "path":"helpers/math_utils.py",
+                                          "content":"def add(left, right):\\n    return left + right"
+                                        }
+                                      ],
                                       "programmingLanguage":"PYTHON3"
                                     }
                                   ]
                                 }
-                                """.formatted(questionId, artifactId)))
+                                """.formatted(questionId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PENDING_PROGRAMMING_JUDGE"))
+                .andExpect(jsonPath("$.answers[0].entryFilePath").value("main.py"))
+                .andExpect(jsonPath("$.answers[0].files[2].path").value("helpers/math_utils.py"))
                 .andExpect(jsonPath("$.scoreSummary.pendingProgrammingCount").value(1))
                 .andReturn();
 
@@ -226,6 +236,8 @@ class StructuredProgrammingJudgeIntegrationTests {
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
+                .andExpect(jsonPath("$.answers[0].entryFilePath").value("main.py"))
+                .andExpect(jsonPath("$.answers[0].files[2].path").value("helpers/math_utils.py"))
                 .andExpect(jsonPath("$.answers[0].autoScore").value(100))
                 .andExpect(jsonPath("$.answers[0].finalScore").value(100))
                 .andExpect(jsonPath("$.scoreSummary.pendingProgrammingCount").value(0))
@@ -239,8 +251,12 @@ class StructuredProgrammingJudgeIntegrationTests {
                 .isEqualTo(100);
 
         JsonNode firstRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(firstRequest.at("/cmd/0/copyIn/main.py/content").asText()).contains("from helper import add");
-        assertThat(firstRequest.at("/cmd/0/copyIn/helper.py/content").asText()).contains("def add");
+        assertThat(firstRequest.at("/cmd/0/copyIn/main.py/content").asText())
+                .contains("from helpers.math_utils import add");
+        assertThat(firstRequest
+                        .at("/cmd/0/copyIn/helpers~1math_utils.py/content")
+                        .asText())
+                .contains("def add");
 
         mockMvc.perform(post("/api/v1/teacher/submission-answers/{answerId}/judge-jobs/requeue", answerId)
                         .header("Authorization", "Bearer " + teacherToken))
@@ -689,6 +705,10 @@ class StructuredProgrammingJudgeIntegrationTests {
 
             String source = request.at("/cmd/0/copyIn/main.py/content").asText();
             String helper = request.at("/cmd/0/copyIn/helper.py/content").asText();
+            if (helper.isEmpty()) {
+                helper = request.at("/cmd/0/copyIn/helpers~1math_utils.py/content")
+                        .asText();
+            }
             String stdin = request.at("/cmd/0/files/0/content").asText();
             if (source.contains("#FAIL_HTTP")) {
                 writePlain(exchange, 500, "judge unavailable");
@@ -701,7 +721,8 @@ class StructuredProgrammingJudgeIntegrationTests {
             }
 
             String stdout;
-            if (source.contains("from helper import add") && helper.contains("def add")) {
+            if ((source.contains("from helper import add") || source.contains("from helpers.math_utils import add"))
+                    && helper.contains("def add")) {
                 String[] parts = stripTrailingNewline(stdin).split(" ");
                 stdout = (Integer.parseInt(parts[0]) + Integer.parseInt(parts[1])) + "\n";
             } else if (source.contains("result = a + b")) {

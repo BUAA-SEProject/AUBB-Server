@@ -14,6 +14,7 @@
 - `src/main/resources/db/migration/V10__grading_first_slice.sql`
 - `src/main/resources/db/migration/V11__structured_programming_judge_phase1.sql`
 - `src/main/resources/db/migration/V12__programming_workspace_and_sample_runs.sql`
+- `src/main/resources/db/migration/V13__programming_workspace_file_tree_phase1.sql`
 
 ## 总览
 
@@ -431,7 +432,7 @@
 | `submission_id` | `bigint` | 必填，外键到 `submissions.id`，级联删除 |
 | `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
 | `answer_text` | `text` | 可空，文本答案或代码正文 |
-| `answer_payload_json` | `text` | 必填，默认 `{}`，保存选项、附件、语言等结构化载荷 |
+| `answer_payload_json` | `text` | 必填，默认 `{}`，保存选项、附件、语言、入口文件和目录树源码快照等结构化载荷 |
 | `auto_score` | `integer` | 可空，`>= 0` |
 | `manual_score` | `integer` | 可空，`>= 0` |
 | `final_score` | `integer` | 可空，`>= 0` |
@@ -459,7 +460,9 @@
 | `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
 | `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
 | `programming_language` | `text` | 必填，`PYTHON3 / JAVA17 / CPP17` |
-| `code_text` | `text` | 可空，当前入口文件正文 |
+| `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
+| `entry_file_path` | `text` | 可空，当前入口文件路径 |
+| `source_files_json` | `text` | 必填，默认 `[]`，保存目录树源码快照 |
 | `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
 | `created_at` | `timestamptz` | 必填，默认 `now()` |
 | `updated_at` | `timestamptz` | 必填，默认 `now()` |
@@ -525,7 +528,9 @@
 | `assignment_question_id` | `bigint` | 必填，外键到 `assignment_questions.id`，级联删除 |
 | `user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
 | `programming_language` | `text` | 必填，`PYTHON3 / JAVA17 / CPP17` |
-| `code_text` | `text` | 可空，本次样例运行入口文件正文 |
+| `code_text` | `text` | 可空，兼容 legacy 单文件模式的入口文件正文 |
+| `entry_file_path` | `text` | 可空，本次样例运行入口文件路径 |
+| `source_files_json` | `text` | 必填，默认 `[]`，保存本次样例运行的目录树源码快照 |
 | `artifact_ids_json` | `text` | 必填，默认 `[]`，保存附件引用列表 |
 | `stdin_text` | `text` | 必填，样例输入快照 |
 | `expected_stdout` | `text` | 可空，样例预期输出快照 |
@@ -684,12 +689,12 @@
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
 - `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕。
-- `programming_workspaces` 用于保存学生在单道编程题上的最小工作区状态，不改变正式提交版本号和成绩语义。
+- `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
 - `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job，并保存逐测试点摘要；完整日志与评测产物对象仍未持久化。
-- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩。
+- `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会同时持久化入口文件与目录树源码快照。
 - `assignment_questions.config_json.customJudgeScript` 当前按“脚本内容”语义保存，由 judge 模块固定落盘为 Python checker 执行，不额外引入新表。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。

@@ -1,6 +1,8 @@
 package com.aubb.server.modules.submission.application.answer;
 
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.common.programming.ProgrammingSourceFile;
+import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionView;
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,6 +35,11 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 @RequiredArgsConstructor
 public class SubmissionAnswerApplicationService {
+
+    private static final int MAX_PROGRAMMING_SOURCE_FILE_COUNT = 20;
+    private static final int MAX_PROGRAMMING_SOURCE_PATH_LENGTH = 200;
+    private static final int MAX_PROGRAMMING_SOURCE_CONTENT_LENGTH = 50_000;
+    private static final Pattern SAFE_PROGRAMMING_SOURCE_PATH = Pattern.compile("^[A-Za-z0-9._/-]+$");
 
     private final SubmissionAnswerMapper submissionAnswerMapper;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
@@ -200,7 +208,7 @@ public class SubmissionAnswerApplicationService {
         int score = selectedKeys.equals(question.correctOptionKeys()) ? question.score() : 0;
         return new EvaluatedAnswer(
                 null,
-                new AnswerPayload(List.copyOf(selectedKeys), List.of(), null),
+                new AnswerPayload(List.copyOf(selectedKeys), List.of(), null, null, List.of()),
                 score,
                 null,
                 score,
@@ -214,7 +222,7 @@ public class SubmissionAnswerApplicationService {
         }
         return new EvaluatedAnswer(
                 input.answerText().trim(),
-                new AnswerPayload(List.of(), List.of(), null),
+                new AnswerPayload(List.of(), List.of(), null, null, List.of()),
                 null,
                 null,
                 null,
@@ -230,7 +238,7 @@ public class SubmissionAnswerApplicationService {
         }
         return new EvaluatedAnswer(
                 null,
-                new AnswerPayload(List.of(), artifactIds, null),
+                new AnswerPayload(List.of(), artifactIds, null, null, List.of()),
                 null,
                 null,
                 null,
@@ -243,11 +251,15 @@ public class SubmissionAnswerApplicationService {
             SubmissionAnswerInput input,
             Map<Long, SubmissionArtifactEntity> artifactsById) {
         List<Long> artifactIds = normalizeArtifactIds(input.artifactIds(), artifactsById.keySet());
-        if (!StringUtils.hasText(input.answerText()) && artifactIds.isEmpty()) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_REQUIRED", "编程题必须提供代码文本或附件");
-        }
         if (input.programmingLanguage() == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_LANGUAGE_REQUIRED", "编程题必须指定语言");
+        }
+        String normalizedCodeText =
+                StringUtils.hasText(input.answerText()) ? input.answerText().trim() : null;
+        ProgrammingSourceSnapshot sourceSnapshot = ProgrammingSourceSnapshot.fromInput(
+                input.programmingLanguage(), normalizedCodeText, input.entryFilePath(), input.files());
+        if (sourceSnapshot.files().isEmpty() && artifactIds.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_REQUIRED", "编程题必须提供代码文本、源码文件或附件");
         }
         if (config != null
                 && config.supportedLanguages() != null
@@ -256,11 +268,13 @@ public class SubmissionAnswerApplicationService {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_LANGUAGE_UNSUPPORTED", "当前语言不在题目支持范围内");
         }
-        if (config != null && config.maxFileCount() != null && artifactIds.size() > config.maxFileCount()) {
+        validateProgrammingSourceFiles(sourceSnapshot);
+        int totalFileCount = artifactIds.size() + sourceSnapshot.files().size();
+        if (config != null && config.maxFileCount() != null && totalFileCount > config.maxFileCount()) {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_FILE_COUNT_EXCEEDED", "当前编程题附件数量超过限制");
         }
-        if (config != null && !Boolean.TRUE.equals(config.allowMultipleFiles()) && artifactIds.size() > 1) {
+        if (config != null && !Boolean.TRUE.equals(config.allowMultipleFiles()) && totalFileCount > 1) {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_MULTIPLE_FILES_FORBIDDEN", "当前编程题不允许提交多个代码附件");
         }
@@ -269,6 +283,12 @@ public class SubmissionAnswerApplicationService {
             for (Long artifactId : artifactIds) {
                 if (artifactsById.get(artifactId).getSizeBytes() != null
                         && artifactsById.get(artifactId).getSizeBytes() > maxFileSizeBytes) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_FILE_SIZE_EXCEEDED", "当前编程题附件大小超过限制");
+                }
+            }
+            for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+                if (file.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxFileSizeBytes) {
                     throw new BusinessException(
                             HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_FILE_SIZE_EXCEEDED", "当前编程题附件大小超过限制");
                 }
@@ -292,10 +312,21 @@ public class SubmissionAnswerApplicationService {
                             HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_EXTENSION_UNSUPPORTED", "当前编程题附件类型不在允许范围内");
                 }
             }
+            for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+                if (!acceptedExtensions.contains(extensionOf(file.path()))) {
+                    throw new BusinessException(
+                            HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_EXTENSION_UNSUPPORTED", "当前编程题附件类型不在允许范围内");
+                }
+            }
         }
         return new EvaluatedAnswer(
-                StringUtils.hasText(input.answerText()) ? input.answerText().trim() : null,
-                new AnswerPayload(List.of(), artifactIds, input.programmingLanguage()),
+                sourceSnapshot.entryCodeText(),
+                new AnswerPayload(
+                        List.of(),
+                        artifactIds,
+                        input.programmingLanguage(),
+                        sourceSnapshot.entryFilePath(),
+                        sourceSnapshot.files()),
                 null,
                 null,
                 null,
@@ -360,6 +391,8 @@ public class SubmissionAnswerApplicationService {
                 payload.selectedOptionKeys(),
                 payload.artifactIds(),
                 payload.programmingLanguage(),
+                payload.entryFilePath(),
+                payload.files(),
                 revealAnswerResult ? entity.getAutoScore() : null,
                 revealAnswerResult ? entity.getManualScore() : null,
                 revealAnswerResult ? entity.getFinalScore() : null,
@@ -388,10 +421,16 @@ public class SubmissionAnswerApplicationService {
 
     private AnswerPayload readPayload(String payloadJson) {
         if (!StringUtils.hasText(payloadJson)) {
-            return new AnswerPayload(List.of(), List.of(), null);
+            return new AnswerPayload(List.of(), List.of(), null, null, List.of());
         }
         try {
-            return objectMapper.readValue(payloadJson, AnswerPayload.class);
+            AnswerPayload payload = objectMapper.readValue(payloadJson, AnswerPayload.class);
+            return new AnswerPayload(
+                    payload.selectedOptionKeys() == null ? List.of() : payload.selectedOptionKeys(),
+                    payload.artifactIds() == null ? List.of() : payload.artifactIds(),
+                    payload.programmingLanguage(),
+                    payload.entryFilePath(),
+                    payload.files() == null ? List.of() : payload.files());
         } catch (JacksonException exception) {
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "SUBMISSION_PAYLOAD_BROKEN", "答案载荷无法读取");
         }
@@ -407,7 +446,52 @@ public class SubmissionAnswerApplicationService {
             String feedbackText) {}
 
     private record AnswerPayload(
-            List<String> selectedOptionKeys, List<Long> artifactIds, ProgrammingLanguage programmingLanguage) {}
+            List<String> selectedOptionKeys,
+            List<Long> artifactIds,
+            ProgrammingLanguage programmingLanguage,
+            String entryFilePath,
+            List<ProgrammingSourceFile> files) {}
+
+    private void validateProgrammingSourceFiles(ProgrammingSourceSnapshot sourceSnapshot) {
+        if (sourceSnapshot.files().size() > MAX_PROGRAMMING_SOURCE_FILE_COUNT) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_FILE_COUNT_EXCEEDED", "当前编程题源码文件数量超过限制");
+        }
+        LinkedHashSet<String> normalizedPaths = new LinkedHashSet<>();
+        for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+            if (!StringUtils.hasText(file.path())
+                    || file.path().length() > MAX_PROGRAMMING_SOURCE_PATH_LENGTH
+                    || file.path().startsWith("/")
+                    || file.path().endsWith("/")
+                    || file.path().contains("\\")
+                    || file.path().contains("//")
+                    || file.path().contains("/./")
+                    || file.path().startsWith("./")
+                    || file.path().contains("../")
+                    || !SAFE_PROGRAMMING_SOURCE_PATH.matcher(file.path()).matches()) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_PATH_INVALID", "编程题源码文件路径不合法");
+            }
+            if (!normalizedPaths.add(file.path())) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_PATH_DUPLICATED", "编程题源码文件路径不能重复");
+            }
+            if (file.content().length() > MAX_PROGRAMMING_SOURCE_CONTENT_LENGTH) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_CODE_TOO_LONG", "编程题源码文件内容长度超过限制");
+            }
+        }
+        if (!sourceSnapshot.files().isEmpty() && !normalizedPaths.contains(sourceSnapshot.entryFilePath())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "SUBMISSION_PROGRAM_ENTRY_FILE_INVALID", "编程题入口文件必须出现在源码文件列表中");
+        }
+    }
+
+    private String extensionOf(String filename) {
+        if (!StringUtils.hasText(filename) || !filename.contains(".")) {
+            return "";
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
 
     public record PersistedStructuredAnswers(
             List<SubmissionAnswerEntity> answers, Map<Long, AssignmentQuestionSnapshot> questionIndex) {}
