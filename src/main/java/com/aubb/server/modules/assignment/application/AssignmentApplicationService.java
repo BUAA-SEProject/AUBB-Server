@@ -25,6 +25,7 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapp
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.notification.application.NotificationDispatchService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -56,6 +57,7 @@ public class AssignmentApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final NotificationDispatchService notificationDispatchService;
 
     @Transactional
     public AssignmentView createAssignment(
@@ -223,6 +225,7 @@ public class AssignmentApplicationService {
                 String.valueOf(assignmentId),
                 AuditResult.SUCCESS,
                 Map.of("offeringId", entity.getOfferingId()));
+        notificationDispatchService.notifyAssignmentPublished(entity, principal.getUserId());
         return toView(entity);
     }
 

@@ -13,6 +13,7 @@ import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
+import com.aubb.server.modules.notification.application.NotificationDispatchService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerView;
 import com.aubb.server.modules.submission.application.answer.SubmissionScoreSummaryView;
@@ -61,6 +62,7 @@ public class GradingApplicationService {
     private final AuditLogApplicationService auditLogApplicationService;
     private final UserMapper userMapper;
     private final PlatformTransactionManager transactionManager;
+    private final NotificationDispatchService notificationDispatchService;
 
     @Transactional
     public ManualGradeResultView gradeAnswer(
@@ -318,6 +320,7 @@ public class GradingApplicationService {
                     String.valueOf(assignmentId),
                     AuditResult.SUCCESS,
                     Map.of("offeringId", assignment.getOfferingId()));
+            notificationDispatchService.notifyAssignmentGradesPublished(assignment, principal.getUserId());
         }
         return new AssignmentGradePublicationView(
                 assignment.getId(), assignment.getGradePublishedByUserId(), assignment.getGradePublishedAt());

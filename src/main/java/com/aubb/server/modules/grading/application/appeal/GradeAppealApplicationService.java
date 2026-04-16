@@ -16,6 +16,7 @@ import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
+import com.aubb.server.modules.notification.application.NotificationDispatchService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerView;
 import com.aubb.server.modules.submission.infrastructure.SubmissionEntity;
@@ -47,6 +48,7 @@ public class GradeAppealApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final GradingApplicationService gradingApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final NotificationDispatchService notificationDispatchService;
 
     @Transactional
     public GradeAppealView createAppeal(
@@ -209,6 +211,7 @@ public class GradeAppealApplicationService {
                 String.valueOf(appeal.getId()),
                 AuditResult.SUCCESS,
                 metadata);
+        notificationDispatchService.notifyGradeAppealResolved(appeal, assignment, principal.getUserId());
         return toView(appeal, assignment, answerView);
     }
 

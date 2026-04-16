@@ -23,6 +23,7 @@ import com.aubb.server.modules.lab.infrastructure.LabReportAttachmentEntity;
 import com.aubb.server.modules.lab.infrastructure.LabReportAttachmentMapper;
 import com.aubb.server.modules.lab.infrastructure.LabReportEntity;
 import com.aubb.server.modules.lab.infrastructure.LabReportMapper;
+import com.aubb.server.modules.notification.application.NotificationDispatchService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -65,6 +66,7 @@ public class LabApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
+    private final NotificationDispatchService notificationDispatchService;
     private final LabReportLifecyclePolicy labReportLifecyclePolicy = new LabReportLifecyclePolicy();
 
     @Transactional
@@ -136,6 +138,7 @@ public class LabApplicationService {
                 String.valueOf(labId),
                 AuditResult.SUCCESS,
                 Map.of("offeringId", entity.getOfferingId(), "teachingClassId", entity.getTeachingClassId()));
+        notificationDispatchService.notifyLabPublished(entity, principal.getUserId());
         return toLabView(entity, requireTeachingClass(entity.getTeachingClassId()));
     }
 
@@ -324,6 +327,9 @@ public class LabApplicationService {
                         lab.getTeachingClassId(),
                         "attachmentCount",
                         attachments.size()));
+        if (submit) {
+            notificationDispatchService.notifyLabReportSubmitted(report, lab, principal.getUserId());
+        }
         return toLabReportView(
                 report,
                 toUserSummary(principal.getUserId(), loadUsersByIds(List.of(principal.getUserId()))),
@@ -452,6 +458,7 @@ public class LabApplicationService {
                 String.valueOf(reportId),
                 AuditResult.SUCCESS,
                 Map.of("labId", report.getLabId(), "studentUserId", report.getStudentUserId()));
+        notificationDispatchService.notifyLabReportPublished(report, lab, principal.getUserId());
         Map<Long, UserEntity> users = loadUsersByIds(userIdsOf(report.getStudentUserId(), report.getReviewerUserId()));
         return toLabReportView(
                 report,

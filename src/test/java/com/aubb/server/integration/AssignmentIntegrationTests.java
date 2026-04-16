@@ -138,6 +138,21 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, offeringAssignmentId);
         publishAssignment(teacherToken, classAssignmentId);
 
+        assertThat(queryForCount("""
+                        SELECT COUNT(*)
+                        FROM notification_receipts nr
+                        JOIN notifications n ON n.id = nr.notification_id
+                        WHERE nr.recipient_user_id = 4
+                          AND n.type = 'ASSIGNMENT_PUBLISHED'
+                        """)).isEqualTo(2);
+        assertThat(queryForCount("""
+                        SELECT COUNT(*)
+                        FROM notification_receipts nr
+                        JOIN notifications n ON n.id = nr.notification_id
+                        WHERE nr.recipient_user_id = 5
+                          AND n.type = 'ASSIGNMENT_PUBLISHED'
+                        """)).isEqualTo(1);
+
         mockMvc.perform(get("/api/v1/me/assignments").header("Authorization", "Bearer " + studentAToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))

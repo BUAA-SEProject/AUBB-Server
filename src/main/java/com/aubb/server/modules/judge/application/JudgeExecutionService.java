@@ -31,6 +31,7 @@ import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.CopyIn
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.MemoryFileDescriptor;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.RunRequest;
 import com.aubb.server.modules.judge.infrastructure.gojudge.GoJudgeClient.RunResult;
+import com.aubb.server.modules.notification.application.NotificationDispatchService;
 import com.aubb.server.modules.submission.domain.answer.SubmissionAnswerGradingStatus;
 import com.aubb.server.modules.submission.infrastructure.SubmissionArtifactEntity;
 import com.aubb.server.modules.submission.infrastructure.SubmissionArtifactMapper;
@@ -95,6 +96,7 @@ public class JudgeExecutionService {
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
+    private final NotificationDispatchService notificationDispatchService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
 
@@ -112,6 +114,7 @@ public class JudgeExecutionService {
             AuditLogApplicationService auditLogApplicationService,
             ObjectProvider<ObjectStorageService> objectStorageServiceProvider,
             JudgeArtifactStorageService judgeArtifactStorageService,
+            NotificationDispatchService notificationDispatchService,
             ObjectMapper objectMapper) {
         this.judgeJobMapper = judgeJobMapper;
         this.submissionMapper = submissionMapper;
@@ -125,6 +128,7 @@ public class JudgeExecutionService {
         this.auditLogApplicationService = auditLogApplicationService;
         this.objectStorageServiceProvider = objectStorageServiceProvider;
         this.judgeArtifactStorageService = judgeArtifactStorageService;
+        this.notificationDispatchService = notificationDispatchService;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
@@ -990,6 +994,7 @@ public class JudgeExecutionService {
                 String.valueOf(job.getId()),
                 outcome.failed() ? AuditResult.FAILURE : AuditResult.SUCCESS,
                 buildAuditMetadata(job, outcome));
+        notificationDispatchService.notifyJudgeCompleted(job);
     }
 
     private void syncProgrammingAnswer(JudgeJobEntity job, JudgeFinalization outcome) {

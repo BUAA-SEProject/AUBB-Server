@@ -28,6 +28,7 @@
 - `src/main/resources/db/migration/V24__single_school_root_guard.sql`
 - `src/main/resources/db/migration/V25__judge_artifact_object_storage_phase1.sql`
 - `src/main/resources/db/migration/V26__lab_report_mvp.sql`
+- `src/main/resources/db/migration/V27__notification_center_mvp.sql`
 
 ## 总览
 
@@ -37,6 +38,8 @@
 - `org_units`：学校 / 学院 / 课程 / 班级组织树
 - `users`：平台用户账号
 - `auth_sessions`：refresh token 与会话撤销状态
+- `notifications`：站内通知内容主表
+- `notification_receipts`：按用户展开的通知收件箱与已读状态
 - `academic_profiles`：用户教务画像
 - `user_org_memberships`：用户组织成员关系
 - `user_scope_roles`：用户作用域身份分配
@@ -164,6 +167,44 @@
 - `ux_auth_sessions_session_id`
 - `ix_auth_sessions_user_id_revoked_at`
 - `ix_auth_sessions_refresh_token_expires_at`
+
+### `notifications`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `type` | `varchar(64)` | 必填，通知类型 |
+| `title` | `varchar(200)` | 必填，通知标题 |
+| `body` | `text` | 必填，通知正文 |
+| `actor_user_id` | `bigint` | 可空，通知发起人，外键到 `users.id`，删除时置空 |
+| `target_type` | `varchar(64)` | 可空，目标资源类型 |
+| `target_id` | `varchar(64)` | 可空，目标资源编号 |
+| `offering_id` | `bigint` | 可空，外键到 `course_offerings.id`，删除时置空 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除时置空 |
+| `metadata` | `jsonb` | 必填，默认 `{}`，保存通知上下文摘要 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `idx_notifications_created_at`
+- `idx_notifications_target`
+
+### `notification_receipts`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `notification_id` | `bigint` | 必填，外键到 `notifications.id`，级联删除 |
+| `recipient_user_id` | `bigint` | 必填，收件人，外键到 `users.id`，级联删除 |
+| `read_at` | `timestamptz` | 可空，已读时间 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_notification_receipts_notification_recipient`
+- `idx_notification_receipts_recipient_created`
+- `idx_notification_receipts_recipient_unread`
 
 ### `user_scope_roles`
 

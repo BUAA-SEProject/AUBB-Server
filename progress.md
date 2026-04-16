@@ -1,5 +1,27 @@
 # 进度日志
 
+## Session: 2026-04-17 通知 / 消息中心 MVP
+
+### Phase 45：优先级 8 站内通知收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `todo.md` M4、`docs/plan.md`、`README.md`、`docs/product-specs/index.md`，确认本轮只做站内通知 v1
+  - 并行用子代理复核通知规格边界和 assignment / grading / judge / lab 的稳定事件接线点
+  - 新增 `V27__notification_center_mvp.sql`，引入 `notifications`、`notification_receipts`
+  - 新增 `modules/notification` 模块，补齐通知列表、未读数、单条已读、全部已读 API
+  - 将作业发布、评测完成、成绩发布、申诉处理完成、实验发布、实验报告评语发布接入通知中心
+  - 额外接入实验报告提交通知，让教师 / 助教拥有真实待办型站内通知
+  - 新增 `NotificationReceiptLifecyclePolicyTests`、`NotificationCenterIntegrationTests`
+  - 扩展 `AssignmentIntegrationTests`、`GradingIntegrationTests`、`StructuredProgrammingJudgeIntegrationTests`、`LabReportIntegrationTests`，验证关键事件确实写入收件箱
+  - 同步 README、通知产品规格、产品索引、可靠性说明、数据库结构和完成执行计划
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=NotificationReceiptLifecyclePolicyTests,NotificationCenterIntegrationTests,AssignmentIntegrationTests#studentSeesOnlyPublishedAssignmentsForOwnCourseAndClass,GradingIntegrationTests#teacherAndTaGradeStructuredSubmissionAndPublishGrades+studentCreatesAppealAndTeacherResolvesWithScoreRevision,LabReportIntegrationTests#teacherAndStudentCompleteLabReportFlowWithObjectStorageReplay,StructuredProgrammingJudgeIntegrationTests#programmingAnswerRunsQuestionLevelJudgeAndSupportsAnswerScopedRequeue test`
+  - 当前结果：`BUILD SUCCESS`，定向 `9` 个测试通过
+
 ## Session: 2026-04-17 lab / report MVP
 
 ### Phase 44：优先级 7 实验与实验报告收口

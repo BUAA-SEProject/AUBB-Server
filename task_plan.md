@@ -2,11 +2,24 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 7 的 lab/report MVP 已完成并验证通过；下一步进入优先级 8：通知 / 消息中心 MVP。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 8 的通知 / 消息中心 MVP 已完成并验证通过；下一步进入优先级 9：关键列表查询优化为数据库可分页权限过滤。
 
 ## 当前阶段
 
-Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 45：通知 / 消息中心 MVP
+
+- [x] 复核 `todo.md` M4、`docs/plan.md` 与现有模块边界，确认本轮只做站内通知 v1，不把 WebSocket / Redis 前置为必选依赖
+- [x] 识别 assignment / grading / judge / lab 里的稳定业务事件触发点，并明确只接“状态真正对用户可见”的终态
+- [x] 新增 `notifications / notification_receipts` 最小模型与 Flyway migration
+- [x] 新增通知模块，补齐我的通知列表、未读数、单条已读、全部已读 API
+- [x] 接入首批关键教学事件：作业发布、评测完成、成绩发布、申诉处理完成、实验发布、实验报告评语发布
+- [x] 额外接入实验报告提交通知，确保教师 / 助教也有真实站内通知闭环
+- [x] 补齐领域单元测试、通知 API 集成测试，以及 assignment / grading / judge / lab 关键链路事件触发回归测试
+- [x] 同步 README、产品规格、可靠性说明、数据库结构与执行计划
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要通知专项测试
+- **Status:** completed
 
 ### Phase 44：lab / report MVP
 

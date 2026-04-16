@@ -1,5 +1,24 @@
 # 发现与决策
 
+## 2026-04-17 通知 / 消息中心 MVP 发现
+
+- `todo.md` M4 的真实目标不是“先补实时推送”，而是先建立“通知内容 + 用户已读状态”的持久化模型；当前缺的是通知域本身，不是 WebSocket 通道。
+- 现有 `audit_logs` 是 actor 视角的治理留痕，不具备 recipient 展开和已读 / 未读语义，不能直接替代通知中心。
+- M4 当前最稳的实现是 `notifications + notification_receipts`：
+  - `notifications` 保存通知内容、类型、目标对象、上下文摘要
+  - `notification_receipts` 保存面向具体用户的收件箱视图和 `read_at`
+- 当前仓库还没有稳定的 Redis / WebSocket 运行基线；如果先做推送，会把最核心的“持久化、已读状态、补拉列表、失败恢复”问题后置，因此 v1 仍应固定为“轮询 + 未读数接口”。
+- 事件接入点必须放在 application service 的终态写入后，而不是 controller：
+  - `AssignmentApplicationService.publishAssignment`
+  - `GradingApplicationService.publishAssignmentGrades`
+  - `GradeAppealApplicationService.reviewAppeal`
+  - `LabApplicationService.publishLab`
+  - `LabApplicationService.publishReport`
+  - `JudgeExecutionService.finalizeJobSideEffects`
+- `LAB_REPORT_REVIEWED` 当前不是学生可见边界，因为学生在 `REVIEWED` 阶段看不到教师批注 / 评语；实验报告通知必须挂在 `publishReport` 而不是 `reviewReport`。
+- `JUDGE_JOB_ENQUEUED / STARTED` 过于偏内部执行链路，通知噪音高；本轮只通知终态完成，且优先面向正式提交的 submitter。
+- 为了让教师侧也有真实未读通知闭环，除了用户明确要求的五类事件外，第一阶段额外接入了“实验报告提交后通知教师 / 助教”，把它作为教师待办入口，而不是等待后续 WebSocket。
+
 ## 2026-04-17 lab / report MVP 发现
 
 - `todo.md` 的 M3 已明确 `labEnabled` 只是 feature 开关，而 `lab / report` 模块本身尚不存在；真实缺口不是权限体系，而是业务域缺席。

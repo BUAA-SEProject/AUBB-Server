@@ -166,6 +166,14 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
         waitForLatestAnswerJudgeJobTerminal(answerId);
 
+        assertThat(queryForInt("""
+                        SELECT COUNT(*)
+                        FROM notification_receipts nr
+                        JOIN notifications n ON n.id = nr.notification_id
+                        WHERE nr.recipient_user_id = 4
+                          AND n.type = 'JUDGE_COMPLETED'
+                        """)).isEqualTo(1);
+
         mockMvc.perform(get("/api/v1/me/submission-answers/{answerId}/judge-jobs", answerId)
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
