@@ -1,5 +1,19 @@
 # 发现与决策
 
+## 2026-04-17 文档漂移与 OpenAPI / 稳定接口清单发现
+
+- 当前仓库的主要漂移已经不在业务功能本体，而在“入口文档与索引文档更新速度不一致”：`README.md`、`docs/index.md`、`docs/reliability.md` 基本跟上了最近改动，但 `ARCHITECTURE.md` 和 `docs/exec-plans/tech-debt-tracker.md` 仍保留明显早期表述。
+- `springdoc-openapi-starter-webmvc-ui` 已真实接入，`application.yaml` 已显式暴露 `springdoc.api-docs` / `swagger-ui` 开关，`SecurityConfig` 也已放行 `/v3/api-docs/**` 与 `/swagger-ui/**`；因此“OpenAPI 只有概念，没有运行时入口”已经不是事实。
+- 当前最缺的不是再造一套 API 设计，而是把“运行时 `/v3/api-docs` 是事实契约入口”与“哪些接口已经进入稳定维护范围”写清楚；否则 README 即使更新，也仍会让新接手的人误判接口边界。
+- `ARCHITECTURE.md` 中“JWT Bearer Token，服务端无状态校验”已和当前 `auth_sessions + sid` 会话校验实现冲突，这类冲突比功能缺失更危险，因为它会误导后续安全设计。
+- `docs/product-specs/platform-governance-and-iam.md` 里“judge / grading 等后续课程子域仍未实现”同样已经滞后；当前更准确的表述应是：这些子域已经开始复用 `course_members` 边界，但更细粒度筛选仍待增强。
+- `docs/exec-plans/completed/` 中的历史计划应保留历史事实，不宜整体重写；真正需要修的是仍被当成“当前状态”的索引文档和长期说明文件。
+- 本轮最稳的闭环是：
+  - 新增一份 `docs/stable-api.md`
+  - 以 `/v3/api-docs` 和 `/swagger-ui/index.html` 作为事实入口
+  - 用一个轻量集成测试固定 OpenAPI 发现路径和关键稳定接口族
+  - 同步入口文档、架构文档、仓库结构说明与安全 / 可靠性文档
+
 ## 2026-04-17 关键列表数据库分页权限过滤发现
 
 - `listUsers` 和 `listMyAssignments` 当前共同的性能根因不是“少一个索引”，而是“候选集先全量拉入内存，再做权限过滤和分页”；只补索引不会自动修复分页准确性。

@@ -8,7 +8,7 @@
 
 1. 先看 [README.md](../README.md) 了解当前阶段与验证入口。
 2. 再看 [ARCHITECTURE.md](../ARCHITECTURE.md) 和 [design.md](design.md) 了解模块边界。
-3. 接着看 [product-specs/index.md](product-specs/index.md) 与 [generated/db-schema.md](generated/db-schema.md) 了解当前业务与数据模型。
+3. 接着看 [product-specs/index.md](product-specs/index.md)、[stable-api.md](stable-api.md) 与 [generated/db-schema.md](generated/db-schema.md) 了解当前业务、接口与数据模型。
 4. 如果要继续做功能开发，再看 [exec-plans/active/README.md](exec-plans/active/README.md) 和 [../todo.md](../todo.md) 了解当前推进优先级。
 5. 开始开发前，再看 [development-workflow.md](development-workflow.md) 和 `AGENTS.md`。
 
@@ -30,6 +30,8 @@ Java 生产代码根目录。
     - `submission`
     - `grading`
     - `judge`
+    - `lab`
+    - `notification`
   - 模块内先维持 `api / application / domain / infrastructure` 四层；当某一层开始混入大量不同职责文件时，再继续按职责细分子目录。
   - 当前已采用的细分模式包括：
     - `application/view`、`application/command`、`application/result`
@@ -80,6 +82,8 @@ Java 生产代码根目录。
   - 文档总入口。
 - `product-specs/`
   - 当前业务规格。
+- `stable-api.md`
+  - 当前稳定接口范围与 OpenAPI / Swagger 事实入口。
 - `design-docs/`
   - ADR、核心设计信条等长期设计资产。
 - `generated/`

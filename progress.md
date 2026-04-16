@@ -1,5 +1,24 @@
 # 进度日志
 
+## Session: 2026-04-17 文档漂移与 OpenAPI / 稳定接口清单
+
+### Phase 47：优先级 10 文档与契约收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `README.md`、`ARCHITECTURE.md`、`docs/security.md`、`docs/reliability.md`、`docs/product-specs/index.md`、`docs/product-specs/platform-governance-and-iam.md`、`docs/index.md`、`docs/repository-structure.md`、`docs/exec-plans/tech-debt-tracker.md`
+  - 复核 `pom.xml`、`application.yaml`、`SecurityConfig` 与所有 controller 路由，确认 springdoc 运行时入口、公开放行和当前实际暴露的 `api/v1` 面
+  - 识别明显漂移点：`ARCHITECTURE.md` 仍写 JWT 无状态校验，`tech-debt-tracker` 仍把仓库写成骨架系统 / 无 migration / 认证占位
+  - 新增 `docs/stable-api.md`，固定 `/v3/api-docs`、`/swagger-ui/index.html` 和当前稳定接口范围
+  - 同步更新 README、架构总览、仓库结构说明、文档索引、安全 / 可靠性说明、IAM 规格与过时 tech debt 索引
+  - 新增 `OpenApiContractIntegrationTests`，覆盖 OpenAPI 公开发现与关键稳定路径暴露
+  - 补齐完成执行计划和工作记忆，确认 `todo.md` 优先级 1-10 已全部完成
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=OpenApiContractIntegrationTests,AubbServerApplicationTests,HarnessHealthSmokeTests,DeliveryPipelineAssetsTests test`
+  - 当前结果：`BUILD SUCCESS`，定向 `7` 个测试通过
+
 ## Session: 2026-04-17 关键列表数据库分页权限过滤
 
 ### Phase 46：优先级 9 热点列表收口

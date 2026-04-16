@@ -130,7 +130,7 @@
 - 平台配置和审计查询暂由学校管理员独占。
 - 首次学校与学校管理员当前通过受配置开关控制的启动期 bootstrap 完成；不会开放匿名 HTTP bootstrap API。
 - 认证链路当前只实现单表 `auth_sessions` 的最小会话模型，不提供设备列表、登录终端画像或自助会话管理界面。
-- 当前已实现教务画像和组织成员关系；教师 / 助教 / 学员课程角色已进入 `course_members`，assignment 和 submission 第一切片已开始复用该授权边界，judge / grading 等后续课程子域仍未实现。
+- 当前已实现教务画像和组织成员关系；教师 / 助教 / 学员课程角色已进入 `course_members`，assignment、submission、judge、grading、lab/report 与 notification 当前都已开始复用该授权边界；更细粒度的课程域成员筛选仍留待后续增强。
 - 用户查询按管理员作用域过滤，课程域成员查询留待后续课程模块实现。
 - 用户治理热点列表当前已从“候选集全量加载 + Java 内存过滤”切换到“组织作用域集合预解析 + 数据库侧 count/page”；组织树祖先规则仍由 `GovernanceAuthorizationService` 统一维护，不在 controller 或 Mapper 中重复建模。
 

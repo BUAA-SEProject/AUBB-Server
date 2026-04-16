@@ -2,11 +2,22 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 9 的关键列表查询数据库分页权限过滤已完成并验证通过；下一步进入优先级 10：清理文档漂移并固化 OpenAPI / 稳定接口清单。
+基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 10 的文档漂移与 OpenAPI / 稳定接口清单收口完成后，`todo.md` 中 1-10 项已全部完成；下一步进入新的增量阶段：在线 IDE 第二阶段、多语言运行时稳定化、题库组卷增强与更复杂总评 / 可复现性。
 
 ## 当前阶段
 
-Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 47：文档漂移与 OpenAPI / 稳定接口清单收口
+
+- [x] 复核 `README.md`、`ARCHITECTURE.md`、`docs/security.md`、`docs/reliability.md`、`docs/product-specs/`、`docs/exec-plans/` 与 springdoc / swagger 相关代码事实
+- [x] 识别并清理“骨架系统 / 无 Flyway / 认证占位 / JWT 无状态校验”等明显过时口径
+- [x] 新增 `docs/stable-api.md`，固化 `/v3/api-docs`、`/swagger-ui/index.html` 与当前稳定业务接口范围
+- [x] 同步更新入口文档、架构说明、仓库结构说明、IAM 规格和过时 tech debt 索引
+- [x] 新增 OpenAPI 集成测试，验证公开访问与关键稳定路径仍在运行时契约中暴露
+- [x] 补齐工作记忆与完成执行计划
+- [x] 执行 `bash ./mvnw spotless:apply` 与最小必要 OpenAPI / 启动测试
+- **Status:** completed
 
 ### Phase 46：关键列表数据库分页权限过滤
 

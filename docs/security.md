@@ -8,9 +8,10 @@
 - access token 默认有效期 2 小时，refresh token 默认有效期 14 天。
 - 首个学校 / 管理员 bootstrap 默认关闭；启用时管理员初始密码同样必须通过外部配置注入，不能写入仓库。
 - `/actuator/health` 和 `/actuator/info` 保持公开，用于部署检查与 smoke 验证。
-- OpenAPI 发现端点当前默认保持公开，以支持后端开发阶段联调；生产环境可通过 `AUBB_API_DOCS_ENABLED=false` 和 `AUBB_SWAGGER_UI_ENABLED=false` 关闭。
+- OpenAPI 发现端点当前默认保持公开，以支持后端开发阶段联调；当前事实入口是 `GET /v3/api-docs` 与 `GET /swagger-ui/index.html`，生产环境可通过 `AUBB_API_DOCS_ENABLED=false` 和 `AUBB_SWAGGER_UI_ENABLED=false` 关闭。
 - 除登录、健康检查和文档发现端点外，其他业务路由默认要求认证。
 - MinIO 访问账号和密钥必须通过环境变量或外部配置注入，不能写入生产配置文件。
+- 当前稳定业务接口范围见 [stable-api.md](stable-api.md)；如果代码与本文件或该清单冲突，以代码和运行时 OpenAPI 为准。
 
 ## 规则
 
@@ -34,7 +35,7 @@
 - 登录、平台配置更新、用户导入、身份变更、账号状态变更都必须写入审计日志。
 - 一个用户可拥有多个管理员身份，权限来源必须清晰可追溯。
 - 未授权访问返回稳定的 `401`，越权返回稳定的 `403`。
-- JWT 改为无状态后，不再依赖 CSRF 令牌。
+- 当前业务 API 走 Bearer 令牌认证而不是浏览器 Cookie 会话，因此默认不依赖 CSRF 令牌。
 - 登录失败锁定、refresh token 轮换、禁用/失效账号限制、管理员强制失效与默认会话时长都必须有自动化测试证据。
 - 首个学校 / 管理员 bootstrap 必须是幂等的，并且重复执行默认不能重置既有管理员密码。
 - 测试环境允许通过 test-scope 配置集中注入 JWT 密钥，但这只是测试装配方式，不能回流成运行时默认值。
