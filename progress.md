@@ -157,6 +157,38 @@
   - `bash ./mvnw clean verify`
   - 当前结果：`BUILD SUCCESS`，全量 `87` 个测试通过
 
+## Session: 2026-04-16 统计报告五档成绩分布第一阶段
+
+### Phase 34：成绩统计从“有均值”推进到“可快速诊断分布”
+
+- **Status:** completed
+- **Started:** 2026-04-16
+- Actions taken:
+  - 在 `GradebookReportView` 中为总体、按作业和按班级统计追加统一的五档成绩分布结构
+  - 在 `GradebookApplicationService` 中基于现有 report 聚合结果计算 `EXCELLENT / GOOD / MEDIUM / PASS / FAIL` 五档分布
+  - 保持既有 report API 路径、授权边界和导出接口不变，不新增统计表
+  - 扩展 `GradebookIntegrationTests`，固定 offering / class report 的分布统计语义
+  - 同步 README、grading 规格、todo、active 计划与工作记忆，统一“统计报告五档成绩分布第一阶段”口径
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookReportView.java`
+  - `src/main/java/com/aubb/server/modules/grading/application/gradebook/GradebookApplicationService.java`
+  - `src/test/java/com/aubb/server/integration/GradebookIntegrationTests.java`
+  - `README.md`
+  - `docs/product-sense.md`
+  - `docs/product-specs/index.md`
+  - `docs/product-specs/grading-system.md`
+  - `docs/exec-plans/active/2026-04-16-assignment-module-replan.md`
+  - `docs/exec-plans/completed/2026-04-16-gradebook-score-bands-phase1.md`
+  - `todo.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=GradebookIntegrationTests,GradingIntegrationTests test`
+  - `bash ./mvnw clean verify`
+  - 当前结果：`BUILD SUCCESS`，全量 `87` 个测试通过
+
 ## Session: 2026-04-16 仓库状态复核与入口文档三次收口
 
 ### Phase 26：接手入口与仓库口径再次校准

@@ -44,6 +44,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class GradebookApplicationService {
 
+    private static final List<ScoreBandDefinition> SCORE_BAND_DEFINITIONS = List.of(
+            new ScoreBandDefinition("EXCELLENT", "优秀", 90, null, 0.9, 1.0000001),
+            new ScoreBandDefinition("GOOD", "良好", 80, 90, 0.8, 0.9),
+            new ScoreBandDefinition("MEDIUM", "中等", 70, 80, 0.7, 0.8),
+            new ScoreBandDefinition("PASS", "及格", 60, 70, 0.6, 0.7),
+            new ScoreBandDefinition("FAIL", "不及格", 0, 60, 0.0, 0.6));
+
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseMemberMapper courseMemberMapper;
@@ -332,7 +339,10 @@ public class GradebookApplicationService {
                 average(totalFinalScore, snapshot.summary().studentCount()),
                 ratio(totalFinalScore, totalMaxScore),
                 average(totalWeightedScore.doubleValue(), snapshot.summary().studentCount()),
-                ratio(totalWeightedScore.doubleValue(), totalWeight));
+                ratio(totalWeightedScore.doubleValue(), totalWeight),
+                buildScoreBands(
+                        snapshot.rows().stream().map(this::overallScoreRate).toList(),
+                        snapshot.summary().studentCount()));
     }
 
     private List<GradebookReportView.AssignmentStatView> buildAssignmentStats(GradebookSnapshot snapshot) {
@@ -347,6 +357,7 @@ public class GradebookApplicationService {
             int totalSubmittedFinalScore = 0;
             int totalSubmittedMaxScore = 0;
             BigDecimal totalSubmittedWeightedScore = BigDecimal.ZERO;
+            List<Double> scoreRates = new ArrayList<>();
             for (GradebookPageView.StudentRowView row : snapshot.rows()) {
                 GradebookPageView.GradeCellView cell = row.grades().get(index);
                 if (!Boolean.TRUE.equals(cell.applicable())) {
@@ -361,6 +372,7 @@ public class GradebookApplicationService {
                         totalSubmittedWeightedScore =
                                 totalSubmittedWeightedScore.add(BigDecimal.valueOf(cell.weightedScore()));
                     }
+                    scoreRates.add(scoreRate(cell.finalScore(), cell.maxScore()));
                 }
                 if (Boolean.TRUE.equals(cell.fullyGraded())) {
                     fullyGradedStudentCount++;
@@ -385,7 +397,8 @@ public class GradebookApplicationService {
                     ratio(publishedStudentCount, applicableStudentCount),
                     average(totalSubmittedFinalScore, submittedStudentCount),
                     ratio(totalSubmittedFinalScore, totalSubmittedMaxScore),
-                    average(totalSubmittedWeightedScore.doubleValue(), submittedStudentCount)));
+                    average(totalSubmittedWeightedScore.doubleValue(), submittedStudentCount),
+                    buildScoreBands(scoreRates, submittedStudentCount)));
         }
         return List.copyOf(stats);
     }
@@ -411,6 +424,7 @@ public class GradebookApplicationService {
             stat.totalMaxScore += defaultScore(row.totalMaxScore());
             stat.totalWeight += defaultScore(row.totalWeight());
             stat.totalWeightedScore = stat.totalWeightedScore.add(BigDecimal.valueOf(row.totalWeightedScore()));
+            stat.scoreRates.add(overallScoreRate(row));
         }
         return stats.values().stream()
                 .map(stat -> new GradebookReportView.TeachingClassStatView(
@@ -428,7 +442,8 @@ public class GradebookApplicationService {
                         average(stat.totalFinalScore, stat.studentCount),
                         ratio(stat.totalFinalScore, stat.totalMaxScore),
                         average(stat.totalWeightedScore.doubleValue(), stat.studentCount),
-                        ratio(stat.totalWeightedScore.doubleValue(), stat.totalWeight)))
+                        ratio(stat.totalWeightedScore.doubleValue(), stat.totalWeight),
+                        buildScoreBands(stat.scoreRates, stat.studentCount)))
                 .toList();
     }
 
@@ -977,6 +992,44 @@ public class GradebookApplicationService {
         return value.setScale(scale, RoundingMode.HALF_UP).doubleValue();
     }
 
+    private double overallScoreRate(GradebookPageView.StudentRowView row) {
+        if (defaultScore(row.totalWeight()) > 0) {
+            return normalizeRate(row.weightedScoreRate());
+        }
+        return scoreRate(row.totalFinalScore(), row.totalMaxScore());
+    }
+
+    private double scoreRate(Integer score, Integer maxScore) {
+        if (score == null || maxScore == null || maxScore <= 0) {
+            return 0.0;
+        }
+        return normalizeRate(BigDecimal.valueOf(score)
+                .divide(BigDecimal.valueOf(maxScore), 4, RoundingMode.HALF_UP)
+                .doubleValue());
+    }
+
+    private double normalizeRate(double rate) {
+        return Math.max(0.0, Math.min(rate, 1.0));
+    }
+
+    private List<GradebookReportView.ScoreBandView> buildScoreBands(List<Double> rates, int population) {
+        List<GradebookReportView.ScoreBandView> scoreBands = new ArrayList<>();
+        for (ScoreBandDefinition definition : SCORE_BAND_DEFINITIONS) {
+            int count = (int) rates.stream()
+                    .mapToDouble(Double::doubleValue)
+                    .filter(rate -> definition.matches(normalizeRate(rate)))
+                    .count();
+            scoreBands.add(new GradebookReportView.ScoreBandView(
+                    definition.bandCode(),
+                    definition.label(),
+                    definition.minPercentInclusive(),
+                    definition.maxPercentExclusive(),
+                    count,
+                    ratio(count, population)));
+        }
+        return List.copyOf(scoreBands);
+    }
+
     private String teachingClassSortKey(TeachingClassEntity teachingClass) {
         if (teachingClass == null) {
             return "zzz";
@@ -1019,11 +1072,24 @@ public class GradebookApplicationService {
         private int totalMaxScore;
         private int totalWeight;
         private BigDecimal totalWeightedScore = BigDecimal.ZERO;
+        private final List<Double> scoreRates = new ArrayList<>();
 
         private MutableTeachingClassStat(Long teachingClassId, String teachingClassCode, String teachingClassName) {
             this.teachingClassId = teachingClassId;
             this.teachingClassCode = teachingClassCode;
             this.teachingClassName = teachingClassName;
+        }
+    }
+
+    private record ScoreBandDefinition(
+            String bandCode,
+            String label,
+            int minPercentInclusive,
+            Integer maxPercentExclusive,
+            double minRateInclusive,
+            double maxRateExclusive) {
+        private boolean matches(double rate) {
+            return rate >= minRateInclusive && rate < maxRateExclusive;
         }
     }
 }

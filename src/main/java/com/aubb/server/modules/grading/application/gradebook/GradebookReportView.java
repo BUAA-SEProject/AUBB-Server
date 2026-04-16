@@ -21,7 +21,8 @@ public record GradebookReportView(
             double averageTotalFinalScore,
             double averageTotalScoreRate,
             double averageTotalWeightedScore,
-            double averageWeightedScoreRate) {}
+            double averageWeightedScoreRate,
+            List<ScoreBandView> scoreBands) {}
 
     public record AssignmentStatView(
             Long assignmentId,
@@ -39,7 +40,8 @@ public record GradebookReportView(
             double publicationRate,
             double averageSubmittedFinalScore,
             double averageSubmittedScoreRate,
-            double averageSubmittedWeightedScore) {}
+            double averageSubmittedWeightedScore,
+            List<ScoreBandView> scoreBands) {}
 
     public record TeachingClassStatView(
             Long teachingClassId,
@@ -56,5 +58,14 @@ public record GradebookReportView(
             double averageTotalFinalScore,
             double averageTotalScoreRate,
             double averageTotalWeightedScore,
-            double averageWeightedScoreRate) {}
+            double averageWeightedScoreRate,
+            List<ScoreBandView> scoreBands) {}
+
+    public record ScoreBandView(
+            String bandCode,
+            String label,
+            int minPercentInclusive,
+            Integer maxPercentExclusive,
+            int studentCount,
+            double studentRate) {}
 }
