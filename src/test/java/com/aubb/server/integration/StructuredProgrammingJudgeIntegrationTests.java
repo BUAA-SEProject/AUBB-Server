@@ -343,8 +343,61 @@ class StructuredProgrammingJudgeIntegrationTests {
         assertThat(queryForInt("SELECT final_score FROM submission_answers WHERE id = ?", javaAnswerId))
                 .isEqualTo(100);
         JsonNode javaRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(javaRequest.at("/cmd/0/args/2").asText()).contains("/usr/bin/javac Main.java && /usr/bin/java Main");
+        assertThat(javaRequest.at("/cmd/0/args/2").asText())
+                .contains("/usr/bin/javac -encoding UTF-8 -d . Calculator.java Main.java && /usr/bin/java -cp . Main");
         assertThat(javaRequest.at("/cmd/0/copyIn/Calculator.java/content").asText())
+                .contains("static int add");
+
+        GO_JUDGE_SERVER.reset();
+        MvcResult nestedJavaSubmission = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", javaAssignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "entryFilePath":"solutions/Main.java",
+                                      "files":[
+                                        {
+                                          "path":"solutions/Main.java",
+                                          "content":"package solutions;\\nimport java.util.Scanner;\\npublic class Main {\\n  public static void main(String[] args) {\\n    Scanner scanner = new Scanner(System.in);\\n    int a = scanner.nextInt();\\n    int b = scanner.nextInt();\\n    System.out.println(Calculator.add(a, b));\\n  }\\n}"
+                                        },
+                                        {
+                                          "path":"solutions/Calculator.java",
+                                          "content":"package solutions;\\nfinal class Calculator {\\n  private Calculator() {}\\n  static int add(int left, int right) {\\n    return left + right;\\n  }\\n}"
+                                        }
+                                      ],
+                                      "programmingLanguage":"JAVA17"
+                                    }
+                                  ]
+                                }
+                                """.formatted(javaQuestionId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PENDING_PROGRAMMING_JUDGE"))
+                .andExpect(jsonPath("$.answers[0].entryFilePath").value("solutions/Main.java"))
+                .andReturn();
+
+        Long nestedJavaSubmissionId = readLong(nestedJavaSubmission, "$.id");
+        Long nestedJavaAnswerId = readLong(nestedJavaSubmission, "$.answers[0].id");
+        waitForLatestAnswerJudgeJobTerminal(nestedJavaAnswerId);
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", nestedJavaSubmissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
+                .andExpect(jsonPath("$.answers[0].autoScore").value(100))
+                .andExpect(jsonPath("$.answers[0].entryFilePath").value("solutions/Main.java"));
+        assertThat(queryForInt("SELECT final_score FROM submission_answers WHERE id = ?", nestedJavaAnswerId))
+                .isEqualTo(100);
+        JsonNode nestedJavaRequest = GO_JUDGE_SERVER.requests().getFirst();
+        assertThat(nestedJavaRequest.at("/cmd/0/args/2").asText())
+                .contains("/usr/bin/javac -encoding UTF-8 -d . solutions/Calculator.java solutions/Main.java"
+                        + " && /usr/bin/java -cp . solutions.Main");
+        assertThat(nestedJavaRequest
+                        .at("/cmd/0/copyIn/solutions~1Calculator.java/content")
+                        .asText())
                 .contains("static int add");
 
         Long cppAssignmentId = createCppProgrammingAssignment(teacherToken, offeringId, classId);
@@ -972,10 +1025,10 @@ class StructuredProgrammingJudgeIntegrationTests {
         }
 
         private String simulateProgramStdout(JsonNode request, String stdin) {
-            String pythonSource = readCopyInContent(request, "main.py");
-            String pythonHelper = readCopyInContent(request, "helper.py");
+            String pythonSource = readCopyInContentBySuffix(request, "main.py");
+            String pythonHelper = readCopyInContentBySuffix(request, "helper.py");
             if (pythonHelper.isEmpty()) {
-                pythonHelper = readCopyInContent(request, "helpers/math_utils.py");
+                pythonHelper = readCopyInContentBySuffix(request, "helpers/math_utils.py");
             }
             if ((pythonSource.contains("from helper import add")
                             || pythonSource.contains("from helpers.math_utils import add"))
@@ -991,17 +1044,17 @@ class StructuredProgrammingJudgeIntegrationTests {
                 return result + "\n";
             }
 
-            String javaSource = readCopyInContent(request, "Main.java");
+            String javaSource = readCopyInContentBySuffix(request, "Main.java");
             if (!javaSource.isEmpty()) {
-                String helper = readCopyInContent(request, "Calculator.java");
+                String helper = readCopyInContentBySuffix(request, "Calculator.java");
                 if (javaSource.contains("Calculator.add(a, b)") && helper.contains("static int add")) {
                     return addFromStdin(stdin, 0);
                 }
             }
 
-            String cppSource = readCopyInContent(request, "main.cpp");
+            String cppSource = readCopyInContentBySuffix(request, "main.cpp");
             if (!cppSource.isEmpty()) {
-                String helper = readCopyInContent(request, "calc.h");
+                String helper = readCopyInContentBySuffix(request, "calc.h");
                 if (cppSource.contains("#include \"calc.h\"") && helper.contains("inline int add")) {
                     return addFromStdin(stdin, 0);
                 }
@@ -1011,9 +1064,24 @@ class StructuredProgrammingJudgeIntegrationTests {
 
         private String readMarkerSource(JsonNode request) {
             for (String path : List.of("main.py", "Main.java", "main.cpp")) {
-                String source = readCopyInContent(request, path);
+                String source = readCopyInContentBySuffix(request, path);
                 if (!source.isEmpty()) {
                     return source;
+                }
+            }
+            return "";
+        }
+
+        private String readCopyInContentBySuffix(JsonNode request, String suffix) {
+            JsonNode copyIn = request.at("/cmd/0/copyIn");
+            if (!copyIn.isObject()) {
+                return "";
+            }
+            java.util.Iterator<String> fieldNames = copyIn.fieldNames();
+            while (fieldNames.hasNext()) {
+                String path = fieldNames.next();
+                if (path.equals(suffix) || path.endsWith("/" + suffix)) {
+                    return copyIn.path(path).path("content").asText();
                 }
             }
             return "";

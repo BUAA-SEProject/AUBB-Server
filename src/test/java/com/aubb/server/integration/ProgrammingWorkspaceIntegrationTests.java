@@ -348,9 +348,52 @@ class ProgrammingWorkspaceIntegrationTests {
                 .andExpect(jsonPath("$.files[1].path").value("Calculator.java"));
 
         JsonNode javaRequest = GO_JUDGE_SERVER.requests().getFirst();
-        assertThat(javaRequest.at("/cmd/0/args/2").asText()).contains("/usr/bin/javac Main.java && /usr/bin/java Main");
+        assertThat(javaRequest.at("/cmd/0/args/2").asText())
+                .contains("/usr/bin/javac -encoding UTF-8 -d . Calculator.java Main.java && /usr/bin/java -cp . Main");
         assertThat(javaRequest.at("/cmd/0/copyIn/Main.java/content").asText()).contains("Calculator.add(a, b)");
         assertThat(javaRequest.at("/cmd/0/copyIn/Calculator.java/content").asText())
+                .contains("static int add");
+
+        GO_JUDGE_SERVER.reset();
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                javaAssignmentId,
+                                javaQuestionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"solutions/Main.java",
+                                  "files":[
+                                    {
+                                      "path":"solutions/Main.java",
+                                      "content":"package solutions;\\nimport java.util.Scanner;\\npublic class Main {\\n  public static void main(String[] args) {\\n    Scanner scanner = new Scanner(System.in);\\n    int a = scanner.nextInt();\\n    int b = scanner.nextInt();\\n    System.out.println(Calculator.add(a, b));\\n  }\\n}"
+                                    },
+                                    {
+                                      "path":"solutions/Calculator.java",
+                                      "content":"package solutions;\\nfinal class Calculator {\\n  private Calculator() {}\\n  static int add(int left, int right) {\\n    return left + right;\\n  }\\n}"
+                                    }
+                                  ],
+                                  "programmingLanguage":"JAVA17"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.programmingLanguage").value("JAVA17"))
+                .andExpect(jsonPath("$.entryFilePath").value("solutions/Main.java"))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"))
+                .andExpect(jsonPath("$.files[1].path").value("solutions/Calculator.java"));
+
+        JsonNode nestedJavaRequest = GO_JUDGE_SERVER.requests().getFirst();
+        assertThat(nestedJavaRequest.at("/cmd/0/args/2").asText())
+                .contains("/usr/bin/javac -encoding UTF-8 -d . solutions/Calculator.java solutions/Main.java"
+                        + " && /usr/bin/java -cp . solutions.Main");
+        assertThat(nestedJavaRequest
+                        .at("/cmd/0/copyIn/solutions~1Main.java/content")
+                        .asText())
+                .contains("package solutions;");
+        assertThat(nestedJavaRequest
+                        .at("/cmd/0/copyIn/solutions~1Calculator.java/content")
+                        .asText())
                 .contains("static int add");
 
         Long cppAssignmentId = createCppProgrammingAssignment(teacherToken, offeringId, classId);
@@ -889,28 +932,28 @@ class ProgrammingWorkspaceIntegrationTests {
         }
 
         private String simulateProgramStdout(JsonNode request, String stdin) {
-            String pythonSource = readCopyInContent(request, "main.py");
+            String pythonSource = readCopyInContentBySuffix(request, "main.py");
             if (!pythonSource.isEmpty()) {
                 if (pythonSource.contains("print(a + b - 1)")) {
                     return addFromStdin(stdin, -1);
                 }
-                String helper = readCopyInContent(request, "helpers/math_utils.py");
+                String helper = readCopyInContentBySuffix(request, "helpers/math_utils.py");
                 if (pythonSource.contains("from helpers.math_utils import add") && helper.contains("def add")) {
                     return addFromStdin(stdin, 0);
                 }
             }
 
-            String javaSource = readCopyInContent(request, "Main.java");
+            String javaSource = readCopyInContentBySuffix(request, "Main.java");
             if (!javaSource.isEmpty()) {
-                String helper = readCopyInContent(request, "Calculator.java");
+                String helper = readCopyInContentBySuffix(request, "Calculator.java");
                 if (javaSource.contains("Calculator.add(a, b)") && helper.contains("static int add")) {
                     return addFromStdin(stdin, 0);
                 }
             }
 
-            String cppSource = readCopyInContent(request, "main.cpp");
+            String cppSource = readCopyInContentBySuffix(request, "main.cpp");
             if (!cppSource.isEmpty()) {
-                String helper = readCopyInContent(request, "calc.h");
+                String helper = readCopyInContentBySuffix(request, "calc.h");
                 if (cppSource.contains("#include \"calc.h\"") && helper.contains("inline int add")) {
                     return addFromStdin(stdin, 0);
                 }
@@ -920,9 +963,24 @@ class ProgrammingWorkspaceIntegrationTests {
 
         private String readMarkerSource(JsonNode request) {
             for (String path : List.of("main.py", "Main.java", "main.cpp")) {
-                String source = readCopyInContent(request, path);
+                String source = readCopyInContentBySuffix(request, path);
                 if (!source.isEmpty()) {
                     return source;
+                }
+            }
+            return "";
+        }
+
+        private String readCopyInContentBySuffix(JsonNode request, String suffix) {
+            JsonNode copyIn = request.at("/cmd/0/copyIn");
+            if (!copyIn.isObject()) {
+                return "";
+            }
+            java.util.Iterator<String> fieldNames = copyIn.fieldNames();
+            while (fieldNames.hasNext()) {
+                String path = fieldNames.next();
+                if (path.equals(suffix) || path.endsWith("/" + suffix)) {
+                    return copyIn.path(path).path("content").asText();
                 }
             }
             return "";

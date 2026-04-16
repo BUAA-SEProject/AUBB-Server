@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,7 @@ public class JudgeExecutionService {
     private static final String CUSTOM_JUDGE_EXPECTED_FILE = "_aubb_expected_stdout.txt";
     private static final String CUSTOM_JUDGE_ACTUAL_FILE = "_aubb_actual_stdout.txt";
     private static final String CUSTOM_JUDGE_STDERR_FILE = "_aubb_actual_stderr.txt";
+    private static final Pattern JAVA_PACKAGE_PATTERN = Pattern.compile("(?m)^\\s*package\\s+([A-Za-z_][\\w.]*)\\s*;");
 
     private final JudgeJobMapper judgeJobMapper;
     private final SubmissionMapper submissionMapper;
@@ -415,7 +417,7 @@ public class JudgeExecutionService {
             boolean clipOutput,
             boolean sampleRun) {
         RunResult programResult = executeCase(
-                buildProgramCommand(programmingLanguage, sourceBundle.entryFileName()),
+                buildProgramCommand(programmingLanguage, sourceBundle),
                 sourceBundle.copyIn(),
                 stdinText,
                 safeInt(config.timeLimitMs(), DEFAULT_TIME_LIMIT_MS),
@@ -782,18 +784,42 @@ public class JudgeExecutionService {
         return metadata;
     }
 
-    private List<String> buildProgramCommand(ProgrammingLanguage language, String entryFileName) {
+    private List<String> buildProgramCommand(ProgrammingLanguage language, SourceBundle sourceBundle) {
+        String entryFileName = sourceBundle.entryFileName();
         return switch (language) {
             case PYTHON3 -> List.of("/usr/bin/python3", entryFileName);
             case JAVA17 -> {
-                String className = entryFileName.endsWith(".java")
-                        ? entryFileName.substring(0, entryFileName.length() - 5)
-                        : entryFileName;
-                yield List.of("/bin/sh", "-lc", "/usr/bin/javac " + entryFileName + " && /usr/bin/java " + className);
+                List<String> javaSourceFiles = sourceBundle.copyIn().keySet().stream()
+                        .filter(path -> path.endsWith(".java"))
+                        .sorted()
+                        .toList();
+                String launchClassName = resolveJavaLaunchClassName(entryFileName, sourceBundle.copyIn());
+                yield List.of(
+                        "/bin/sh",
+                        "-lc",
+                        "/usr/bin/javac -encoding UTF-8 -d . "
+                                + String.join(" ", javaSourceFiles)
+                                + " && /usr/bin/java -cp . "
+                                + launchClassName);
             }
             case CPP17 ->
                 List.of("/bin/sh", "-lc", "/usr/bin/g++ -std=c++17 -O2 " + entryFileName + " -o main && ./main");
         };
+    }
+
+    private String resolveJavaLaunchClassName(String entryFileName, Map<String, CopyInFile> copyIn) {
+        String simpleClassName = entryFileName.endsWith(".java")
+                ? entryFileName.substring(entryFileName.lastIndexOf('/') + 1, entryFileName.length() - 5)
+                : entryFileName.substring(entryFileName.lastIndexOf('/') + 1);
+        CopyInFile entryFile = copyIn.get(entryFileName);
+        if (entryFile == null || !StringUtils.hasText(entryFile.content())) {
+            return simpleClassName;
+        }
+        java.util.regex.Matcher matcher = JAVA_PACKAGE_PATTERN.matcher(entryFile.content());
+        if (!matcher.find()) {
+            return simpleClassName;
+        }
+        return matcher.group(1) + "." + simpleClassName;
     }
 
     private SourceBundle buildSourceBundle(

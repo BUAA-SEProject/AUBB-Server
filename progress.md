@@ -240,6 +240,25 @@
   - `findings.md`
   - `progress.md`
 
+## Session: 2026-04-16 Java 运行模板稳定化
+
+### Phase 14：目录树 Java 多文件与 package 入口
+
+- **Status:** completed
+- Actions taken:
+  - 先扩展现有 Java 多语言集成测试，把样例试运行和正式题目级评测都覆盖到“嵌套目录 + package 化入口”场景
+  - 重写 `JudgeExecutionService` 的 `JAVA17` 运行模板，改为编译全部 `.java` 文件，并根据入口文件源码解析 package + 启动类
+  - 扩展 fake go-judge，对目录树中的 `solutions/Main.java`、`solutions/Calculator.java` 等路径做后缀匹配，避免测试桩只识别根目录文件
+  - 已执行 `bash ./mvnw -o -Dtest=StructuredProgrammingJudgeIntegrationTests,ProgrammingWorkspaceIntegrationTests test` 并通过
+- Files created/modified:
+  - `src/main/java/com/aubb/server/modules/judge/application/JudgeExecutionService.java`
+  - `src/test/java/com/aubb/server/integration/StructuredProgrammingJudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/ProgrammingWorkspaceIntegrationTests.java`
+  - `docs/product-specs/judge-system.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
 ## Session: 2026-04-16 编程工作区目录树快照第一阶段
 
 ### Phase 15：工作区快照后端模型

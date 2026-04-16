@@ -131,6 +131,7 @@
 
 - 当前仍保留 assignment 级 legacy 模型；结构化编程题则已下沉到 question-level judge 第一阶段。
 - 结构化编程题当前按语言装配 `PYTHON3 / JAVA17 / CPP17` 运行命令，并支持把目录树源码快照和附件一起写入运行目录；自动化验证当前已覆盖这三种语言的样例试运行与正式评测最小链路。
+- `JAVA17` 当前已固定为“编译全部 `.java` 源文件到当前工作目录，再按入口文件 package + 类名启动”的运行模板，因此已支持目录树场景下的多文件、嵌套路径和 package 化入口。
 - `CUSTOM_SCRIPT` 当前通过固定的 Python checker 执行，checker 读取保留文件：
   - `_aubb_stdin.txt`
   - `_aubb_expected_stdout.txt`
@@ -145,6 +146,10 @@
 - 当前失败态摘要已经做了第一阶段规范化：
   - legacy assignment 级评测、question-level judge 和样例试运行会统一输出“编译失败 / 程序运行失败 / 超出时间限制 / 超出内存限制 / 超出输出限制”等中文摘要
   - 编译失败暂不单独新增 verdict，而是继续映射到 `RUNTIME_ERROR`，避免打破既有 API 枚举
+- 当前三种语言的 V1 运行模板约束为：
+  - `PYTHON3`：直接执行入口脚本
+  - `JAVA17`：编译全部 `.java` 文件，支持嵌套目录与 package 入口
+  - `CPP17`：以入口 `.cpp` 为编译入口，其他头文件随目录树装配
 
 ## 验收标准
 
