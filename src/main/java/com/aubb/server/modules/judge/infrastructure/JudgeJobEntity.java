@@ -39,6 +39,26 @@ public class JudgeJobEntity {
 
     private String resultSummary;
 
+    private String verdict;
+
+    private Integer totalCaseCount;
+
+    private Integer passedCaseCount;
+
+    private Integer score;
+
+    private Integer maxScore;
+
+    private String stdoutExcerpt;
+
+    private String stderrExcerpt;
+
+    private Long timeMillis;
+
+    private Long memoryBytes;
+
+    private String errorMessage;
+
     private OffsetDateTime queuedAt;
 
     private OffsetDateTime startedAt;

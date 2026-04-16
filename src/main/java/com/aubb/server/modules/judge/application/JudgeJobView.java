@@ -2,6 +2,7 @@ package com.aubb.server.modules.judge.application;
 
 import com.aubb.server.modules.judge.domain.JudgeJobStatus;
 import com.aubb.server.modules.judge.domain.JudgeTriggerType;
+import com.aubb.server.modules.judge.domain.JudgeVerdict;
 import java.time.OffsetDateTime;
 
 public record JudgeJobView(
@@ -17,6 +18,16 @@ public record JudgeJobView(
         String engineCode,
         String engineJobRef,
         String resultSummary,
+        JudgeVerdict verdict,
+        Integer totalCaseCount,
+        Integer passedCaseCount,
+        Integer score,
+        Integer maxScore,
+        String stdoutExcerpt,
+        String stderrExcerpt,
+        Long timeMillis,
+        Long memoryBytes,
+        String errorMessage,
         OffsetDateTime queuedAt,
         OffsetDateTime startedAt,
         OffsetDateTime finishedAt,

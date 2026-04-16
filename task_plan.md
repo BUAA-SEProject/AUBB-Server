@@ -1,12 +1,12 @@
-# 任务计划：todo 驱动的开发推进（submission 附件 + judge 第一切片）
+# 任务计划：todo 驱动的开发推进（submission 附件 + judge 执行切片）
 
 ## 目标
 
-根据 `todo.md` 盘点当前平台真实开发进度，更新仓库内执行计划与工作记忆，并沿主链路继续推进开发。本轮先完成 `submission` 附件切片，再继续落地 `judge` 第一切片，为后续 go-judge 执行器、grading 和实验链路提供稳定输入。
+根据 `todo.md` 盘点当前平台真实开发进度，更新仓库内执行计划与工作记忆，并沿主链路继续推进开发。本轮先完成 `submission` 附件切片，再继续落地 `judge` 从“入队骨架”到“go-judge 真实执行”的切片，为后续 grading 和实验链路提供稳定输入。
 
 ## 当前阶段
 
-Phase 5 completed
+Phase 6 completed
 
 ## Skills 选择
 
@@ -56,6 +56,14 @@ Phase 5 completed
 - [ ] 做一次范围清晰的 git 提交
 - **Status:** in_progress
 
+### Phase 6：go-judge 真实执行与结果回写
+
+- [x] 为 assignment 增加脚本型自动评测配置
+- [x] 接入 go-judge `/run`，在 AFTER_COMMIT 异步执行并回写结果
+- [x] 补 judge 专项集成测试，覆盖正确、错误和基础设施失败三类路径
+- [x] 同步 `todo.md`、产品规格、架构和数据库结构文档
+- **Status:** completed
+
 ## 已做决策
 
 | Decision | Rationale |
@@ -63,6 +71,8 @@ Phase 5 completed
 | 本轮优先推进 `submission` 附件切片，而不是直接上 judge | 当前仓库已具备 assignment、submission 和 MinIO 基础设施，补附件是最短主链路缺口 |
 | 附件采用“先上传资产，再在正式提交时关联”的两阶段模型 | 便于支持多文件提交、版本留痕和后续工作区 / 草稿扩展 |
 | 继续保持 `submission` 模块内部闭环，不新建临时共享业务目录 | 避免把业务语义误塞进 `common` 或 `config` |
+| go-judge 当前采用 AFTER_COMMIT + 应用内异步执行，而不是先上 RabbitMQ worker | 先满足主链路闭环和结果回写，避免在 worker 基础设施未稳定前过早扩张 |
+| 自动评测当前只支持 `PYTHON3 + TEXT_BODY` | 现有 submission 事实模型还没有多文件工程和语言选择，先做最小稳定切片 |
 
 ## 错误记录
 

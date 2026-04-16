@@ -3,13 +3,19 @@ package com.aubb.server.modules.assignment.api;
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.modules.assignment.application.AssignmentApplicationService;
 import com.aubb.server.modules.assignment.application.AssignmentView;
+import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeCaseInput;
+import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigInput;
 import com.aubb.server.modules.assignment.domain.AssignmentStatus;
+import com.aubb.server.modules.assignment.domain.judge.AssignmentJudgeLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import java.time.OffsetDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -47,6 +53,7 @@ public class AssignmentTeacherController {
                 request.openAt(),
                 request.dueAt(),
                 request.maxSubmissions(),
+                request.toJudgeConfigInput(),
                 principal);
     }
 
@@ -90,5 +97,38 @@ public class AssignmentTeacherController {
             Long teachingClassId,
             @NotNull OffsetDateTime openAt,
             @NotNull OffsetDateTime dueAt,
-            @NotNull @Positive Integer maxSubmissions) {}
+            @NotNull @Positive Integer maxSubmissions,
+            @Valid JudgeConfigRequest judgeConfig) {
+
+        AssignmentJudgeConfigInput toJudgeConfigInput() {
+            return judgeConfig == null ? null : judgeConfig.toInput();
+        }
+    }
+
+    public record JudgeConfigRequest(
+            @NotNull AssignmentJudgeLanguage language,
+            @NotNull @Positive Integer timeLimitMs,
+            @NotNull @Positive Integer memoryLimitMb,
+            @NotNull @Positive Integer outputLimitKb,
+            @NotEmpty List<@Valid JudgeCaseRequest> testCases) {
+
+        AssignmentJudgeConfigInput toInput() {
+            return new AssignmentJudgeConfigInput(
+                    language,
+                    timeLimitMs,
+                    memoryLimitMb,
+                    outputLimitKb,
+                    testCases.stream().map(JudgeCaseRequest::toInput).toList());
+        }
+    }
+
+    public record JudgeCaseRequest(
+            @NotNull String stdinText,
+            @NotNull String expectedStdout,
+            @NotNull @PositiveOrZero Integer score) {
+
+        AssignmentJudgeCaseInput toInput() {
+            return new AssignmentJudgeCaseInput(stdinText, expectedStdout, score);
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package com.aubb.server.modules.assignment.application;
 
+import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigView;
 import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import java.time.OffsetDateTime;
 
@@ -15,6 +16,7 @@ public record AssignmentView(
         OffsetDateTime openAt,
         OffsetDateTime dueAt,
         Integer maxSubmissions,
+        AssignmentJudgeConfigView judgeConfig,
         OffsetDateTime publishedAt,
         OffsetDateTime closedAt,
         OffsetDateTime createdAt,

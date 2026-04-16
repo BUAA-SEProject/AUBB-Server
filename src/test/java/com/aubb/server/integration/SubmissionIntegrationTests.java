@@ -262,7 +262,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void submissionAutoCreatesJudgeJobAndTeacherCanRequeue() throws Exception {
+    void plainSubmissionDoesNotCreateJudgeJobsWithoutJudgeConfig() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -278,40 +278,33 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 teacherToken,
                 offeringId,
                 classAId,
-                "自动评测骨架作业",
+                "普通文本作业",
                 OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
                 OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
                 2);
         publishAssignment(teacherToken, assignmentId);
 
-        Long submissionId = createSubmission(studentAToken, assignmentId, "等待自动评测");
+        Long submissionId = createSubmission(studentAToken, assignmentId, "这次提交不参与自动评测");
 
         mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
                         .header("Authorization", "Bearer " + studentAToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].submissionId").value(submissionId))
-                .andExpect(jsonPath("$[0].status").value("PENDING"))
-                .andExpect(jsonPath("$[0].triggerType").value("AUTO"))
-                .andExpect(jsonPath("$[0].engineCode").value("GO_JUDGE"));
+                .andExpect(jsonPath("$.length()").value(0));
 
         mockMvc.perform(post("/api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue", submissionId)
                         .header("Authorization", "Bearer " + teacherToken))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("PENDING"))
-                .andExpect(jsonPath("$.triggerType").value("MANUAL_REJUDGE"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ASSIGNMENT_JUDGE_NOT_CONFIGURED"));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}/judge-jobs", submissionId)
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].triggerType").value("MANUAL_REJUDGE"))
-                .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
+                .andExpect(jsonPath("$.length()").value(0));
 
         assertThat(queryForCount("SELECT COUNT(*) FROM judge_jobs WHERE submission_id = 1"))
-                .isEqualTo(2);
+                .isEqualTo(0);
         assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'JUDGE_JOB_ENQUEUED'"))
-                .isEqualTo(2);
+                .isEqualTo(0);
     }
 
     @Test

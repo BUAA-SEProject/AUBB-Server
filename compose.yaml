@@ -29,6 +29,14 @@ services:
       - '9001:9001'
     volumes:
       - 'minio-data:/data'
+  go-judge:
+    build:
+      context: .
+      dockerfile: docker/go-judge/Dockerfile
+    privileged: true
+    shm_size: '256m'
+    ports:
+      - '5050:5050'
 
 volumes:
   minio-data:

@@ -9,6 +9,7 @@
 - `src/main/resources/db/migration/V5__submission_first_slice.sql`
 - `src/main/resources/db/migration/V6__submission_artifact_slice.sql`
 - `src/main/resources/db/migration/V7__judge_first_slice.sql`
+- `src/main/resources/db/migration/V8__judge_go_judge_execution.sql`
 
 ## 总览
 
@@ -27,6 +28,8 @@
 - `teaching_classes`：教学班
 - `course_members`：课程成员
 - `assignments`：作业主数据
+- `assignment_judge_profiles`：作业自动评测配置
+- `assignment_judge_cases`：作业自动评测测试用例
 - `submissions`：正式提交记录
 - `submission_artifacts`：提交附件元数据
 - `judge_jobs`：评测作业元数据
@@ -227,6 +230,38 @@
 - `ix_assignments_teaching_class_id_status`
 - `ix_assignments_open_at_due_at`
 
+### `assignment_judge_profiles`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `assignment_id` | `bigint` | 主键，同时外键到 `assignments.id`，级联删除 |
+| `source_type` | `text` | 必填，当前固定 `TEXT_BODY` |
+| `language` | `text` | 必填，当前固定 `PYTHON3` |
+| `entry_file_name` | `text` | 必填，最长 64，当前固定 `main.py` |
+| `time_limit_ms` | `integer` | 必填，`> 0` |
+| `memory_limit_mb` | `integer` | 必填，`> 0` |
+| `output_limit_kb` | `integer` | 必填，`> 0` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+### `assignment_judge_cases`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignment_judge_profiles.assignment_id`，级联删除 |
+| `case_order` | `integer` | 必填，`> 0` |
+| `stdin_text` | `text` | 必填，标准输入 |
+| `expected_stdout` | `text` | 必填，预期标准输出 |
+| `score` | `integer` | 必填，`>= 0` |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+| `updated_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `uk_assignment_judge_cases_assignment_order`
+- `ix_assignment_judge_cases_assignment_order`
+
 ### `submissions`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -290,7 +325,17 @@
 | `status` | `text` | 必填，默认 `PENDING`，`PENDING / RUNNING / SUCCEEDED / FAILED` |
 | `engine_code` | `text` | 必填，当前固定为 `GO_JUDGE` |
 | `engine_job_ref` | `text` | 可空，最长 128 |
-| `result_summary` | `text` | 结果摘要扩展位 |
+| `result_summary` | `text` | 结果摘要 |
+| `verdict` | `text` | 可空，`ACCEPTED / WRONG_ANSWER / TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED / RUNTIME_ERROR / SYSTEM_ERROR` |
+| `total_case_count` | `integer` | 可空，`>= 0` |
+| `passed_case_count` | `integer` | 可空，`>= 0`，且不大于 `total_case_count` |
+| `score` | `integer` | 可空，`>= 0` |
+| `max_score` | `integer` | 可空，`>= 0`，且不小于 `score` |
+| `stdout_excerpt` | `text` | 可空，输出摘要 |
+| `stderr_excerpt` | `text` | 可空，错误输出摘要 |
+| `time_millis` | `bigint` | 可空，聚合运行时长，`>= 0` |
+| `memory_bytes` | `bigint` | 可空，聚合内存峰值，`>= 0` |
+| `error_message` | `text` | 可空，基础设施失败信息 |
 | `queued_at` | `timestamptz` | 必填，默认 `now()` |
 | `started_at` | `timestamptz` | 可空 |
 | `finished_at` | `timestamptz` | 可空 |
@@ -303,6 +348,8 @@
 - `ix_judge_jobs_status_queued_at`
 - `ix_judge_jobs_assignment_submitter_queued_at`
 - `ck_judge_jobs_time_order`
+- `ck_judge_jobs_case_progress`
+- `ck_judge_jobs_score_progress`
 
 ### `academic_profiles`
 
@@ -391,6 +438,8 @@
 - `assignments.offering_id -> course_offerings.id`
 - `assignments.teaching_class_id -> teaching_classes.id`
 - `assignments.created_by_user_id -> users.id`
+- `assignment_judge_profiles.assignment_id -> assignments.id`
+- `assignment_judge_cases.assignment_id -> assignment_judge_profiles.assignment_id`
 - `submissions.assignment_id -> assignments.id`
 - `submissions.offering_id -> course_offerings.id`
 - `submissions.teaching_class_id -> teaching_classes.id`
@@ -417,7 +466,9 @@
 - `assignments` 当前表达“课程公共作业”与“教学班专属作业”两种范围；后续 grading 等模块继续围绕它挂接。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
-- `judge_jobs` 当前表达评测作业自动入队与重排队骨架，还没有真实执行器、结果回写和资源指标。
+- `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。
+- `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
+- `judge_jobs` 当前已表达评测作业自动入队、AFTER_COMMIT 异步执行与聚合结果回写；仍未保存逐测试用例明细和评测产物对象。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。
 - `org_units` 仍使用邻接表，当前实现通过父链回溯完成作用域判定；若后续规模扩大，可引入路径列或 `ltree` 优化。
 - 平台配置移除了版本化能力，若未来需要配置历史，可通过审计快照补充。

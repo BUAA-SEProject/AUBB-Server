@@ -3,6 +3,7 @@ package com.aubb.server.modules.judge.application;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
+import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeProfileMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
@@ -10,6 +11,7 @@ import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.judge.domain.JudgeJobStatus;
 import com.aubb.server.modules.judge.domain.JudgeTriggerType;
+import com.aubb.server.modules.judge.domain.JudgeVerdict;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobEntity;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobMapper;
 import com.aubb.server.modules.submission.infrastructure.SubmissionEntity;
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,12 +36,17 @@ public class JudgeApplicationService {
     private final JudgeJobMapper judgeJobMapper;
     private final SubmissionMapper submissionMapper;
     private final AssignmentMapper assignmentMapper;
+    private final AssignmentJudgeProfileMapper assignmentJudgeProfileMapper;
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     @Transactional
-    public JudgeJobView enqueueAutoJudge(SubmissionEntity submission, AssignmentEntity assignment) {
-        return createJudgeJob(submission, assignment, submission.getSubmitterUserId(), JudgeTriggerType.AUTO);
+    public void enqueueAutoJudge(SubmissionEntity submission, AssignmentEntity assignment) {
+        if (!isJudgeConfigured(assignment.getId())) {
+            return;
+        }
+        createJudgeJob(submission, assignment, submission.getSubmitterUserId(), JudgeTriggerType.AUTO);
     }
 
     @Transactional(readOnly = true)
@@ -68,6 +76,7 @@ public class JudgeApplicationService {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
         courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        assertJudgeConfigured(assignment.getId());
         return createJudgeJob(submission, assignment, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
     }
 
@@ -89,6 +98,7 @@ public class JudgeApplicationService {
         entity.setEngineCode(ENGINE_CODE);
         entity.setQueuedAt(now);
         judgeJobMapper.insert(entity);
+        applicationEventPublisher.publishEvent(new JudgeExecutionRequestedEvent(entity.getId()));
 
         auditLogApplicationService.record(
                 requestedByUserId,
@@ -128,6 +138,16 @@ public class JudgeApplicationService {
                 entity.getEngineCode(),
                 entity.getEngineJobRef(),
                 entity.getResultSummary(),
+                entity.getVerdict() == null ? null : JudgeVerdict.valueOf(entity.getVerdict()),
+                entity.getTotalCaseCount(),
+                entity.getPassedCaseCount(),
+                entity.getScore(),
+                entity.getMaxScore(),
+                entity.getStdoutExcerpt(),
+                entity.getStderrExcerpt(),
+                entity.getTimeMillis(),
+                entity.getMemoryBytes(),
+                entity.getErrorMessage(),
                 entity.getQueuedAt(),
                 entity.getStartedAt(),
                 entity.getFinishedAt(),
@@ -149,5 +169,15 @@ public class JudgeApplicationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "任务不存在");
         }
         return assignment;
+    }
+
+    private void assertJudgeConfigured(Long assignmentId) {
+        if (!isJudgeConfigured(assignmentId)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_NOT_CONFIGURED", "当前任务未配置自动评测");
+        }
+    }
+
+    private boolean isJudgeConfigured(Long assignmentId) {
+        return assignmentJudgeProfileMapper.selectById(assignmentId) != null;
     }
 }

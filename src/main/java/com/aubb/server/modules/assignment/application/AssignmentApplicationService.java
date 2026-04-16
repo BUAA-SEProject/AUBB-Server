@@ -2,9 +2,17 @@ package com.aubb.server.modules.assignment.application;
 
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeCaseInput;
+import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigInput;
+import com.aubb.server.modules.assignment.application.judge.AssignmentJudgeConfigView;
 import com.aubb.server.modules.assignment.domain.AssignmentStatus;
+import com.aubb.server.modules.assignment.domain.judge.AssignmentJudgeLanguage;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
+import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeCaseEntity;
+import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeCaseMapper;
+import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeProfileEntity;
+import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeProfileMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
@@ -16,6 +24,7 @@ import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMappe
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +39,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AssignmentApplicationService {
 
+    private static final String JUDGE_SOURCE_TYPE = "TEXT_BODY";
+    private static final String JUDGE_ENTRY_FILE_NAME = "main.py";
+    private static final int MAX_JUDGE_CASES = 20;
+
     private final AssignmentMapper assignmentMapper;
+    private final AssignmentJudgeProfileMapper assignmentJudgeProfileMapper;
+    private final AssignmentJudgeCaseMapper assignmentJudgeCaseMapper;
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseAuthorizationService courseAuthorizationService;
@@ -45,6 +60,7 @@ public class AssignmentApplicationService {
             OffsetDateTime openAt,
             OffsetDateTime dueAt,
             Integer maxSubmissions,
+            AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         CourseOfferingEntity offering = requireOffering(offeringId);
@@ -63,11 +79,13 @@ public class AssignmentApplicationService {
         entity.setMaxSubmissions(maxSubmissions);
         entity.setCreatedByUserId(principal.getUserId());
         assignmentMapper.insert(entity);
+        persistJudgeConfig(entity.getId(), judgeConfig);
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("offeringId", offeringId);
         metadata.put("teachingClassId", teachingClassId);
         metadata.put("title", entity.getTitle());
+        metadata.put("judgeEnabled", judgeConfig != null);
 
         auditLogApplicationService.record(
                 principal.getUserId(),
@@ -76,7 +94,7 @@ public class AssignmentApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 metadata);
-        return toView(entity, offering, teachingClass);
+        return toView(entity, offering, teachingClass, loadJudgeConfigView(entity.getId()));
     }
 
     @Transactional(readOnly = true)
@@ -197,6 +215,7 @@ public class AssignmentApplicationService {
         long safePageSize = Math.max(pageSize, 1);
         long offset = (safePage - 1) * safePageSize;
         Map<Long, TeachingClassEntity> classIndex = loadTeachingClasses(entities);
+        Map<Long, AssignmentJudgeConfigView> judgeConfigIndex = loadJudgeConfigViews(entities);
         List<AssignmentView> items = entities.stream()
                 .skip(offset)
                 .limit(safePageSize)
@@ -204,7 +223,11 @@ public class AssignmentApplicationService {
                     TeachingClassEntity teachingClass = assignment.getTeachingClassId() == null
                             ? null
                             : classIndex.get(assignment.getTeachingClassId());
-                    return toView(assignment, offerings.get(assignment.getOfferingId()), teachingClass);
+                    return toView(
+                            assignment,
+                            offerings.get(assignment.getOfferingId()),
+                            teachingClass,
+                            judgeConfigIndex.get(assignment.getId()));
                 })
                 .toList();
         return new PageResponse<>(items, entities.size(), safePage, safePageSize);
@@ -214,11 +237,14 @@ public class AssignmentApplicationService {
         CourseOfferingEntity offering = requireOffering(entity.getOfferingId());
         TeachingClassEntity teachingClass =
                 entity.getTeachingClassId() == null ? null : requireTeachingClass(entity.getTeachingClassId());
-        return toView(entity, offering, teachingClass);
+        return toView(entity, offering, teachingClass, loadJudgeConfigView(entity.getId()));
     }
 
     private AssignmentView toView(
-            AssignmentEntity entity, CourseOfferingEntity offering, TeachingClassEntity teachingClass) {
+            AssignmentEntity entity,
+            CourseOfferingEntity offering,
+            TeachingClassEntity teachingClass,
+            AssignmentJudgeConfigView judgeConfigView) {
         AssignmentClassView classView = teachingClass == null
                 ? null
                 : new AssignmentClassView(
@@ -235,6 +261,9 @@ public class AssignmentApplicationService {
                 entity.getOpenAt(),
                 entity.getDueAt(),
                 entity.getMaxSubmissions(),
+                judgeConfigView == null
+                        ? new AssignmentJudgeConfigView(false, null, null, null, null, 0)
+                        : judgeConfigView,
                 entity.getPublishedAt(),
                 entity.getClosedAt(),
                 entity.getCreatedAt(),
@@ -306,6 +335,80 @@ public class AssignmentApplicationService {
         return description == null || description.isBlank() ? null : description.trim();
     }
 
+    private void persistJudgeConfig(Long assignmentId, AssignmentJudgeConfigInput judgeConfig) {
+        if (judgeConfig == null) {
+            return;
+        }
+        validateJudgeConfig(judgeConfig);
+        AssignmentJudgeProfileEntity profile = new AssignmentJudgeProfileEntity();
+        profile.setAssignmentId(assignmentId);
+        profile.setSourceType(JUDGE_SOURCE_TYPE);
+        profile.setLanguage(judgeConfig.language().name());
+        profile.setEntryFileName(JUDGE_ENTRY_FILE_NAME);
+        profile.setTimeLimitMs(judgeConfig.timeLimitMs());
+        profile.setMemoryLimitMb(judgeConfig.memoryLimitMb());
+        profile.setOutputLimitKb(judgeConfig.outputLimitKb());
+        assignmentJudgeProfileMapper.insert(profile);
+
+        int caseOrder = 1;
+        for (AssignmentJudgeCaseInput testCase : judgeConfig.testCases()) {
+            AssignmentJudgeCaseEntity entity = new AssignmentJudgeCaseEntity();
+            entity.setAssignmentId(assignmentId);
+            entity.setCaseOrder(caseOrder++);
+            entity.setStdinText(normalizeJudgeText(testCase.stdinText()));
+            entity.setExpectedStdout(normalizeJudgeText(testCase.expectedStdout()));
+            entity.setScore(testCase.score());
+            assignmentJudgeCaseMapper.insert(entity);
+        }
+    }
+
+    private void validateJudgeConfig(AssignmentJudgeConfigInput judgeConfig) {
+        if (judgeConfig.language() == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_LANGUAGE_REQUIRED", "自动评测语言不能为空");
+        }
+        if (!AssignmentJudgeLanguage.PYTHON3.equals(judgeConfig.language())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_LANGUAGE_UNSUPPORTED", "当前仅支持 PYTHON3");
+        }
+        if (judgeConfig.timeLimitMs() == null || judgeConfig.timeLimitMs() <= 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_TIME_LIMIT_INVALID", "时间限制必须大于 0");
+        }
+        if (judgeConfig.memoryLimitMb() == null || judgeConfig.memoryLimitMb() <= 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_MEMORY_LIMIT_INVALID", "内存限制必须大于 0");
+        }
+        if (judgeConfig.outputLimitKb() == null || judgeConfig.outputLimitKb() <= 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_OUTPUT_LIMIT_INVALID", "输出限制必须大于 0");
+        }
+        if (judgeConfig.testCases() == null || judgeConfig.testCases().isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_CASES_REQUIRED", "自动评测至少需要一个测试用例");
+        }
+        if (judgeConfig.testCases().size() > MAX_JUDGE_CASES) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_CASES_TOO_MANY", "自动评测用例数量过多");
+        }
+        int totalScore = 0;
+        for (AssignmentJudgeCaseInput testCase : judgeConfig.testCases()) {
+            if (testCase == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_CASE_INVALID", "自动评测用例不能为空");
+            }
+            if (testCase.stdinText() == null || testCase.expectedStdout() == null) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_CASE_TEXT_REQUIRED", "测试用例输入和输出不能为空");
+            }
+            if (testCase.score() == null || testCase.score() < 0) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_CASE_SCORE_INVALID", "测试用例分值不能小于 0");
+            }
+            totalScore += testCase.score();
+        }
+        if (totalScore <= 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_SCORE_INVALID", "自动评测总分必须大于 0");
+        }
+    }
+
+    private String normalizeJudgeText(String value) {
+        return value.replace("\r\n", "\n");
+    }
+
     private Map<Long, TeachingClassEntity> loadTeachingClasses(List<AssignmentEntity> entities) {
         List<Long> classIds = entities.stream()
                 .map(AssignmentEntity::getTeachingClassId)
@@ -334,5 +437,46 @@ public class AssignmentApplicationService {
         return courseOfferingMapper.selectByIds(offeringIds).stream()
                 .collect(Collectors.toMap(
                         CourseOfferingEntity::getId, offering -> offering, (left, right) -> left, LinkedHashMap::new));
+    }
+
+    private AssignmentJudgeConfigView loadJudgeConfigView(Long assignmentId) {
+        return loadJudgeConfigViews(List.of(requireAssignment(assignmentId))).get(assignmentId);
+    }
+
+    private Map<Long, AssignmentJudgeConfigView> loadJudgeConfigViews(Collection<AssignmentEntity> entities) {
+        List<Long> assignmentIds =
+                entities.stream().map(AssignmentEntity::getId).distinct().toList();
+        if (assignmentIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, AssignmentJudgeProfileEntity> profiles =
+                assignmentJudgeProfileMapper.selectByIds(assignmentIds).stream()
+                        .collect(Collectors.toMap(
+                                AssignmentJudgeProfileEntity::getAssignmentId,
+                                profile -> profile,
+                                (left, right) -> left,
+                                LinkedHashMap::new));
+        if (profiles.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Long> caseCounts = assignmentJudgeCaseMapper
+                .selectList(Wrappers.<AssignmentJudgeCaseEntity>lambdaQuery()
+                        .in(AssignmentJudgeCaseEntity::getAssignmentId, profiles.keySet()))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        AssignmentJudgeCaseEntity::getAssignmentId, LinkedHashMap::new, Collectors.counting()));
+        Map<Long, AssignmentJudgeConfigView> result = new LinkedHashMap<>();
+        for (AssignmentJudgeProfileEntity profile : profiles.values()) {
+            result.put(
+                    profile.getAssignmentId(),
+                    new AssignmentJudgeConfigView(
+                            true,
+                            AssignmentJudgeLanguage.valueOf(profile.getLanguage()),
+                            profile.getTimeLimitMs(),
+                            profile.getMemoryLimitMb(),
+                            profile.getOutputLimitKb(),
+                            Math.toIntExact(caseCounts.getOrDefault(profile.getAssignmentId(), 0L))));
+        }
+        return result;
     }
 }

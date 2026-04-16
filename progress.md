@@ -55,3 +55,30 @@
   - 已执行 `bash ./mvnw clean verify`
   - 当前 `BUILD SUCCESS`，共 `48` 个测试通过
   - 正在整理本轮 git 提交范围，排除与本任务无关的既有改动
+
+## Session: 2026-04-16 judge go-judge 执行切片
+
+### Phase 6：go-judge 真实执行与结果回写
+
+- **Status:** completed
+- Actions taken:
+  - 新增 `V8__judge_go_judge_execution.sql`，引入 `assignment_judge_profiles`、`assignment_judge_cases`，并扩展 `judge_jobs` 聚合结果字段
+  - 为 assignment 增加脚本型自动评测配置摘要，当前支持 `PYTHON3 + TEXT_BODY`
+  - 新增 go-judge 配置、客户端和 AFTER_COMMIT 异步执行服务
+  - 让评测作业支持 `PENDING -> RUNNING -> SUCCEEDED/FAILED` 并回写 verdict、得分、日志摘要、资源指标和错误信息
+  - 新增 `JudgeIntegrationTests`，覆盖正确提交、错误提交、go-judge 失败三类路径
+  - 调整 `SubmissionIntegrationTests`，明确“未配置自动评测的作业不会自动入队”
+- Files created/modified:
+  - `src/main/resources/db/migration/V8__judge_go_judge_execution.sql`
+  - `src/main/java/com/aubb/server/config/GoJudgeConfiguration.java`
+  - `src/main/java/com/aubb/server/modules/assignment/**`
+  - `src/main/java/com/aubb/server/modules/judge/**`
+  - `src/test/java/com/aubb/server/integration/JudgeIntegrationTests.java`
+  - `src/test/java/com/aubb/server/integration/SubmissionIntegrationTests.java`
+  - `compose.yaml`
+  - `docker/go-judge/Dockerfile`
+  - `README.md`
+  - `ARCHITECTURE.md`
+  - `docs/product-specs/*.md`
+  - `docs/generated/db-schema.md`
+  - `todo.md`
