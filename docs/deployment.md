@@ -59,7 +59,7 @@ docker compose --profile app up --build
   - MinIO
   - go-judge
   - RabbitMQ 队列
-- 如需首启初始化，可再追加 `AUBB_BOOTSTRAP_*` 变量
+- 如需首启初始化，可再追加 `AUBB_BOOTSTRAP_*` 变量；`app` profile 当前会把这些变量完整透传到应用容器
 - 若本机已有服务占用默认端口，可覆盖 `AUBB_APP_PORT`、`AUBB_GO_JUDGE_PORT`、`AUBB_POSTGRES_PORT`、`AUBB_RABBITMQ_PORT`、`AUBB_REDIS_PORT`、`AUBB_MINIO_PORT`
 
 关键端口默认值：

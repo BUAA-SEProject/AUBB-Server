@@ -18,7 +18,10 @@ class JwtSecurityPropertiesValidationTests {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ConfigurationPropertiesAutoConfiguration.class))
             .withUserConfiguration(JwtSecurityPropertiesTestConfiguration.class)
-            .withPropertyValues("aubb.security.jwt.issuer=AUBB-Server", "aubb.security.jwt.ttl=PT2H");
+            .withPropertyValues(
+                    "aubb.security.jwt.issuer=AUBB-Server",
+                    "aubb.security.jwt.ttl=PT2H",
+                    "aubb.security.jwt.refresh-ttl=P14D");
 
     @Test
     void failsFastWhenJwtSecretIsMissing() {
@@ -39,6 +42,7 @@ class JwtSecurityPropertiesValidationTests {
                     JwtSecurityProperties properties = context.getBean(JwtSecurityProperties.class);
                     assertThat(properties.getIssuer()).isEqualTo("AUBB-Server");
                     assertThat(properties.getTtl()).hasToString("PT2H");
+                    assertThat(properties.getRefreshTtl()).hasToString("PT336H");
                     assertThat(properties.getSecret()).isEqualTo("test-jwt-secret-for-aubb-server-0123456789");
                 });
     }
