@@ -112,6 +112,15 @@ public class AssignmentTeacherController {
                 principal);
     }
 
+    @PutMapping("/assignments/{assignmentId}/paper")
+    @PreAuthorize("isAuthenticated()")
+    public AssignmentView replacePaper(
+            @PathVariable Long assignmentId,
+            @Valid @RequestBody PaperRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return assignmentApplicationService.replaceAssignmentPaper(assignmentId, request.toInput(), principal);
+    }
+
     @PostMapping("/assignments/{assignmentId}/publish")
     @PreAuthorize("isAuthenticated()")
     public AssignmentView publish(

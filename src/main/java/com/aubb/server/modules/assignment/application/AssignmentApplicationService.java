@@ -175,6 +175,29 @@ public class AssignmentApplicationService {
                 loadJudgeConfigView(entity.getId()));
     }
 
+    @Transactional
+    public AssignmentView replaceAssignmentPaper(
+            Long assignmentId, AssignmentPaperInput paper, AuthenticatedUserPrincipal principal) {
+        AssignmentEntity entity = requireAssignment(assignmentId);
+        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以编辑");
+        }
+        if (hasAssignmentJudgeConfig(entity.getId())) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "ASSIGNMENT_MODE_CONFLICT", "结构化作业暂不支持 assignment 级自动评测配置，请二选一");
+        }
+        assignmentPaperApplicationService.replacePaper(entity.getId(), entity.getOfferingId(), paper);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.ASSIGNMENT_UPDATED,
+                "ASSIGNMENT",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                Map.of("offeringId", entity.getOfferingId(), "updateScope", "paper"));
+        return toView(entity);
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<AssignmentView> listTeacherAssignments(
             Long offeringId,
@@ -292,11 +315,13 @@ public class AssignmentApplicationService {
 
     private PageResponse<AssignmentView> toPage(
             List<AssignmentEntity> entities, CourseOfferingEntity offering, long page, long pageSize) {
-        return toPage(
-                entities,
-                entities.stream().collect(Collectors.toMap(AssignmentEntity::getOfferingId, ignored -> offering)),
-                page,
-                pageSize);
+        Map<Long, CourseOfferingEntity> offeringIndex = entities.stream()
+                .collect(Collectors.toMap(
+                        AssignmentEntity::getOfferingId,
+                        ignored -> offering,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        return toPage(entities, offeringIndex, page, pageSize);
     }
 
     private PageResponse<AssignmentView> toPage(
@@ -474,6 +499,10 @@ public class AssignmentApplicationService {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "ASSIGNMENT_MODE_CONFLICT", "结构化作业暂不支持 assignment 级自动评测配置，请二选一");
         }
+    }
+
+    private boolean hasAssignmentJudgeConfig(Long assignmentId) {
+        return assignmentJudgeProfileMapper.selectById(assignmentId) != null;
     }
 
     private void persistJudgeConfig(Long assignmentId, AssignmentJudgeConfigInput judgeConfig) {

@@ -1,7 +1,9 @@
 package com.aubb.server.modules.assignment.application.bank;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigView;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
@@ -28,8 +30,10 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.judge.application.environment.JudgeEnvironmentProfileApplicationService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -46,6 +50,9 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class QuestionBankApplicationService {
 
+    static final String CATEGORY_CACHE_NAME = "questionBankCategories";
+    static final String TAG_CACHE_NAME = "questionBankTags";
+
     private final QuestionBankQuestionMapper questionMapper;
     private final QuestionBankQuestionOptionMapper optionMapper;
     private final QuestionBankCategoryMapper categoryMapper;
@@ -56,6 +63,8 @@ public class QuestionBankApplicationService {
     private final StructuredQuestionSupport structuredQuestionSupport;
     private final AuditLogApplicationService auditLogApplicationService;
     private final JudgeEnvironmentProfileApplicationService judgeEnvironmentProfileApplicationService;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
 
     @Transactional
     public QuestionBankQuestionView createQuestion(
@@ -97,6 +106,7 @@ public class QuestionBankApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 Map.of("offeringId", offeringId, "questionType", questionType.name()));
+        evictDictionaryCaches(offeringId);
         return toView(entity, true);
     }
 
@@ -114,6 +124,8 @@ public class QuestionBankApplicationService {
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         requireOffering(offeringId);
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        String normalizedMetadataKeyword =
+                normalizedKeyword == null ? null : normalizedKeyword.toLowerCase(Locale.ROOT);
         String normalizedCategory = normalizeCategoryLookup(category);
         List<String> normalizedTags = normalizeTags(tags);
         String questionTypeCode = questionType == null ? null : questionType.name();
@@ -125,58 +137,62 @@ public class QuestionBankApplicationService {
         if (!normalizedTags.isEmpty() && matchedQuestionIdsByTags.isEmpty()) {
             return new PageResponse<>(List.of(), 0, Math.max(page, 1), Math.max(pageSize, 1));
         }
-        List<QuestionBankQuestionEntity> matched =
-                questionMapper.selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
-                        .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
-                        .eq(questionTypeCode != null, QuestionBankQuestionEntity::getQuestionType, questionTypeCode)
-                        .eq(matchedCategoryId != null, QuestionBankQuestionEntity::getCategoryId, matchedCategoryId)
-                        .and(normalizedKeyword != null, query -> query.like(
-                                        QuestionBankQuestionEntity::getTitle, normalizedKeyword)
-                                .or()
-                                .like(QuestionBankQuestionEntity::getPromptText, normalizedKeyword))
-                        .in(!normalizedTags.isEmpty(), QuestionBankQuestionEntity::getId, matchedQuestionIdsByTags)
-                        .isNull(!includeArchived, QuestionBankQuestionEntity::getArchivedAt)
-                        .orderByDesc(QuestionBankQuestionEntity::getCreatedAt)
-                        .orderByDesc(QuestionBankQuestionEntity::getId));
         long safePage = Math.max(page, 1);
         long safePageSize = Math.max(pageSize, 1);
         long offset = (safePage - 1) * safePageSize;
-        List<QuestionBankQuestionView> items = matched.stream()
-                .skip(offset)
-                .limit(safePageSize)
+        KeywordMetadataMatches keywordMetadataMatches =
+                resolveKeywordMetadataMatches(offeringId, normalizedMetadataKeyword);
+        long total = questionMapper.selectCount(buildQuestionListQuery(
+                offeringId,
+                questionTypeCode,
+                matchedCategoryId,
+                normalizedKeyword,
+                keywordMetadataMatches,
+                matchedQuestionIdsByTags,
+                includeArchived,
+                false));
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<QuestionBankQuestionView> items = questionMapper
+                .selectList(buildQuestionListQuery(
+                                offeringId,
+                                questionTypeCode,
+                                matchedCategoryId,
+                                normalizedKeyword,
+                                keywordMetadataMatches,
+                                matchedQuestionIdsByTags,
+                                includeArchived,
+                                true)
+                        .last("LIMIT %d OFFSET %d".formatted(safePageSize, offset)))
+                .stream()
                 .map(question -> toView(question, true))
                 .toList();
-        return new PageResponse<>(items, matched.size(), safePage, safePageSize);
+        return new PageResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
     public List<QuestionBankCategoryView> listCategories(Long offeringId, AuthenticatedUserPrincipal principal) {
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         requireOffering(offeringId);
-        List<QuestionBankCategoryEntity> categories =
-                categoryMapper.selectList(Wrappers.<QuestionBankCategoryEntity>lambdaQuery()
-                        .eq(QuestionBankCategoryEntity::getOfferingId, offeringId)
-                        .orderByAsc(QuestionBankCategoryEntity::getCategoryName)
-                        .orderByAsc(QuestionBankCategoryEntity::getId));
-        if (categories.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, Long> activeQuestionCounts = questionMapper
-                .selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
-                        .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
-                        .isNotNull(QuestionBankQuestionEntity::getCategoryId)
-                        .isNull(QuestionBankQuestionEntity::getArchivedAt))
-                .stream()
-                .collect(Collectors.groupingBy(QuestionBankQuestionEntity::getCategoryId, Collectors.counting()));
-        return categories.stream()
-                .map(category -> new QuestionBankCategoryView(
-                        category.getId(),
-                        category.getOfferingId(),
-                        category.getCategoryName(),
-                        activeQuestionCounts.getOrDefault(category.getId(), 0L),
-                        category.getCreatedAt(),
-                        category.getUpdatedAt()))
-                .toList();
+        return cacheService.getOrLoadList(
+                CATEGORY_CACHE_NAME,
+                categoriesCacheKey(offeringId),
+                redisEnhancementProperties.getCache().getQuestionBankDictionaryTtl(),
+                QuestionBankCategoryView.class,
+                () -> loadCategories(offeringId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<QuestionBankTagView> listTagDictionary(Long offeringId, AuthenticatedUserPrincipal principal) {
+        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        requireOffering(offeringId);
+        return cacheService.getOrLoadList(
+                TAG_CACHE_NAME,
+                tagsCacheKey(offeringId),
+                redisEnhancementProperties.getCache().getQuestionBankDictionaryTtl(),
+                QuestionBankTagView.class,
+                () -> loadTagDictionary(offeringId));
     }
 
     @Transactional(readOnly = true)
@@ -225,6 +241,7 @@ public class QuestionBankApplicationService {
                 String.valueOf(questionId),
                 AuditResult.SUCCESS,
                 Map.of("offeringId", entity.getOfferingId(), "questionType", questionType.name()));
+        evictDictionaryCaches(entity.getOfferingId());
         return toView(refreshed, true);
     }
 
@@ -244,7 +261,16 @@ public class QuestionBankApplicationService {
                     AuditResult.SUCCESS,
                     Map.of("offeringId", entity.getOfferingId(), "questionType", entity.getQuestionType()));
         }
+        evictDictionaryCaches(entity.getOfferingId());
         return toView(requireQuestion(questionId), true);
+    }
+
+    static String categoriesCacheKey(Long offeringId) {
+        return "offering:%d".formatted(offeringId);
+    }
+
+    static String tagsCacheKey(Long offeringId) {
+        return "offering:%d".formatted(offeringId);
     }
 
     @Transactional(readOnly = true)
@@ -471,6 +497,131 @@ public class QuestionBankApplicationService {
                         .toList();
     }
 
+    private List<QuestionBankCategoryView> loadCategories(Long offeringId) {
+        List<QuestionBankCategoryEntity> categories =
+                categoryMapper.selectList(Wrappers.<QuestionBankCategoryEntity>lambdaQuery()
+                        .eq(QuestionBankCategoryEntity::getOfferingId, offeringId)
+                        .orderByAsc(QuestionBankCategoryEntity::getCategoryName)
+                        .orderByAsc(QuestionBankCategoryEntity::getId));
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Long> activeQuestionCounts = questionMapper
+                .selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
+                        .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
+                        .isNotNull(QuestionBankQuestionEntity::getCategoryId)
+                        .isNull(QuestionBankQuestionEntity::getArchivedAt))
+                .stream()
+                .collect(Collectors.groupingBy(QuestionBankQuestionEntity::getCategoryId, Collectors.counting()));
+        return categories.stream()
+                .map(category -> new QuestionBankCategoryView(
+                        category.getId(),
+                        category.getOfferingId(),
+                        category.getCategoryName(),
+                        activeQuestionCounts.getOrDefault(category.getId(), 0L),
+                        category.getCreatedAt(),
+                        category.getUpdatedAt()))
+                .toList();
+    }
+
+    private List<QuestionBankTagView> loadTagDictionary(Long offeringId) {
+        List<QuestionBankTagEntity> tags = tagMapper.selectList(Wrappers.<QuestionBankTagEntity>lambdaQuery()
+                .eq(QuestionBankTagEntity::getOfferingId, offeringId)
+                .orderByAsc(QuestionBankTagEntity::getTagName)
+                .orderByAsc(QuestionBankTagEntity::getId));
+        if (tags.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> activeQuestionIds = questionMapper
+                .selectList(Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
+                        .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
+                        .isNull(QuestionBankQuestionEntity::getArchivedAt))
+                .stream()
+                .map(QuestionBankQuestionEntity::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, Long> activeQuestionCounts = activeQuestionIds.isEmpty()
+                ? Map.of()
+                : questionTagMapper
+                        .selectList(Wrappers.<QuestionBankQuestionTagEntity>lambdaQuery()
+                                .in(QuestionBankQuestionTagEntity::getQuestionId, activeQuestionIds))
+                        .stream()
+                        .collect(Collectors.groupingBy(QuestionBankQuestionTagEntity::getTagId, Collectors.counting()));
+        return tags.stream()
+                .map(tag -> new QuestionBankTagView(
+                        tag.getId(),
+                        tag.getOfferingId(),
+                        tag.getTagName(),
+                        activeQuestionCounts.getOrDefault(tag.getId(), 0L),
+                        tag.getCreatedAt(),
+                        tag.getUpdatedAt()))
+                .toList();
+    }
+
+    private LambdaQueryWrapper<QuestionBankQuestionEntity> buildQuestionListQuery(
+            Long offeringId,
+            String questionTypeCode,
+            Long matchedCategoryId,
+            String normalizedKeyword,
+            KeywordMetadataMatches keywordMetadataMatches,
+            List<Long> matchedQuestionIdsByTags,
+            boolean includeArchived,
+            boolean ordered) {
+        LambdaQueryWrapper<QuestionBankQuestionEntity> query = Wrappers.<QuestionBankQuestionEntity>lambdaQuery()
+                .eq(QuestionBankQuestionEntity::getOfferingId, offeringId)
+                .eq(questionTypeCode != null, QuestionBankQuestionEntity::getQuestionType, questionTypeCode)
+                .eq(matchedCategoryId != null, QuestionBankQuestionEntity::getCategoryId, matchedCategoryId)
+                .in(!matchedQuestionIdsByTags.isEmpty(), QuestionBankQuestionEntity::getId, matchedQuestionIdsByTags)
+                .isNull(!includeArchived, QuestionBankQuestionEntity::getArchivedAt);
+        if (normalizedKeyword != null) {
+            query.and(wrapper -> {
+                wrapper.like(QuestionBankQuestionEntity::getTitle, normalizedKeyword)
+                        .or()
+                        .like(QuestionBankQuestionEntity::getPromptText, normalizedKeyword);
+                if (!keywordMetadataMatches.categoryIds().isEmpty()) {
+                    wrapper.or().in(QuestionBankQuestionEntity::getCategoryId, keywordMetadataMatches.categoryIds());
+                }
+                if (!keywordMetadataMatches.questionIds().isEmpty()) {
+                    wrapper.or().in(QuestionBankQuestionEntity::getId, keywordMetadataMatches.questionIds());
+                }
+            });
+        }
+        if (ordered) {
+            query.orderByDesc(QuestionBankQuestionEntity::getCreatedAt).orderByDesc(QuestionBankQuestionEntity::getId);
+        }
+        return query;
+    }
+
+    private KeywordMetadataMatches resolveKeywordMetadataMatches(Long offeringId, String normalizedKeyword) {
+        if (!StringUtils.hasText(normalizedKeyword)) {
+            return new KeywordMetadataMatches(List.of(), List.of());
+        }
+        List<Long> categoryIds = categoryMapper
+                .selectList(Wrappers.<QuestionBankCategoryEntity>lambdaQuery()
+                        .eq(QuestionBankCategoryEntity::getOfferingId, offeringId)
+                        .like(QuestionBankCategoryEntity::getNormalizedName, normalizedKeyword))
+                .stream()
+                .map(QuestionBankCategoryEntity::getId)
+                .toList();
+        List<Long> tagIds = tagMapper
+                .selectList(Wrappers.<QuestionBankTagEntity>lambdaQuery()
+                        .eq(QuestionBankTagEntity::getOfferingId, offeringId)
+                        .like(QuestionBankTagEntity::getTagName, normalizedKeyword))
+                .stream()
+                .map(QuestionBankTagEntity::getId)
+                .toList();
+        if (tagIds.isEmpty()) {
+            return new KeywordMetadataMatches(categoryIds, List.of());
+        }
+        List<Long> questionIds = questionTagMapper
+                .selectList(Wrappers.<QuestionBankQuestionTagEntity>lambdaQuery()
+                        .in(QuestionBankQuestionTagEntity::getTagId, tagIds))
+                .stream()
+                .map(QuestionBankQuestionTagEntity::getQuestionId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+        return new KeywordMetadataMatches(categoryIds, questionIds);
+    }
+
     private Long resolveCategoryId(Long offeringId, String categoryName, Long userId) {
         String normalizedName = normalizeCategoryLookup(categoryName);
         if (normalizedName == null) {
@@ -516,6 +667,11 @@ public class QuestionBankApplicationService {
         return categoryId == null ? null : categoryMapper.selectById(categoryId);
     }
 
+    private void evictDictionaryCaches(Long offeringId) {
+        cacheService.evict(CATEGORY_CACHE_NAME, categoriesCacheKey(offeringId));
+        cacheService.evict(TAG_CACHE_NAME, tagsCacheKey(offeringId));
+    }
+
     private String normalizeCategoryLookup(String categoryName) {
         if (!StringUtils.hasText(categoryName)) {
             return null;
@@ -540,4 +696,6 @@ public class QuestionBankApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, code, message);
         }
     }
+
+    private record KeywordMetadataMatches(List<Long> categoryIds, List<Long> questionIds) {}
 }

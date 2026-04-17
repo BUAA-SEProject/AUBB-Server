@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -27,8 +29,16 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) {
+        RedisIntegrationTestSupport.registerRedisProperties(registry);
+        registry.add("aubb.redis.rate-limit.enabled", () -> "false");
+        registry.add("aubb.redis.cache.question-bank-dictionary-ttl", () -> "PT30M");
+    }
+
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
@@ -625,6 +635,183 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
         assertThat(queryForCount("SELECT COUNT(*) FROM question_bank_categories WHERE offering_id = 1"))
                 .isEqualTo(3);
+    }
+
+    @Test
+    void teacherSearchesQuestionBankByMetadataKeywordAndReplacesPaperThroughDedicatedEndpoint() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-2026", "2026级一班", 2026);
+
+        Long graphQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"最短路基础",
+                  "prompt":"请说明 Dijkstra 的适用前提。",
+                  "questionType":"SHORT_ANSWER",
+                  "defaultScore":15,
+                  "categoryName":"图论专题",
+                  "tags":["graph","shortest-path"]
+                }
+                """);
+        Long treeQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"二叉树性质",
+                  "prompt":"写出完全二叉树的层次性质。",
+                  "questionType":"SHORT_ANSWER",
+                  "defaultScore":10,
+                  "categoryName":"树结构",
+                  "tags":["tree"]
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("keyword", "graph")
+                        .param("page", "1")
+                        .param("pageSize", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(graphQuestionId));
+
+        Long assignmentId = createSingleQuestionAssignment(teacherToken, offeringId, classId, treeQuestionId);
+
+        mockMvc.perform(put("/api/v1/teacher/assignments/{assignmentId}/paper", assignmentId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "sections":[
+                                    {
+                                      "title":"重组后的试卷",
+                                      "description":"仅保留一题",
+                                      "questions":[
+                                        {
+                                          "bankQuestionId":%s,
+                                          "score":30
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """.formatted(graphQuestionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sectionCount").value(1))
+                .andExpect(jsonPath("$.paper.questionCount").value(1))
+                .andExpect(jsonPath("$.paper.totalScore").value(30))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].sourceQuestionId")
+                        .value(graphQuestionId));
+    }
+
+    @Test
+    void questionBankDictionaryCachesHitsAndEvictsAfterMutations() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"图遍历基础题",
+                  "prompt":"BFS 使用什么数据结构？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":10,
+                  "categoryName":"图论",
+                  "tags":["bfs"],
+                  "options":[
+                    {"optionKey":"A","content":"队列","correct":true},
+                    {"optionKey":"B","content":"栈","correct":false}
+                  ]
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value("图论"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/tags", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value("bfs"));
+
+        jdbcTemplate.update("""
+                INSERT INTO question_bank_categories (offering_id, category_name, normalized_name, created_by_user_id)
+                VALUES (?, ?, ?, ?)
+                """, offeringId, "数据库", "数据库", 3L);
+        jdbcTemplate.update("""
+                INSERT INTO question_bank_tags (offering_id, tag_name, created_by_user_id)
+                VALUES (?, ?, ?)
+                """, offeringId, "graph", 3L);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value("图论"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/tags", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value("bfs"));
+
+        createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"树与搜索综合题",
+                  "prompt":"DFS 的典型应用是什么？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":12,
+                  "categoryName":"动态规划",
+                  "tags":["dfs"],
+                  "options":[
+                    {"optionKey":"A","content":"拓扑排序","correct":false},
+                    {"optionKey":"B","content":"连通性遍历","correct":true}
+                  ]
+                }
+                """);
+
+        MvcResult categoriesResult = mockMvc.perform(
+                        get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
+                                .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andReturn();
+        assertThat(JsonPath.<java.util.List<String>>read(
+                        categoriesResult.getResponse().getContentAsString(), "$[*].name"))
+                .containsExactly("动态规划", "图论", "数据库");
+
+        MvcResult tagsResult = mockMvc.perform(
+                        get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/tags", offeringId)
+                                .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andReturn();
+        assertThat(JsonPath.<java.util.List<String>>read(
+                        tagsResult.getResponse().getContentAsString(), "$[*].name"))
+                .containsExactly("bfs", "dfs", "graph");
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(
+                        result -> assertThat(result.getResponse().getContentAsString())
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"questionBankCategories\",operation=\"get\",result=\"hit\"}")
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"questionBankCategories\",operation=\"evict\",result=\"success\"}")
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"questionBankTags\",operation=\"get\",result=\"hit\"}")
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"questionBankTags\",operation=\"evict\",result=\"success\"}"));
     }
 
     @Test

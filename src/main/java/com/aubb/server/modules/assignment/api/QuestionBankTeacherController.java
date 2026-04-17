@@ -5,6 +5,7 @@ import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankApplicationService;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankCategoryView;
 import com.aubb.server.modules.assignment.application.bank.QuestionBankQuestionView;
+import com.aubb.server.modules.assignment.application.bank.QuestionBankTagView;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionOptionInput;
 import com.aubb.server.modules.assignment.application.paper.ProgrammingExecutionEnvironmentInput;
@@ -84,6 +85,13 @@ public class QuestionBankTeacherController {
     public List<QuestionBankCategoryView> listCategories(
             @PathVariable Long offeringId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return questionBankApplicationService.listCategories(offeringId, principal);
+    }
+
+    @GetMapping("/course-offerings/{offeringId}/question-bank/tags")
+    @PreAuthorize("isAuthenticated()")
+    public List<QuestionBankTagView> listTags(
+            @PathVariable Long offeringId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return questionBankApplicationService.listTagDictionary(offeringId, principal);
     }
 
     @GetMapping("/question-bank/questions/{questionId}")
