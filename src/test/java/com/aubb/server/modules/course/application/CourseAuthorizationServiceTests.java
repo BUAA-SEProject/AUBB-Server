@@ -14,6 +14,7 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
@@ -27,6 +28,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class CourseAuthorizationServiceTests {
+
+    @Mock
+    private AuthorizationService authorizationService;
 
     @Mock
     private GovernanceAuthorizationService governanceAuthorizationService;
@@ -54,6 +58,7 @@ class CourseAuthorizationServiceTests {
         when(courseMemberMapper.selectList(any())).thenReturn(List.of(instructorMember(9L, 10L)));
 
         CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
                 governanceAuthorizationService,
                 courseOfferingMapper,
                 courseOfferingCollegeMapMapper,
