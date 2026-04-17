@@ -4,12 +4,14 @@ import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.notification.application.NotificationApplicationService;
 import com.aubb.server.modules.notification.application.NotificationReadAllResultView;
+import com.aubb.server.modules.notification.application.NotificationRealtimeService;
 import com.aubb.server.modules.notification.application.NotificationUnreadCountView;
 import com.aubb.server.modules.notification.application.NotificationView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @Validated
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MyNotificationController {
 
     private final NotificationApplicationService notificationApplicationService;
+    private final NotificationRealtimeService notificationRealtimeService;
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
@@ -44,6 +48,13 @@ public class MyNotificationController {
     @Operation(summary = "查看我的未读通知数")
     public NotificationUnreadCountView unreadCount(@AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return notificationApplicationService.getUnreadCount(principal);
+    }
+
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "建立我的通知 SSE 实时订阅")
+    public SseEmitter stream(@AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return notificationRealtimeService.subscribe(principal.getUserId());
     }
 
     @PostMapping("/{notificationId}/read")

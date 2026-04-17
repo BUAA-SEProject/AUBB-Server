@@ -1,7 +1,9 @@
 package com.aubb.server.modules.notification.application;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.notification.domain.NotificationReceiptLifecyclePolicy;
 import com.aubb.server.modules.notification.domain.NotificationType;
@@ -26,8 +28,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class NotificationApplicationService {
 
+    static final String UNREAD_COUNT_CACHE_NAME = "notificationUnreadCount";
+
     private final NotificationMapper notificationMapper;
     private final NotificationReceiptMapper notificationReceiptMapper;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
     private final NotificationReceiptLifecyclePolicy receiptLifecyclePolicy = new NotificationReceiptLifecyclePolicy();
 
     @Transactional(readOnly = true)
@@ -56,10 +62,12 @@ public class NotificationApplicationService {
 
     @Transactional(readOnly = true)
     public NotificationUnreadCountView getUnreadCount(AuthenticatedUserPrincipal principal) {
-        Long unreadCount = notificationReceiptMapper.selectCount(Wrappers.<NotificationReceiptEntity>lambdaQuery()
-                .eq(NotificationReceiptEntity::getRecipientUserId, principal.getUserId())
-                .isNull(NotificationReceiptEntity::getReadAt));
-        return new NotificationUnreadCountView(unreadCount == null ? 0 : unreadCount);
+        return cacheService.getOrLoad(
+                UNREAD_COUNT_CACHE_NAME,
+                unreadCountCacheKey(principal.getUserId()),
+                redisEnhancementProperties.getCache().getNotificationUnreadTtl(),
+                NotificationUnreadCountView.class,
+                () -> loadUnreadCount(principal.getUserId()));
     }
 
     @Transactional
@@ -74,6 +82,7 @@ public class NotificationApplicationService {
         if (notification == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "NOTIFICATION_NOT_FOUND", "通知不存在");
         }
+        cacheService.evict(UNREAD_COUNT_CACHE_NAME, unreadCountCacheKey(principal.getUserId()));
         return toView(notification, receipt);
     }
 
@@ -92,7 +101,12 @@ public class NotificationApplicationService {
                             .eq(NotificationReceiptEntity::getRecipientUserId, principal.getUserId())
                             .isNull(NotificationReceiptEntity::getReadAt));
         }
+        cacheService.evict(UNREAD_COUNT_CACHE_NAME, unreadCountCacheKey(principal.getUserId()));
         return new NotificationReadAllResultView(updatedCount, 0);
+    }
+
+    static String unreadCountCacheKey(Long userId) {
+        return "user:%d".formatted(userId);
     }
 
     private NotificationReceiptEntity requireReceipt(Long notificationId, Long userId) {
@@ -113,6 +127,13 @@ public class NotificationApplicationService {
         }
         return notificationMapper.selectBatchIds(notificationIds).stream()
                 .collect(Collectors.toMap(NotificationEntity::getId, Function.identity()));
+    }
+
+    private NotificationUnreadCountView loadUnreadCount(Long userId) {
+        Long unreadCount = notificationReceiptMapper.selectCount(Wrappers.<NotificationReceiptEntity>lambdaQuery()
+                .eq(NotificationReceiptEntity::getRecipientUserId, userId)
+                .isNull(NotificationReceiptEntity::getReadAt));
+        return new NotificationUnreadCountView(unreadCount == null ? 0 : unreadCount);
     }
 
     private NotificationView toView(NotificationEntity notification, NotificationReceiptEntity receipt) {

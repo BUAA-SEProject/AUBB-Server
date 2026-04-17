@@ -256,13 +256,13 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.publishedByUserId").value(3))
                 .andExpect(jsonPath("$.publishedAt").isNotEmpty());
 
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 6
-                          AND n.type = 'ASSIGNMENT_GRADES_PUBLISHED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 6
+                                  AND n.type = 'ASSIGNMENT_GRADES_PUBLISHED'
+                                """), 1);
 
         mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", submissionId)
                         .header("Authorization", "Bearer " + studentToken))
@@ -457,13 +457,13 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                 .isEqualTo(2);
         assertThat(queryForCount("SELECT COUNT(*) FROM grade_publish_snapshots"))
                 .isEqualTo(2);
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 6
-                          AND n.type = 'ASSIGNMENT_GRADES_PUBLISHED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 6
+                                  AND n.type = 'ASSIGNMENT_GRADES_PUBLISHED'
+                                """), 1);
         assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'ASSIGNMENT_GRADES_PUBLISHED'"))
                 .isEqualTo(2);
 
@@ -878,13 +878,13 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                 .isEqualTo(1);
         assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'GRADE_APPEAL_REVIEWED'"))
                 .isEqualTo(1);
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 6
-                          AND n.type = 'GRADE_APPEAL_RESOLVED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 6
+                                  AND n.type = 'GRADE_APPEAL_RESOLVED'
+                                """), 1);
         assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_CREATED_METRIC) - createdAppealCounterBefore)
                 .isEqualTo(1.0d);
         assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_REVIEWED_METRIC, "result", "accepted")

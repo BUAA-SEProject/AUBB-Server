@@ -135,13 +135,13 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long labId = createLab(teacherToken, offeringId, classId, "操作系统实验", "完成进程调度报告");
         publishLab(teacherToken, labId);
 
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 4
-                          AND n.type = 'LAB_PUBLISHED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 4
+                                  AND n.type = 'LAB_PUBLISHED'
+                                """), 1);
 
         mockMvc.perform(get("/api/v1/me/course-classes/{teachingClassId}/labs", classId)
                         .header("Authorization", "Bearer " + studentToken))
@@ -159,13 +159,13 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
         Long reportId = saveReport(studentToken, labId, "第一次实验报告正文", attachmentId, true);
 
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 3
-                          AND n.type = 'LAB_REPORT_SUBMITTED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 3
+                                  AND n.type = 'LAB_REPORT_SUBMITTED'
+                                """), 1);
 
         mockMvc.perform(get("/api/v1/teacher/labs/{labId}/reports", labId)
                         .header("Authorization", "Bearer " + teacherToken))
@@ -192,13 +192,13 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
         publishReview(teacherToken, reportId);
 
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 4
-                          AND n.type = 'LAB_REPORT_PUBLISHED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 4
+                                  AND n.type = 'LAB_REPORT_PUBLISHED'
+                                """), 1);
 
         mockMvc.perform(get("/api/v1/me/labs/{labId}/report", labId).header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
