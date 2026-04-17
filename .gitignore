@@ -35,5 +35,6 @@ build/
 .m2
 .serena
 .codex
+.worktrees/
 prompt*
 todo.md
