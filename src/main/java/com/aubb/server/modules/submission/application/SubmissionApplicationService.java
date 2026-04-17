@@ -71,6 +71,7 @@ public class SubmissionApplicationService {
         AssignmentEntity assignment = requireAssignment(assignmentId);
         OffsetDateTime now = OffsetDateTime.now();
         assertCanPrepareSubmission(principal, assignment, now);
+        assertPendingArtifactCapacityAvailable(assignmentId, principal.getUserId());
 
         byte[] content = readArtifactContent(file);
         String originalFilename = normalizeOriginalFilename(file.getOriginalFilename());
@@ -449,6 +450,18 @@ public class SubmissionApplicationService {
                         .eq(SubmissionEntity::getAssignmentId, assignmentId)
                         .eq(SubmissionEntity::getSubmitterUserId, userId))
                 .intValue();
+    }
+
+    private void assertPendingArtifactCapacityAvailable(Long assignmentId, Long userId) {
+        long pendingArtifactCount =
+                submissionArtifactMapper.selectCount(Wrappers.<SubmissionArtifactEntity>lambdaQuery()
+                        .eq(SubmissionArtifactEntity::getAssignmentId, assignmentId)
+                        .eq(SubmissionArtifactEntity::getUploaderUserId, userId)
+                        .isNull(SubmissionArtifactEntity::getSubmissionId));
+        if (pendingArtifactCount >= MAX_ARTIFACTS_PER_SUBMISSION) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "SUBMISSION_ARTIFACT_LIMIT_EXCEEDED", "当前最多只能保留 10 个待关联提交附件");
+        }
     }
 
     private List<Long> normalizeArtifactIds(List<Long> artifactIds) {

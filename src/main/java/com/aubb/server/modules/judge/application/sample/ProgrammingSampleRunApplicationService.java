@@ -174,13 +174,11 @@ public class ProgrammingSampleRunApplicationService {
         String detailReportObjectKey = judgeArtifactStorageService.storeProgrammingSampleRunDetailReport(
                 entity.getId(), outcome.detailReport());
         entity.setDetailReportObjectKey(detailReportObjectKey);
+        entity.setStdoutText(outcome.stdoutText());
+        entity.setStderrText(outcome.stderrText());
         if (StringUtils.hasText(detailReportObjectKey)) {
-            entity.setStdoutText(null);
-            entity.setStderrText(null);
             entity.setDetailReportJson(null);
         } else {
-            entity.setStdoutText(outcome.stdoutText());
-            entity.setStderrText(outcome.stderrText());
             entity.setDetailReportJson(writeDetailReport(outcome.detailReport()));
         }
         entity.setFinishedAt(OffsetDateTime.now());
@@ -289,7 +287,9 @@ public class ProgrammingSampleRunApplicationService {
     }
 
     private boolean shouldLoadDetailReport(ProgrammingSampleRunEntity entity, boolean includeDetailReport) {
-        return includeDetailReport || StringUtils.hasText(entity.getDetailReportObjectKey());
+        return includeDetailReport
+                && (StringUtils.hasText(entity.getDetailReportObjectKey())
+                        || StringUtils.hasText(entity.getDetailReportJson()));
     }
 
     private ProgrammingQuestionContext requireVisibleProgrammingQuestion(

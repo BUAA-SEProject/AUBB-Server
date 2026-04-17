@@ -223,6 +223,52 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void studentCannotUploadMoreThanTenPendingArtifactsForSameAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "附件上限校验作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        for (int index = 1; index <= 10; index++) {
+            uploadArtifact(
+                    studentAToken,
+                    assignmentId,
+                    "artifact-%02d.txt".formatted(index),
+                    "text/plain",
+                    "artifact-%02d".formatted(index));
+        }
+
+        mockMvc.perform(multipart("/api/v1/me/assignments/{assignmentId}/submission-artifacts", assignmentId)
+                        .file(new MockMultipartFile(
+                                "file",
+                                "artifact-11.txt",
+                                "text/plain",
+                                "artifact-11".getBytes(StandardCharsets.UTF_8)))
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("SUBMISSION_ARTIFACT_LIMIT_EXCEEDED"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM submission_artifacts WHERE assignment_id = " + assignmentId))
+                .isEqualTo(10);
+    }
+
+    @Test
     void studentCannotReuseArtifactAcrossSubmissions() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

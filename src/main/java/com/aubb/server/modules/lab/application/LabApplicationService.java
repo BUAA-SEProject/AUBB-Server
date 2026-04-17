@@ -229,6 +229,7 @@ public class LabApplicationService {
     public LabReportAttachmentView uploadAttachment(
             Long labId, MultipartFile file, AuthenticatedUserPrincipal principal) {
         LabEntity lab = requirePublishedLabForStudentMutation(labId, principal);
+        assertPendingAttachmentCapacityAvailable(labId, principal.getUserId());
         byte[] content = readAttachmentContent(file);
         String originalFilename = normalizeOriginalFilename(file.getOriginalFilename());
         String contentType = normalizeContentType(file.getContentType());
@@ -542,6 +543,17 @@ public class LabApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "LAB_STATUS_INVALID", "当前实验未开放报告提交");
         }
         return lab;
+    }
+
+    private void assertPendingAttachmentCapacityAvailable(Long labId, Long uploaderUserId) {
+        long pendingAttachmentCount =
+                labReportAttachmentMapper.selectCount(Wrappers.<LabReportAttachmentEntity>lambdaQuery()
+                        .eq(LabReportAttachmentEntity::getLabId, labId)
+                        .eq(LabReportAttachmentEntity::getUploaderUserId, uploaderUserId)
+                        .isNull(LabReportAttachmentEntity::getLabReportId));
+        if (pendingAttachmentCount >= MAX_ATTACHMENTS_PER_REPORT) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "LAB_REPORT_ATTACHMENT_LIMIT", "当前最多只能保留 10 个待关联实验附件");
+        }
     }
 
     private List<LabReportAttachmentEntity> loadAttachableAttachments(

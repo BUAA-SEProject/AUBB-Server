@@ -630,6 +630,70 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     }
 
     @Test
+    void listingSampleRunsDoesNotRequireLoadingStoredDetailReport() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-SAMPLE-LIST", "样例列表班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        Long sampleRunId = readLong(
+                mockMvc.perform(post(
+                                        "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                        assignmentId,
+                                        questionId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                        {
+                                          "entryFilePath":"main.py",
+                                          "files":[
+                                            {
+                                              "path":"main.py",
+                                              "content":"a, b = map(int, input().split())\\nprint(a + b)"
+                                            }
+                                          ],
+                                          "programmingLanguage":"PYTHON3"
+                                        }
+                                        """))
+                        .andExpect(status().isCreated())
+                        .andReturn(),
+                "$.id");
+
+        jdbcTemplate.update(
+                "UPDATE programming_sample_runs SET detail_report_object_key = ?, detail_report_json = NULL WHERE id = ?",
+                "programming-sample-runs/%d/missing-detail-report.json".formatted(sampleRunId),
+                sampleRunId);
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(sampleRunId))
+                .andExpect(jsonPath("$[0].detailReport").doesNotExist())
+                .andExpect(jsonPath("$[0].stdoutText").value("3\n"))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[0].verdict").value("ACCEPTED"));
+    }
+
+    @Test
     void studentSampleRunSupportsCompileAndRunArgs() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

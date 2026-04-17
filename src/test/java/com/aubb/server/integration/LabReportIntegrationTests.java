@@ -265,6 +265,45 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void studentCannotUploadMoreThanTenPendingLabAttachments() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB-LIMIT", "实验限制班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long labId = createLab(teacherToken, offeringId, classId, "附件上限实验", "验证实验附件上传上限");
+        publishLab(teacherToken, labId);
+
+        for (int index = 1; index <= 10; index++) {
+            uploadAttachment(
+                    studentToken,
+                    labId,
+                    "attachment-%02d.txt".formatted(index),
+                    "text/plain",
+                    "attachment-%02d".formatted(index));
+        }
+
+        mockMvc.perform(multipart("/api/v1/me/labs/{labId}/attachments", labId)
+                        .file(new MockMultipartFile(
+                                "file",
+                                "attachment-11.txt",
+                                "text/plain",
+                                "attachment-11".getBytes(StandardCharsets.UTF_8)))
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LAB_REPORT_ATTACHMENT_LIMIT"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM lab_report_attachments WHERE lab_id = " + labId))
+                .isEqualTo(10);
+    }
+
+    @Test
     void labFeatureDisabledBlocksTeacherAndStudentEndpoints() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
