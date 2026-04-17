@@ -32,9 +32,13 @@ public class NotificationRealtimeService {
         if (viewsByRecipient == null || viewsByRecipient.isEmpty()) {
             return;
         }
-        viewsByRecipient.forEach((userId, view) -> emittersByUserId
-                .getOrDefault(userId, new CopyOnWriteArrayList<>())
-                .forEach(emitter -> send(emitter, "notification", view)));
+        viewsByRecipient.forEach((userId, view) -> {
+            List<SseEmitter> emitters = emittersByUserId.get(userId);
+            if (emitters == null || emitters.isEmpty()) {
+                return;
+            }
+            emitters.forEach(emitter -> send(emitter, "notification", view));
+        });
     }
 
     private void send(SseEmitter emitter, String eventName, Object payload) {

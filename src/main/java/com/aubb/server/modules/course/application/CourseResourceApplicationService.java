@@ -114,16 +114,11 @@ public class CourseResourceApplicationService {
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
-        List<CourseResourceView> items = courseResourceMapper
-                .selectList(Wrappers.<CourseResourceEntity>lambdaQuery()
-                        .eq(CourseResourceEntity::getOfferingId, offeringId)
-                        .eq(teachingClassId != null, CourseResourceEntity::getTeachingClassId, teachingClassId)
-                        .orderByDesc(CourseResourceEntity::getCreatedAt)
-                        .orderByDesc(CourseResourceEntity::getId))
-                .stream()
-                .map(this::toView)
-                .toList();
-        return toPage(items, page, pageSize);
+        return toPage(
+                loadTeacherResources(offeringId, teachingClassId, page, pageSize),
+                countTeacherResources(offeringId, teachingClassId),
+                page,
+                pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -132,18 +127,11 @@ public class CourseResourceApplicationService {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         courseAuthorizationService.assertCanViewResourcesForClass(
                 principal, teachingClass.getOfferingId(), teachingClassId);
-        List<CourseResourceView> items = courseResourceMapper
-                .selectList(Wrappers.<CourseResourceEntity>lambdaQuery()
-                        .eq(CourseResourceEntity::getOfferingId, teachingClass.getOfferingId())
-                        .and(wrapper -> wrapper.isNull(CourseResourceEntity::getTeachingClassId)
-                                .or()
-                                .eq(CourseResourceEntity::getTeachingClassId, teachingClassId))
-                        .orderByDesc(CourseResourceEntity::getCreatedAt)
-                        .orderByDesc(CourseResourceEntity::getId))
-                .stream()
-                .map(this::toView)
-                .toList();
-        return toPage(items, page, pageSize);
+        return toPage(
+                loadMyResources(teachingClass.getOfferingId(), teachingClassId, page, pageSize),
+                countMyResources(teachingClass.getOfferingId(), teachingClassId),
+                page,
+                pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -230,12 +218,60 @@ public class CourseResourceApplicationService {
         return storageService;
     }
 
-    private PageResponse<CourseResourceView> toPage(List<CourseResourceView> items, long page, long pageSize) {
+    private long countTeacherResources(Long offeringId, Long teachingClassId) {
+        return courseResourceMapper.selectCount(Wrappers.<CourseResourceEntity>lambdaQuery()
+                .eq(CourseResourceEntity::getOfferingId, offeringId)
+                .eq(teachingClassId != null, CourseResourceEntity::getTeachingClassId, teachingClassId));
+    }
+
+    private List<CourseResourceView> loadTeacherResources(
+            Long offeringId, Long teachingClassId, long page, long pageSize) {
         long normalizedPage = Math.max(page, 1);
         long normalizedPageSize = Math.max(pageSize, 1);
-        int fromIndex = (int) Math.min((normalizedPage - 1) * normalizedPageSize, items.size());
-        int toIndex = (int) Math.min(fromIndex + normalizedPageSize, items.size());
-        return new PageResponse<>(items.subList(fromIndex, toIndex), items.size(), normalizedPage, normalizedPageSize);
+        long offset = (normalizedPage - 1) * normalizedPageSize;
+        return courseResourceMapper
+                .selectList(Wrappers.<CourseResourceEntity>lambdaQuery()
+                        .eq(CourseResourceEntity::getOfferingId, offeringId)
+                        .eq(teachingClassId != null, CourseResourceEntity::getTeachingClassId, teachingClassId)
+                        .orderByDesc(CourseResourceEntity::getCreatedAt)
+                        .orderByDesc(CourseResourceEntity::getId)
+                        .last("LIMIT " + normalizedPageSize + " OFFSET " + offset))
+                .stream()
+                .map(this::toView)
+                .toList();
+    }
+
+    private long countMyResources(Long offeringId, Long teachingClassId) {
+        return courseResourceMapper.selectCount(Wrappers.<CourseResourceEntity>lambdaQuery()
+                .eq(CourseResourceEntity::getOfferingId, offeringId)
+                .and(wrapper -> wrapper.isNull(CourseResourceEntity::getTeachingClassId)
+                        .or()
+                        .eq(CourseResourceEntity::getTeachingClassId, teachingClassId)));
+    }
+
+    private List<CourseResourceView> loadMyResources(Long offeringId, Long teachingClassId, long page, long pageSize) {
+        long normalizedPage = Math.max(page, 1);
+        long normalizedPageSize = Math.max(pageSize, 1);
+        long offset = (normalizedPage - 1) * normalizedPageSize;
+        return courseResourceMapper
+                .selectList(Wrappers.<CourseResourceEntity>lambdaQuery()
+                        .eq(CourseResourceEntity::getOfferingId, offeringId)
+                        .and(wrapper -> wrapper.isNull(CourseResourceEntity::getTeachingClassId)
+                                .or()
+                                .eq(CourseResourceEntity::getTeachingClassId, teachingClassId))
+                        .orderByDesc(CourseResourceEntity::getCreatedAt)
+                        .orderByDesc(CourseResourceEntity::getId)
+                        .last("LIMIT " + normalizedPageSize + " OFFSET " + offset))
+                .stream()
+                .map(this::toView)
+                .toList();
+    }
+
+    private PageResponse<CourseResourceView> toPage(
+            List<CourseResourceView> items, long total, long page, long pageSize) {
+        long normalizedPage = Math.max(page, 1);
+        long normalizedPageSize = Math.max(pageSize, 1);
+        return new PageResponse<>(items, total, normalizedPage, normalizedPageSize);
     }
 
     private CourseResourceView toView(CourseResourceEntity entity) {

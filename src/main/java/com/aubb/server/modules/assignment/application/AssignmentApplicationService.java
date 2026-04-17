@@ -211,17 +211,25 @@ public class AssignmentApplicationService {
         if (teachingClassId != null) {
             validateTeachingClassBelongsToOffering(offeringId, teachingClassId);
         }
-        List<AssignmentEntity> matched = assignmentMapper
-                .selectList(Wrappers.<AssignmentEntity>lambdaQuery()
-                        .eq(AssignmentEntity::getOfferingId, offeringId)
-                        .orderByDesc(AssignmentEntity::getCreatedAt)
-                        .orderByDesc(AssignmentEntity::getId))
-                .stream()
-                .filter(assignment -> status == null || status.name().equals(assignment.getStatus()))
-                .filter(assignment ->
-                        teachingClassId == null || Objects.equals(teachingClassId, assignment.getTeachingClassId()))
-                .toList();
-        return toPage(matched, offering, page, pageSize);
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        String statusCode = status == null ? null : status.name();
+        long total = assignmentMapper.selectCount(Wrappers.<AssignmentEntity>lambdaQuery()
+                .eq(AssignmentEntity::getOfferingId, offeringId)
+                .eq(statusCode != null, AssignmentEntity::getStatus, statusCode)
+                .eq(teachingClassId != null, AssignmentEntity::getTeachingClassId, teachingClassId));
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<AssignmentEntity> pageItems = assignmentMapper.selectList(Wrappers.<AssignmentEntity>lambdaQuery()
+                .eq(AssignmentEntity::getOfferingId, offeringId)
+                .eq(statusCode != null, AssignmentEntity::getStatus, statusCode)
+                .eq(teachingClassId != null, AssignmentEntity::getTeachingClassId, teachingClassId)
+                .orderByDesc(AssignmentEntity::getCreatedAt)
+                .orderByDesc(AssignmentEntity::getId)
+                .last("LIMIT " + safePageSize + " OFFSET " + offset));
+        return toCurrentSlicePage(pageItems, Map.of(offering.getId(), offering), total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)

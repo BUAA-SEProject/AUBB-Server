@@ -76,16 +76,11 @@ public class CourseAnnouncementApplicationService {
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
-        List<CourseAnnouncementView> items = courseAnnouncementMapper
-                .selectList(Wrappers.<CourseAnnouncementEntity>lambdaQuery()
-                        .eq(CourseAnnouncementEntity::getOfferingId, offeringId)
-                        .eq(teachingClassId != null, CourseAnnouncementEntity::getTeachingClassId, teachingClassId)
-                        .orderByDesc(CourseAnnouncementEntity::getPublishedAt)
-                        .orderByDesc(CourseAnnouncementEntity::getId))
-                .stream()
-                .map(this::toView)
-                .toList();
-        return toPage(items, page, pageSize);
+        return toPage(
+                loadTeacherAnnouncements(offeringId, teachingClassId, page, pageSize),
+                countTeacherAnnouncements(offeringId, teachingClassId),
+                page,
+                pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -94,18 +89,11 @@ public class CourseAnnouncementApplicationService {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         courseAuthorizationService.assertCanViewAnnouncementsForClass(
                 principal, teachingClass.getOfferingId(), teachingClassId);
-        List<CourseAnnouncementView> items = courseAnnouncementMapper
-                .selectList(Wrappers.<CourseAnnouncementEntity>lambdaQuery()
-                        .eq(CourseAnnouncementEntity::getOfferingId, teachingClass.getOfferingId())
-                        .and(wrapper -> wrapper.isNull(CourseAnnouncementEntity::getTeachingClassId)
-                                .or()
-                                .eq(CourseAnnouncementEntity::getTeachingClassId, teachingClassId))
-                        .orderByDesc(CourseAnnouncementEntity::getPublishedAt)
-                        .orderByDesc(CourseAnnouncementEntity::getId))
-                .stream()
-                .map(this::toView)
-                .toList();
-        return toPage(items, page, pageSize);
+        return toPage(
+                loadMyAnnouncements(teachingClass.getOfferingId(), teachingClassId, page, pageSize),
+                countMyAnnouncements(teachingClass.getOfferingId(), teachingClassId),
+                page,
+                pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -164,12 +152,61 @@ public class CourseAnnouncementApplicationService {
         return entity;
     }
 
-    private PageResponse<CourseAnnouncementView> toPage(List<CourseAnnouncementView> items, long page, long pageSize) {
+    private long countTeacherAnnouncements(Long offeringId, Long teachingClassId) {
+        return courseAnnouncementMapper.selectCount(Wrappers.<CourseAnnouncementEntity>lambdaQuery()
+                .eq(CourseAnnouncementEntity::getOfferingId, offeringId)
+                .eq(teachingClassId != null, CourseAnnouncementEntity::getTeachingClassId, teachingClassId));
+    }
+
+    private List<CourseAnnouncementView> loadTeacherAnnouncements(
+            Long offeringId, Long teachingClassId, long page, long pageSize) {
         long normalizedPage = Math.max(page, 1);
         long normalizedPageSize = Math.max(pageSize, 1);
-        int fromIndex = (int) Math.min((normalizedPage - 1) * normalizedPageSize, items.size());
-        int toIndex = (int) Math.min(fromIndex + normalizedPageSize, items.size());
-        return new PageResponse<>(items.subList(fromIndex, toIndex), items.size(), normalizedPage, normalizedPageSize);
+        long offset = (normalizedPage - 1) * normalizedPageSize;
+        return courseAnnouncementMapper
+                .selectList(Wrappers.<CourseAnnouncementEntity>lambdaQuery()
+                        .eq(CourseAnnouncementEntity::getOfferingId, offeringId)
+                        .eq(teachingClassId != null, CourseAnnouncementEntity::getTeachingClassId, teachingClassId)
+                        .orderByDesc(CourseAnnouncementEntity::getPublishedAt)
+                        .orderByDesc(CourseAnnouncementEntity::getId)
+                        .last("LIMIT " + normalizedPageSize + " OFFSET " + offset))
+                .stream()
+                .map(this::toView)
+                .toList();
+    }
+
+    private long countMyAnnouncements(Long offeringId, Long teachingClassId) {
+        return courseAnnouncementMapper.selectCount(Wrappers.<CourseAnnouncementEntity>lambdaQuery()
+                .eq(CourseAnnouncementEntity::getOfferingId, offeringId)
+                .and(wrapper -> wrapper.isNull(CourseAnnouncementEntity::getTeachingClassId)
+                        .or()
+                        .eq(CourseAnnouncementEntity::getTeachingClassId, teachingClassId)));
+    }
+
+    private List<CourseAnnouncementView> loadMyAnnouncements(
+            Long offeringId, Long teachingClassId, long page, long pageSize) {
+        long normalizedPage = Math.max(page, 1);
+        long normalizedPageSize = Math.max(pageSize, 1);
+        long offset = (normalizedPage - 1) * normalizedPageSize;
+        return courseAnnouncementMapper
+                .selectList(Wrappers.<CourseAnnouncementEntity>lambdaQuery()
+                        .eq(CourseAnnouncementEntity::getOfferingId, offeringId)
+                        .and(wrapper -> wrapper.isNull(CourseAnnouncementEntity::getTeachingClassId)
+                                .or()
+                                .eq(CourseAnnouncementEntity::getTeachingClassId, teachingClassId))
+                        .orderByDesc(CourseAnnouncementEntity::getPublishedAt)
+                        .orderByDesc(CourseAnnouncementEntity::getId)
+                        .last("LIMIT " + normalizedPageSize + " OFFSET " + offset))
+                .stream()
+                .map(this::toView)
+                .toList();
+    }
+
+    private PageResponse<CourseAnnouncementView> toPage(
+            List<CourseAnnouncementView> items, long total, long page, long pageSize) {
+        long normalizedPage = Math.max(page, 1);
+        long normalizedPageSize = Math.max(pageSize, 1);
+        return new PageResponse<>(items, total, normalizedPage, normalizedPageSize);
     }
 
     private CourseAnnouncementView toView(CourseAnnouncementEntity entity) {

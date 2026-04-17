@@ -16,7 +16,7 @@ management:
   tracing:
     enabled: ${AUBB_TRACING_ENABLED:false}
     sampling:
-      probability: ${AUBB_TRACING_SAMPLING_PROBABILITY:1.0}
+      probability: ${AUBB_TRACING_SAMPLING_PROBABILITY:0.1}
   endpoints:
     web:
       exposure:
@@ -95,6 +95,11 @@ aubb:
     go-judge:
       enabled: ${AUBB_GO_JUDGE_ENABLED:false}
       base-url: ${AUBB_GO_JUDGE_BASE_URL:http://localhost:5050}
+    local-execution-executor:
+      core-pool-size: ${AUBB_JUDGE_LOCAL_EXECUTOR_CORE_POOL_SIZE:4}
+      max-pool-size: ${AUBB_JUDGE_LOCAL_EXECUTOR_MAX_POOL_SIZE:8}
+      queue-capacity: ${AUBB_JUDGE_LOCAL_EXECUTOR_QUEUE_CAPACITY:200}
+      keep-alive-seconds: ${AUBB_JUDGE_LOCAL_EXECUTOR_KEEP_ALIVE_SECONDS:60}
     queue:
       enabled: ${AUBB_JUDGE_QUEUE_ENABLED:false}
       publisher-enabled: ${AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED:true}
@@ -105,6 +110,12 @@ aubb:
       concurrency: ${AUBB_JUDGE_QUEUE_CONCURRENCY:4}
       prefetch: ${AUBB_JUDGE_QUEUE_PREFETCH:8}
       max-attempts: ${AUBB_JUDGE_QUEUE_MAX_ATTEMPTS:3}
+  async:
+    notification-fanout-executor:
+      core-pool-size: ${AUBB_NOTIFICATION_FANOUT_CORE_POOL_SIZE:2}
+      max-pool-size: ${AUBB_NOTIFICATION_FANOUT_MAX_POOL_SIZE:4}
+      queue-capacity: ${AUBB_NOTIFICATION_FANOUT_QUEUE_CAPACITY:500}
+      keep-alive-seconds: ${AUBB_NOTIFICATION_FANOUT_KEEP_ALIVE_SECONDS:60}
   redis:
     enabled: ${AUBB_REDIS_ENABLED:false}
     host: ${AUBB_REDIS_HOST:localhost}

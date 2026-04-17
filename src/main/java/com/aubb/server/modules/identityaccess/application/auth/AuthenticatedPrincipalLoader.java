@@ -26,17 +26,7 @@ public class AuthenticatedPrincipalLoader {
     @Transactional(readOnly = true)
     public AuthenticatedUserPrincipal loadPrincipal(Long userId) {
         UserEntity user = userMapper.selectById(userId);
-        if (user == null) {
-            return null;
-        }
-        if (user.getExpiresAt() != null && user.getExpiresAt().isBefore(OffsetDateTime.now())) {
-            return null;
-        }
-        if (AccountStatus.DISABLED.name().equals(user.getAccountStatus())) {
-            return null;
-        }
-        if (AccountStatus.LOCKED.name().equals(user.getAccountStatus())
-                && (user.getLockedUntil() == null || user.getLockedUntil().isAfter(OffsetDateTime.now()))) {
+        if (!isAccountLoginAllowed(user, OffsetDateTime.now())) {
             return null;
         }
         return new AuthenticatedUserPrincipal(
@@ -47,6 +37,33 @@ public class AuthenticatedPrincipalLoader {
                 AccountStatus.valueOf(user.getAccountStatus()),
                 loadAcademicProfile(user.getId()),
                 scopeIdentityService.loadForUser(user.getId()));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isUserAllowedToAuthenticate(Long userId) {
+        UserEntity user = userMapper.selectOne(Wrappers.<UserEntity>lambdaQuery()
+                .eq(UserEntity::getId, userId)
+                .select(
+                        UserEntity::getId,
+                        UserEntity::getAccountStatus,
+                        UserEntity::getLockedUntil,
+                        UserEntity::getExpiresAt)
+                .last("LIMIT 1"));
+        return isAccountLoginAllowed(user, OffsetDateTime.now());
+    }
+
+    private boolean isAccountLoginAllowed(UserEntity user, OffsetDateTime now) {
+        if (user == null) {
+            return false;
+        }
+        if (user.getExpiresAt() != null && user.getExpiresAt().isBefore(now)) {
+            return false;
+        }
+        if (AccountStatus.DISABLED.name().equals(user.getAccountStatus())) {
+            return false;
+        }
+        return !AccountStatus.LOCKED.name().equals(user.getAccountStatus())
+                || (user.getLockedUntil() != null && !user.getLockedUntil().isAfter(now));
     }
 
     private AcademicProfileView loadAcademicProfile(Long userId) {

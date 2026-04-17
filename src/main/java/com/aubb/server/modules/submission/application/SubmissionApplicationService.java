@@ -206,13 +206,23 @@ public class SubmissionApplicationService {
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该作业提交");
         }
-        List<SubmissionEntity> matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
+        boolean gradePublished = assignment.getGradePublishedAt() != null;
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        long total = submissionMapper.selectCount(Wrappers.<SubmissionEntity>lambdaQuery()
+                .eq(SubmissionEntity::getAssignmentId, assignmentId)
+                .eq(SubmissionEntity::getSubmitterUserId, principal.getUserId()));
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<SubmissionEntity> pageItems = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
                 .eq(SubmissionEntity::getAssignmentId, assignmentId)
                 .eq(SubmissionEntity::getSubmitterUserId, principal.getUserId())
                 .orderByDesc(SubmissionEntity::getSubmittedAt)
-                .orderByDesc(SubmissionEntity::getId));
-        boolean gradePublished = assignment.getGradePublishedAt() != null;
-        return toPage(matched, assignment, page, pageSize, gradePublished, gradePublished);
+                .orderByDesc(SubmissionEntity::getId)
+                .last("LIMIT " + safePageSize + " OFFSET " + offset));
+        return toCurrentSlicePage(pageItems, assignment, total, safePage, safePageSize, gradePublished, gradePublished);
     }
 
     @Transactional(readOnly = true)
@@ -255,7 +265,33 @@ public class SubmissionApplicationService {
         AssignmentEntity assignment = requireAssignment(assignmentId);
         courseAuthorizationService.assertCanGradeSubmission(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        List<SubmissionEntity> matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
+        List<SubmissionEntity> matched;
+        if (!latestOnly) {
+            long safePage = Math.max(page, 1);
+            long safePageSize = Math.max(pageSize, 1);
+            long offset = (safePage - 1) * safePageSize;
+            long total = submissionMapper.selectCount(Wrappers.<SubmissionEntity>lambdaQuery()
+                    .eq(SubmissionEntity::getAssignmentId, assignmentId)
+                    .eq(submitterUserId != null, SubmissionEntity::getSubmitterUserId, submitterUserId));
+            if (total == 0) {
+                return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+            }
+            List<SubmissionEntity> pageItems = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
+                    .eq(SubmissionEntity::getAssignmentId, assignmentId)
+                    .eq(submitterUserId != null, SubmissionEntity::getSubmitterUserId, submitterUserId)
+                    .orderByDesc(SubmissionEntity::getSubmittedAt)
+                    .orderByDesc(SubmissionEntity::getId)
+                    .last("LIMIT " + safePageSize + " OFFSET " + offset));
+            return toCurrentSlicePage(
+                    pageItems,
+                    assignment,
+                    total,
+                    safePage,
+                    safePageSize,
+                    true,
+                    assignment.getGradePublishedAt() != null);
+        }
+        matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
                 .eq(SubmissionEntity::getAssignmentId, assignmentId)
                 .eq(submitterUserId != null, SubmissionEntity::getSubmitterUserId, submitterUserId)
                 .orderByDesc(SubmissionEntity::getSubmittedAt)
@@ -315,6 +351,27 @@ public class SubmissionApplicationService {
                         gradePublished))
                 .toList();
         return new PageResponse<>(items, entities.size(), safePage, safePageSize);
+    }
+
+    private PageResponse<SubmissionView> toCurrentSlicePage(
+            List<SubmissionEntity> entities,
+            AssignmentEntity assignment,
+            long total,
+            long page,
+            long pageSize,
+            boolean revealNonObjectiveScores,
+            boolean gradePublished) {
+        Map<Long, List<SubmissionArtifactView>> artifactsBySubmissionId = loadArtifactViewsBySubmissionIds(
+                entities.stream().map(SubmissionEntity::getId).toList());
+        List<SubmissionView> items = entities.stream()
+                .map(entity -> toView(
+                        entity,
+                        assignment,
+                        artifactsBySubmissionId.getOrDefault(entity.getId(), List.of()),
+                        revealNonObjectiveScores,
+                        gradePublished))
+                .toList();
+        return new PageResponse<>(items, total, page, pageSize);
     }
 
     private SubmissionView toView(

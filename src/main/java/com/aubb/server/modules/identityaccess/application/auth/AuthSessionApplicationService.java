@@ -143,7 +143,7 @@ public class AuthSessionApplicationService {
         if (session == null || session.getRevokedAt() != null || !userId.equals(session.getUserId())) {
             return false;
         }
-        return authenticatedPrincipalLoader.loadPrincipal(userId) != null;
+        return authenticatedPrincipalLoader.isUserAllowedToAuthenticate(userId);
     }
 
     private AuthSessionEntity requireActiveSession(String refreshToken) {

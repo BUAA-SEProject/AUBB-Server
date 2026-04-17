@@ -84,13 +84,11 @@ public class CourseDiscussionApplicationService {
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
-        List<CourseDiscussionEntity> discussions =
-                courseDiscussionMapper.selectList(Wrappers.<CourseDiscussionEntity>lambdaQuery()
-                        .eq(CourseDiscussionEntity::getOfferingId, offeringId)
-                        .eq(teachingClassId != null, CourseDiscussionEntity::getTeachingClassId, teachingClassId)
-                        .orderByDesc(CourseDiscussionEntity::getLastActivityAt)
-                        .orderByDesc(CourseDiscussionEntity::getId));
-        return toSummaryPage(discussions, page, pageSize);
+        return toSummaryPage(
+                loadTeacherDiscussions(offeringId, teachingClassId, page, pageSize),
+                countTeacherDiscussions(offeringId, teachingClassId),
+                page,
+                pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -99,15 +97,11 @@ public class CourseDiscussionApplicationService {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         courseAuthorizationService.assertCanParticipateDiscussionsForClass(
                 principal, teachingClass.getOfferingId(), teachingClassId);
-        List<CourseDiscussionEntity> discussions =
-                courseDiscussionMapper.selectList(Wrappers.<CourseDiscussionEntity>lambdaQuery()
-                        .eq(CourseDiscussionEntity::getOfferingId, teachingClass.getOfferingId())
-                        .and(wrapper -> wrapper.isNull(CourseDiscussionEntity::getTeachingClassId)
-                                .or()
-                                .eq(CourseDiscussionEntity::getTeachingClassId, teachingClassId))
-                        .orderByDesc(CourseDiscussionEntity::getLastActivityAt)
-                        .orderByDesc(CourseDiscussionEntity::getId));
-        return toSummaryPage(discussions, page, pageSize);
+        return toSummaryPage(
+                loadMyDiscussions(teachingClass.getOfferingId(), teachingClassId, page, pageSize),
+                countMyDiscussions(teachingClass.getOfferingId(), teachingClassId),
+                page,
+                pageSize);
     }
 
     @Transactional(readOnly = true)
@@ -281,13 +275,52 @@ public class CourseDiscussionApplicationService {
         return teachingClass;
     }
 
+    private long countTeacherDiscussions(Long offeringId, Long teachingClassId) {
+        return courseDiscussionMapper.selectCount(Wrappers.<CourseDiscussionEntity>lambdaQuery()
+                .eq(CourseDiscussionEntity::getOfferingId, offeringId)
+                .eq(teachingClassId != null, CourseDiscussionEntity::getTeachingClassId, teachingClassId));
+    }
+
+    private List<CourseDiscussionEntity> loadTeacherDiscussions(
+            Long offeringId, Long teachingClassId, long page, long pageSize) {
+        long normalizedPage = Math.max(page, 1);
+        long normalizedPageSize = Math.max(pageSize, 1);
+        long offset = (normalizedPage - 1) * normalizedPageSize;
+        return courseDiscussionMapper.selectList(Wrappers.<CourseDiscussionEntity>lambdaQuery()
+                .eq(CourseDiscussionEntity::getOfferingId, offeringId)
+                .eq(teachingClassId != null, CourseDiscussionEntity::getTeachingClassId, teachingClassId)
+                .orderByDesc(CourseDiscussionEntity::getLastActivityAt)
+                .orderByDesc(CourseDiscussionEntity::getId)
+                .last("LIMIT " + normalizedPageSize + " OFFSET " + offset));
+    }
+
+    private long countMyDiscussions(Long offeringId, Long teachingClassId) {
+        return courseDiscussionMapper.selectCount(Wrappers.<CourseDiscussionEntity>lambdaQuery()
+                .eq(CourseDiscussionEntity::getOfferingId, offeringId)
+                .and(wrapper -> wrapper.isNull(CourseDiscussionEntity::getTeachingClassId)
+                        .or()
+                        .eq(CourseDiscussionEntity::getTeachingClassId, teachingClassId)));
+    }
+
+    private List<CourseDiscussionEntity> loadMyDiscussions(
+            Long offeringId, Long teachingClassId, long page, long pageSize) {
+        long normalizedPage = Math.max(page, 1);
+        long normalizedPageSize = Math.max(pageSize, 1);
+        long offset = (normalizedPage - 1) * normalizedPageSize;
+        return courseDiscussionMapper.selectList(Wrappers.<CourseDiscussionEntity>lambdaQuery()
+                .eq(CourseDiscussionEntity::getOfferingId, offeringId)
+                .and(wrapper -> wrapper.isNull(CourseDiscussionEntity::getTeachingClassId)
+                        .or()
+                        .eq(CourseDiscussionEntity::getTeachingClassId, teachingClassId))
+                .orderByDesc(CourseDiscussionEntity::getLastActivityAt)
+                .orderByDesc(CourseDiscussionEntity::getId)
+                .last("LIMIT " + normalizedPageSize + " OFFSET " + offset));
+    }
+
     private PageResponse<CourseDiscussionSummaryView> toSummaryPage(
-            List<CourseDiscussionEntity> discussions, long page, long pageSize) {
+            List<CourseDiscussionEntity> discussions, long total, long page, long pageSize) {
         List<CourseDiscussionSummaryView> items = toSummaries(discussions);
-        int fromIndex = (int) Math.min((Math.max(page, 1) - 1) * Math.max(pageSize, 1), items.size());
-        int toIndex = (int) Math.min(fromIndex + Math.max(pageSize, 1), items.size());
-        return new PageResponse<>(
-                items.subList(fromIndex, toIndex), items.size(), Math.max(page, 1), Math.max(pageSize, 1));
+        return new PageResponse<>(items, total, Math.max(page, 1), Math.max(pageSize, 1));
     }
 
     private List<CourseDiscussionSummaryView> toSummaries(List<CourseDiscussionEntity> discussions) {
