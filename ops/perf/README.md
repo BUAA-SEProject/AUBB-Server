@@ -42,6 +42,24 @@ JUDGE_JOB_ID=1 \
 k6 run ops/perf/k6-core-apis.js
 ```
 
+如果本机没有 `k6`，可以直接使用仓库内置的 Python 脚本完成“造数 + 压测 + 采样”：
+
+```bash
+BASE_URL=http://localhost:18084 \
+ADMIN_USERNAME=perf-admin \
+ADMIN_PASSWORD=PerfAdmin!123 \
+python3 ops/perf/setup_perf_data.py
+
+PERF_MANIFEST=/tmp/aubb-perf-20260418/manifest.json \
+COMPOSE_PREFIX=aubb-perf-20260418 \
+python3 ops/perf/run_perf_suite.py
+```
+
+其中：
+
+- `setup_perf_data.py` 会创建学院、教师、学生、课程、教学班、客观题作业、编程作业，并写出 `manifest.json`
+- `run_perf_suite.py` 会基于 `manifest.json` 运行阶梯压测，并输出 `perf_results.json` 与 `resource_samples.json`
+
 ## 建议压测场景
 
 ### 场景 1：课程查询高峰
