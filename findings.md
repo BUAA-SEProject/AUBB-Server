@@ -14,6 +14,24 @@
   - 用一个轻量集成测试固定 OpenAPI 发现路径和关键稳定接口族
   - 同步入口文档、架构文档、仓库结构说明与安全 / 可靠性文档
 
+## 2026-04-17 judge 详细产物对象化存储 phase 2 发现
+
+- phase 1 已解决“详细报告和样例试运行源码快照不要继续把大 JSON 塞进库里”，但正式评测仍缺下载、正式源码快照归档和统一追踪摘要；这会让对象化看起来“能存”，却还不够可交接。
+- 正式评测最小闭环不需要另起新表；在 `judge_jobs` 上补 `source_snapshot_object_key / artifact_manifest_object_key / artifact_trace_json`，就能和现有 `submission_id / submission_answer_id / assignment_question_id` 形成三维追踪。
+- 下载能力最稳的实现不是直出原始 MinIO 对象，而是复用现有 `JudgeJobReportView` 组装逻辑，再按当前调用者权限导出 JSON：
+  - 学生下载继续脱敏隐藏测试点
+  - 教师下载继续保留隐藏测试点与追踪摘要
+- 旧数据兼容不应做回填迁移：旧 `detail_report_json` 已足以支撑查询和下载；本轮最稳策略是“旧数据保留 JSON、读取时对象优先、无对象时回退 JSON、无批量 backfill”。
+- 真正需要对象化的“源码快照”不是再把 `submission_answers.answer_payload_json` 原样复制一份，而是提炼出正式评测复现所需的最小快照：语言、入口文件、文件树、附件引用和题目上下文。
+- 归档清单最小应包含：
+  - 产物类型
+  - 对象键
+  - content type
+  - size / sha256
+  - 是否真正落到对象存储
+  - 三维关联键与归档时间
+- 这轮只补正式评测 phase 2 闭环，不扩展编译产物 bundle、镜像 digest、对象版本化和大规模历史回填。
+
 ## 2026-04-17 关键列表数据库分页权限过滤发现
 
 - `listUsers` 和 `listMyAssignments` 当前共同的性能根因不是“少一个索引”，而是“候选集先全量拉入内存，再做权限过滤和分页”；只补索引不会自动修复分页准确性。

@@ -2,11 +2,23 @@
 
 ## 当前目标
 
-基于当前代码基线，继续处理 `todo.md` 的优先级链路。优先级 10 的文档漂移与 OpenAPI / 稳定接口清单收口完成后，`todo.md` 中 1-10 项已全部完成；下一步进入新的增量阶段：在线 IDE 第二阶段、多语言运行时稳定化、题库组卷增强与更复杂总评 / 可复现性。
+基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收已通过；当前正在处理 Step 2：judge 详细产物对象化存储 phase 2，补齐下载、归档元数据和产物追踪闭环，为后续成绩发布快照与治理收口建立稳定基线。
 
 ## 当前阶段
 
-Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 48 in progress，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 48：judge 详细产物对象化存储 phase 2
+
+- [x] 审计 `V25__judge_artifact_object_storage_phase1.sql`、`JudgeArtifactStorageService`、`JudgeExecutionService`、judge controller / API 与文档
+- [x] 明确 phase 1 已实现能力、当前缺口和“旧数据保留 JSON、对象优先读取、不做批量回填”的兼容策略
+- [x] 新增 `judge_jobs` 的正式评测源码快照、归档清单与产物追踪摘要字段
+- [x] 补齐学生 / 教师侧详细评测报告下载能力
+- [x] 让正式评测在终态落库时同步写入 `detailReport / sourceSnapshot / artifactManifest / artifactTrace`
+- [x] 补齐对象化存储单元测试、真实 judge / MinIO 集成测试、报告下载测试和旧数据兼容测试
+- [x] 同步 judge 规格、README、稳定接口清单、数据库结构和完成执行计划
+- [x] 执行 `bash ./mvnw spotless:apply`、`bash ./mvnw -q -DskipTests compile`、最小必要 judge/MinIO 回归并确认结果
+- **Status:** completed
 
 ### Phase 47：文档漂移与 OpenAPI / 稳定接口清单收口
 

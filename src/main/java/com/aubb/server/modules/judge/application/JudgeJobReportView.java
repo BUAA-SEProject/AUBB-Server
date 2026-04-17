@@ -27,6 +27,7 @@ public record JudgeJobReportView(
         Long timeMillis,
         Long memoryBytes,
         Map<String, Object> executionMetadata,
+        JudgeJobArtifactTraceView artifactTrace,
         List<JudgeJobCaseReportView> caseReports,
         OffsetDateTime queuedAt,
         OffsetDateTime startedAt,

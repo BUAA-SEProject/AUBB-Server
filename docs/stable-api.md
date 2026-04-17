@@ -109,9 +109,11 @@
 - `GET /api/v1/me/submissions/{submissionId}/judge-jobs`
 - `GET /api/v1/me/submission-answers/{answerId}/judge-jobs`
 - `GET /api/v1/me/judge-jobs/{judgeJobId}/report`
+- `GET /api/v1/me/judge-jobs/{judgeJobId}/report/download`
 - `GET /api/v1/teacher/submissions/{submissionId}/judge-jobs`
 - `GET /api/v1/teacher/submission-answers/{answerId}/judge-jobs`
 - `GET /api/v1/teacher/judge-jobs/{judgeJobId}/report`
+- `GET /api/v1/teacher/judge-jobs/{judgeJobId}/report/download`
 - `POST /api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue`
 - `POST /api/v1/teacher/submission-answers/{answerId}/judge-jobs/requeue`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles`

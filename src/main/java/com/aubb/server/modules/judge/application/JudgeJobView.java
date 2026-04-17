@@ -32,6 +32,7 @@ public record JudgeJobView(
         String errorMessage,
         java.util.List<JudgeJobCaseResultView> caseResults,
         boolean detailReportAvailable,
+        boolean artifactTraceAvailable,
         OffsetDateTime queuedAt,
         OffsetDateTime startedAt,
         OffsetDateTime finishedAt,

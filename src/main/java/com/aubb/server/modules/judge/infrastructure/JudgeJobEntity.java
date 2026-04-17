@@ -69,6 +69,12 @@ public class JudgeJobEntity {
 
     private String detailReportObjectKey;
 
+    private String sourceSnapshotObjectKey;
+
+    private String artifactManifestObjectKey;
+
+    private String artifactTraceJson;
+
     private OffsetDateTime queuedAt;
 
     private OffsetDateTime startedAt;

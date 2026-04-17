@@ -19,6 +19,28 @@
   - `bash ./mvnw -Dtest=OpenApiContractIntegrationTests,AubbServerApplicationTests,HarnessHealthSmokeTests,DeliveryPipelineAssetsTests test`
   - 当前结果：`BUILD SUCCESS`，定向 `7` 个测试通过
 
+## Session: 2026-04-17 judge 详细产物对象化存储 phase 2
+
+### Phase 48：优先级收尾 Step 2
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `V25__judge_artifact_object_storage_phase1.sql`、`JudgeArtifactStorageService`、`JudgeExecutionService`、`JudgeApplicationService`、judge controller、`docs/product-specs/judge-system.md`
+  - 确认 phase 1 已实现“详细报告 / 样例试运行对象优先存储 + 旧 JSON 回退”，但正式评测仍缺下载、正式源码快照归档和三维追踪
+  - 新增 `V29__judge_artifact_tracking_phase2.sql`，为 `judge_jobs` 增加 `source_snapshot_object_key / artifact_manifest_object_key / artifact_trace_json`
+  - 扩展 `JudgeArtifactStorageService`，统一为正式评测详细报告、正式评测源码快照和归档清单生成对象键、大小、内容类型与 `SHA-256`
+  - 扩展 `JudgeExecutionService`，在终态持久化时同步写入 `detailReport / sourceSnapshot / artifactManifest / artifactTrace`
+  - 扩展 `JudgeApplicationService`、`MyJudgeController`、`TeacherJudgeController`，补齐学生 / 教师侧报告下载接口，并让报告查询回传 `artifactTrace`
+  - 扩展 `JudgeArtifactStorageServiceTests`、`StructuredProgrammingJudgeIntegrationTests`，覆盖对象化写入、报告下载、追踪摘要和旧数据兼容回退
+  - 同步 judge 规格、README、稳定接口清单、数据库结构与完成执行计划
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=JudgeArtifactStorageServiceTests,StructuredProgrammingJudgeIntegrationTests,ProgrammingWorkspaceIntegrationTests test`
+  - `git diff --check`
+  - 当前结果：`BUILD SUCCESS`，定向 `22` 个测试通过，diff 检查通过
+
 ## Session: 2026-04-17 关键列表数据库分页权限过滤
 
 ### Phase 46：优先级 9 热点列表收口

@@ -30,6 +30,7 @@
 - `src/main/resources/db/migration/V26__lab_report_mvp.sql`
 - `src/main/resources/db/migration/V27__notification_center_mvp.sql`
 - `src/main/resources/db/migration/V28__db_paginated_permission_filter_indexes.sql`
+- `src/main/resources/db/migration/V29__judge_artifact_tracking_phase2.sql`
 
 ## 总览
 
@@ -818,6 +819,9 @@
 | `case_results_json` | `text` | 可空，逐测试点摘要 JSON |
 | `detail_report_json` | `text` | 可空，旧详细评测报告 JSON，保留兼容回退 |
 | `detail_report_object_key` | `text` | 可空，详细评测报告对象引用 |
+| `source_snapshot_object_key` | `text` | 可空，正式评测源码快照对象引用 |
+| `artifact_manifest_object_key` | `text` | 可空，正式评测归档清单对象引用 |
+| `artifact_trace_json` | `text` | 可空，submission / answer / judge job 三维产物追踪摘要 |
 | `queued_at` | `timestamptz` | 必填，默认 `now()` |
 | `started_at` | `timestamptz` | 可空 |
 | `finished_at` | `timestamptz` | 可空 |
@@ -1044,7 +1048,7 @@
 - `assignment_judge_cases` 当前保存标准输入、预期输出和分值，不包含更复杂的断言规则。
 - `judge_environment_profiles` 当前作为开课实例内可复用的编程题评测环境模板存在；题库题目和 assignment question 通过 `profileId / profileCode` 引用后，会先解析模板再固化到 `assignment_questions.config_json` 的环境快照中。
 - `assignment_questions.config_json` 当前已承载结构化编程题的隐藏测试点、资源限制和语言配置。
-- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job；逐测试点摘要继续保留在数据库，完整详细报告优先写入对象存储并通过 `detail_report_object_key` 回放。
+- `judge_jobs` 当前已同时表达 submission 级 legacy job 和 `submission_answer_id` 级 question-level job；逐测试点摘要继续保留在数据库，完整详细报告优先写入对象存储并通过 `detail_report_object_key` 回放，同时补充 `source_snapshot_object_key / artifact_manifest_object_key / artifact_trace_json` 用于正式评测归档与追踪。
 - `programming_sample_runs` 与 `judge_jobs` 分开建模，确保样例试运行不会污染正式评测历史、提交次数与成绩；当前样例试运行会把详细报告和源码快照优先对象化存储，并通过 `detail_report_object_key / source_snapshot_object_key` 回放，可继续回指工作区修订。
 - `assignment_questions.config_json.customJudgeScript` 当前按“脚本内容”语义保存，由 judge 模块固定落盘为 Python checker 执行，不额外引入新表。
 - `course_members` 用于表达教师、助教、学生的课程角色，并与 `user_org_memberships` 做同步，不回写为平台治理身份。

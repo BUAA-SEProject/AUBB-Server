@@ -151,7 +151,7 @@ public class JudgeExecutionService {
         }
 
         JudgeFinalization finalOutcome = outcome;
-        transactionTemplate.executeWithoutResult(status -> persistJobOutcome(judgeJobId, finalOutcome));
+        transactionTemplate.executeWithoutResult(status -> persistJobOutcome(context, finalOutcome));
         try {
             transactionTemplate.executeWithoutResult(status -> finalizeJobSideEffects(judgeJobId, finalOutcome));
         } catch (RuntimeException exception) {
@@ -941,7 +941,8 @@ public class JudgeExecutionService {
         return resolved;
     }
 
-    private void persistJobOutcome(Long judgeJobId, JudgeFinalization outcome) {
+    private void persistJobOutcome(JudgeExecutionContext context, JudgeFinalization outcome) {
+        Long judgeJobId = context.job().getId();
         JudgeJobEntity job = judgeJobMapper.selectById(judgeJobId);
         if (job == null) {
             return;
@@ -963,11 +964,20 @@ public class JudgeExecutionService {
         job.setMemoryBytes(outcome.memoryBytes());
         job.setErrorMessage(outcome.errorMessage());
         job.setCaseResultsJson(writeCaseResults(outcome.caseResults()));
-        String detailReportObjectKey =
-                judgeArtifactStorageService.storeJudgeJobDetailReport(judgeJobId, outcome.detailReport());
-        job.setDetailReportObjectKey(detailReportObjectKey);
+        StoredJudgeArtifact detailReportArtifact =
+                judgeArtifactStorageService.storeJudgeJobDetailReportArtifact(judgeJobId, outcome.detailReport());
+        job.setDetailReportObjectKey(detailReportArtifact == null ? null : detailReportArtifact.objectKey());
         job.setDetailReportJson(
-                StringUtils.hasText(detailReportObjectKey) ? null : writeDetailReport(outcome.detailReport()));
+                detailReportArtifact != null && detailReportArtifact.storedInObjectStorage()
+                        ? null
+                        : writeDetailReport(outcome.detailReport()));
+        StoredJudgeArtifact sourceSnapshotArtifact = storeJudgeJobSourceSnapshot(job, context);
+        job.setSourceSnapshotObjectKey(sourceSnapshotArtifact == null ? null : sourceSnapshotArtifact.objectKey());
+        JudgeJobArtifactTraceView artifactTrace = buildArtifactTrace(job, detailReportArtifact, sourceSnapshotArtifact);
+        StoredJudgeArtifact artifactManifest =
+                judgeArtifactStorageService.storeJudgeJobArtifactManifestArtifact(judgeJobId, artifactTrace);
+        job.setArtifactManifestObjectKey(artifactManifest == null ? null : artifactManifest.objectKey());
+        job.setArtifactTraceJson(writeArtifactTrace(withManifestArtifact(artifactTrace, artifactManifest)));
         job.setStatus(outcome.failed() ? JudgeJobStatus.FAILED.name() : JudgeJobStatus.SUCCEEDED.name());
         judgeJobMapper.updateById(job);
         if (outcome.failed()) {
@@ -1398,6 +1408,90 @@ public class JudgeExecutionService {
         } catch (JacksonException exception) {
             throw new IllegalStateException("评测详细报告无法序列化", exception);
         }
+    }
+
+    private String writeArtifactTrace(JudgeJobArtifactTraceView artifactTrace) {
+        if (artifactTrace == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(artifactTrace);
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("评测产物追踪信息无法序列化", exception);
+        }
+    }
+
+    private StoredJudgeArtifact storeJudgeJobSourceSnapshot(JudgeJobEntity job, JudgeExecutionContext context) {
+        if (context.answer() == null || !StringUtils.hasText(context.answer().getAnswerPayloadJson())) {
+            return null;
+        }
+        ProgrammingAnswerPayload payload =
+                readProgrammingPayload(context.answer().getAnswerPayloadJson());
+        if (payload.files().isEmpty() && payload.artifactIds().isEmpty()) {
+            return null;
+        }
+        return judgeArtifactStorageService.storeJudgeJobSourceSnapshotArtifact(
+                job.getId(),
+                new JudgeJobStoredSource(
+                        payload.programmingLanguage(),
+                        payload.entryFilePath(),
+                        payload.files(),
+                        payload.artifactIds(),
+                        job.getSubmissionId(),
+                        job.getSubmissionAnswerId(),
+                        job.getAssignmentQuestionId()));
+    }
+
+    private JudgeJobArtifactTraceView buildArtifactTrace(
+            JudgeJobEntity job, StoredJudgeArtifact detailReportArtifact, StoredJudgeArtifact sourceSnapshotArtifact) {
+        return new JudgeJobArtifactTraceView(
+                resolveArtifactStorageMode(detailReportArtifact, sourceSnapshotArtifact),
+                OffsetDateTime.now(),
+                job.getId(),
+                job.getSubmissionId(),
+                job.getSubmissionAnswerId(),
+                job.getAssignmentId(),
+                job.getAssignmentQuestionId(),
+                List.of("DETAIL_REPORT", "CASE_OUTPUTS", "RUN_LOGS", "SOURCE_SNAPSHOT_OR_REF"),
+                toArtifactTraceItem(detailReportArtifact),
+                toArtifactTraceItem(sourceSnapshotArtifact),
+                null);
+    }
+
+    private JudgeJobArtifactTraceView withManifestArtifact(
+            JudgeJobArtifactTraceView artifactTrace, StoredJudgeArtifact artifactManifest) {
+        if (artifactTrace == null) {
+            return null;
+        }
+        return new JudgeJobArtifactTraceView(
+                artifactTrace.storageMode(),
+                artifactTrace.archivedAt(),
+                artifactTrace.judgeJobId(),
+                artifactTrace.submissionId(),
+                artifactTrace.submissionAnswerId(),
+                artifactTrace.assignmentId(),
+                artifactTrace.assignmentQuestionId(),
+                artifactTrace.includedArtifacts(),
+                artifactTrace.detailReport(),
+                artifactTrace.sourceSnapshot(),
+                toArtifactTraceItem(artifactManifest));
+    }
+
+    private JudgeArtifactTraceItemView toArtifactTraceItem(StoredJudgeArtifact artifact) {
+        if (artifact == null) {
+            return null;
+        }
+        return new JudgeArtifactTraceItemView(
+                artifact.storedInObjectStorage(), artifact.contentType(), artifact.sizeBytes(), artifact.sha256Hex());
+    }
+
+    private String resolveArtifactStorageMode(
+            StoredJudgeArtifact detailReportArtifact, StoredJudgeArtifact sourceSnapshotArtifact) {
+        if ((detailReportArtifact != null && detailReportArtifact.storedInObjectStorage())
+                || (sourceSnapshotArtifact != null && sourceSnapshotArtifact.storedInObjectStorage())) {
+            return "OBJECT_STORAGE";
+        }
+        return "INLINE_DB_JSON";
     }
 
     private Map<String, Object> buildLegacyExecutionMetadata(JudgeExecutionContext context) {

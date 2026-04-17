@@ -31,8 +31,10 @@ import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -137,12 +139,36 @@ public class JudgeApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public JudgeJobReportDownload downloadMyJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
+        JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
+        SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
+        if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该评测报告");
+        }
+        if (!courseAuthorizationService.canViewAssignment(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该评测报告");
+        }
+        return toReportDownload(judgeJob, false);
+    }
+
+    @Transactional(readOnly = true)
     public JudgeJobReportView getTeacherJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
         courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
         return toReportView(judgeJob, true);
+    }
+
+    @Transactional(readOnly = true)
+    public JudgeJobReportDownload downloadTeacherJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
+        JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
+        SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
+        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        return toReportDownload(judgeJob, true);
     }
 
     @Transactional
@@ -247,6 +273,7 @@ public class JudgeApplicationService {
                 entity.getErrorMessage(),
                 readCaseResults(entity.getCaseResultsJson()),
                 judgeArtifactStorageService.hasJudgeJobDetailReport(entity),
+                StringUtils.hasText(entity.getArtifactTraceJson()),
                 entity.getQueuedAt(),
                 entity.getStartedAt(),
                 entity.getFinishedAt(),
@@ -362,10 +389,24 @@ public class JudgeApplicationService {
                 entity.getTimeMillis(),
                 entity.getMemoryBytes(),
                 storedReport.executionMetadata(),
+                readArtifactTrace(entity),
                 caseReports,
                 entity.getQueuedAt(),
                 entity.getStartedAt(),
                 entity.getFinishedAt());
+    }
+
+    private JudgeJobReportDownload toReportDownload(JudgeJobEntity entity, boolean revealSensitiveFields) {
+        JudgeJobReportView reportView = toReportView(entity, revealSensitiveFields);
+        try {
+            return new JudgeJobReportDownload(
+                    "judge-job-%s-report.json".formatted(entity.getId()),
+                    MediaType.APPLICATION_JSON_VALUE,
+                    objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(reportView));
+        } catch (JacksonException exception) {
+            throw new BusinessException(
+                    HttpStatus.INTERNAL_SERVER_ERROR, "JUDGE_JOB_REPORT_DOWNLOAD_BROKEN", "评测报告下载内容无法生成");
+        }
     }
 
     private JudgeJobStoredReport readDetailReport(JudgeJobEntity entity) {
@@ -379,6 +420,18 @@ public class JudgeApplicationService {
             throw exception;
         } catch (RuntimeException exception) {
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "JUDGE_JOB_REPORT_BROKEN", "评测详细报告无法读取");
+        }
+    }
+
+    private JudgeJobArtifactTraceView readArtifactTrace(JudgeJobEntity entity) {
+        if (!StringUtils.hasText(entity.getArtifactTraceJson())) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(entity.getArtifactTraceJson(), JudgeJobArtifactTraceView.class);
+        } catch (JacksonException exception) {
+            throw new BusinessException(
+                    HttpStatus.INTERNAL_SERVER_ERROR, "JUDGE_JOB_ARTIFACT_TRACE_BROKEN", "评测产物追踪信息无法读取");
         }
     }
 

@@ -79,6 +79,51 @@ class JudgeArtifactStorageServiceTests {
     }
 
     @Test
+    void storesJudgeJobSourceSnapshotAndArtifactManifestWithDigestSummary() {
+        JudgeArtifactStorageService service = new JudgeArtifactStorageService(
+                storageProvider(), JsonMapper.builder().build());
+        JudgeJobStoredSource sourceSnapshot = new JudgeJobStoredSource(
+                ProgrammingLanguage.CPP17,
+                "src/main.cpp",
+                List.of(
+                        new ProgrammingSourceFile("src/main.cpp", "#include <iostream>\nint main(){std::cout<<42;}"),
+                        new ProgrammingSourceFile("src/math_utils.cpp", "int add(int a, int b){ return a + b; }")),
+                List.of(31L, 32L),
+                11L,
+                13L,
+                17L);
+
+        StoredJudgeArtifact sourceArtifact = service.storeJudgeJobSourceSnapshotArtifact(9L, sourceSnapshot);
+        StoredJudgeArtifact manifestArtifact = service.storeJudgeJobArtifactManifestArtifact(
+                9L,
+                new JudgeJobArtifactTraceView(
+                        "OBJECT_STORAGE",
+                        java.time.OffsetDateTime.parse("2026-04-17T10:00:00Z"),
+                        9L,
+                        11L,
+                        13L,
+                        15L,
+                        17L,
+                        List.of("DETAIL_REPORT", "SOURCE_SNAPSHOT_OR_REF"),
+                        new JudgeArtifactTraceItemView(true, "application/json", 256L, "abcd"),
+                        new JudgeArtifactTraceItemView(true, "application/json", 128L, "efgh"),
+                        null));
+
+        assertThat(sourceArtifact.objectKey()).isEqualTo("judge-jobs/9/source-snapshot.json");
+        assertThat(sourceArtifact.storedInObjectStorage()).isTrue();
+        assertThat(sourceArtifact.contentType()).isEqualTo("application/json");
+        assertThat(sourceArtifact.sizeBytes()).isPositive();
+        assertThat(sourceArtifact.sha256Hex()).hasSize(64);
+        assertThat(manifestArtifact.objectKey()).isEqualTo("judge-jobs/9/artifact-manifest.json");
+        assertThat(manifestArtifact.sha256Hex()).hasSize(64);
+
+        verify(objectStorageService)
+                .putObject(eq("judge-jobs/9/source-snapshot.json"), any(byte[].class), eq("application/json"));
+        verify(objectStorageService)
+                .putObject(eq("judge-jobs/9/artifact-manifest.json"), any(byte[].class), eq("application/json"));
+    }
+
+    @Test
     void storesAndLoadsProgrammingSampleRunSourceSnapshotFromObjectStorage() {
         JudgeArtifactStorageService service = new JudgeArtifactStorageService(
                 storageProvider(), JsonMapper.builder().build());

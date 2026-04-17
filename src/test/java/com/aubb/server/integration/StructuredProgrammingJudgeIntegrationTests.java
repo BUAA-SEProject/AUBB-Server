@@ -458,12 +458,20 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].score").value(100))
                 .andExpect(jsonPath("$[0].detailReportAvailable").value(true))
+                .andExpect(jsonPath("$[0].artifactTraceAvailable").value(true))
                 .andReturn();
         Long judgeJobId = readLong(jobsResult, "$[0].id");
 
         mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artifactTrace.storageMode").value("OBJECT_STORAGE"))
+                .andExpect(jsonPath("$.artifactTrace.detailReport.storedInObjectStorage")
+                        .value(true))
+                .andExpect(jsonPath("$.artifactTrace.sourceSnapshot.storedInObjectStorage")
+                        .value(true))
+                .andExpect(jsonPath("$.artifactTrace.artifactManifest.storedInObjectStorage")
+                        .value(true))
                 .andExpect(jsonPath("$.executionMetadata.programmingLanguage").value("CPP17"))
                 .andExpect(jsonPath("$.executionMetadata.compileArgs[0]").value("-DANSWER=41"))
                 .andExpect(jsonPath("$.executionMetadata.runArgs[0]").value("1"))
@@ -478,17 +486,146 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$.caseReports[0].compileCommand", org.hamcrest.Matchers.hasItem("-DANSWER=41")))
                 .andExpect(jsonPath("$.caseReports[0].runCommand[1]").value("1"));
 
+        MvcResult studentDownload = mockMvc.perform(
+                        get("/api/v1/me/judge-jobs/{judgeJobId}/report/download", judgeJobId)
+                                .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(studentDownload.getResponse().getHeader("Content-Disposition"))
+                .contains("judge-job-%s-report.json".formatted(judgeJobId));
+        assertThat(studentDownload.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .contains("\"artifactTrace\"")
+                .doesNotContain("\"expectedStdout\":\"42\\n\"");
+
+        MvcResult teacherDownload = mockMvc.perform(
+                        get("/api/v1/teacher/judge-jobs/{judgeJobId}/report/download", judgeJobId)
+                                .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(teacherDownload.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .contains("\"expectedStdout\" : \"42\\n\"")
+                .contains("\"artifactTrace\"");
+
         String detailReportObjectKey =
                 queryForString("SELECT detail_report_object_key FROM judge_jobs WHERE id = ?", judgeJobId);
+        String sourceSnapshotObjectKey =
+                queryForString("SELECT source_snapshot_object_key FROM judge_jobs WHERE id = ?", judgeJobId);
+        String artifactManifestObjectKey =
+                queryForString("SELECT artifact_manifest_object_key FROM judge_jobs WHERE id = ?", judgeJobId);
+        String artifactTraceJson =
+                queryForString("SELECT artifact_trace_json FROM judge_jobs WHERE id = ?", judgeJobId);
         assertThat(detailReportObjectKey).isNotBlank();
+        assertThat(sourceSnapshotObjectKey).isNotBlank();
+        assertThat(artifactManifestObjectKey).isNotBlank();
         assertThat(queryForString("SELECT detail_report_json FROM judge_jobs WHERE id = ?", judgeJobId))
                 .isNull();
+        assertThat(artifactTraceJson)
+                .contains("\"judgeJobId\":%s".formatted(judgeJobId))
+                .contains("\"submissionId\"")
+                .contains("\"submissionAnswerId\":%s".formatted(answerId))
+                .contains("\"artifactManifest\"");
         assertThat(new String(
                         objectStorageService.getObject(detailReportObjectKey).content(), StandardCharsets.UTF_8))
                 .contains("\"compileArgs\":[\"-DANSWER=41\"]")
                 .contains("\"runArgs\":[\"1\"]")
                 .contains("\"submissionAnswerId\":%s".formatted(answerId))
                 .contains("\"mode\":\"SUBMISSION_ANSWER\"");
+        assertThat(new String(
+                        objectStorageService.getObject(sourceSnapshotObjectKey).content(), StandardCharsets.UTF_8))
+                .contains("\"entryFilePath\":\"src/main.cpp\"")
+                .contains("\"submissionAnswerId\":%s".formatted(answerId))
+                .contains("\"path\":\"src/math_utils.cpp\"");
+        assertThat(new String(
+                        objectStorageService
+                                .getObject(artifactManifestObjectKey)
+                                .content(),
+                        StandardCharsets.UTF_8))
+                .contains("\"storageMode\":\"OBJECT_STORAGE\"")
+                .contains(
+                        "\"includedArtifacts\":[\"DETAIL_REPORT\",\"CASE_OUTPUTS\",\"RUN_LOGS\",\"SOURCE_SNAPSHOT_OR_REF\"]");
+    }
+
+    @Test
+    void judgeReportDownloadFallsBackToLegacyInlineJsonForHistoricalJobs() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LEGACY", "历史兼容班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        MvcResult submissionResult = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "entryFilePath":"main.py",
+                                      "files":[
+                                        {
+                                          "path":"main.py",
+                                          "content":"a, b = map(int, input().split())\\nprint(a + b)"
+                                        }
+                                      ],
+                                      "programmingLanguage":"PYTHON3"
+                                    }
+                                  ]
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long answerId = readLong(submissionResult, "$.answers[0].id");
+        waitForLatestAnswerJudgeJobTerminal(answerId);
+        Long judgeJobId = jdbcTemplate.queryForObject(
+                "SELECT id FROM judge_jobs WHERE submission_answer_id = ? ORDER BY id DESC LIMIT 1",
+                Long.class,
+                answerId);
+
+        String detailReportObjectKey =
+                queryForString("SELECT detail_report_object_key FROM judge_jobs WHERE id = ?", judgeJobId);
+        String detailReportJson =
+                new String(objectStorageService.getObject(detailReportObjectKey).content(), StandardCharsets.UTF_8);
+        jdbcTemplate.update("""
+                UPDATE judge_jobs
+                SET detail_report_json = ?,
+                    detail_report_object_key = NULL,
+                    source_snapshot_object_key = NULL,
+                    artifact_manifest_object_key = NULL,
+                    artifact_trace_json = NULL
+                WHERE id = ?
+                """, detailReportJson, judgeJobId);
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artifactTrace").doesNotExist())
+                .andExpect(jsonPath("$.caseReports[0].stdoutText").value("5\n"));
+
+        MvcResult teacherDownload = mockMvc.perform(
+                        get("/api/v1/teacher/judge-jobs/{judgeJobId}/report/download", judgeJobId)
+                                .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(teacherDownload.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .contains("\"stdoutText\"")
+                .contains("\"expectedStdout\" : \"5\\n\"");
     }
 
     @Test

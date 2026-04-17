@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、通过 RabbitMQ 队列第一阶段异步调度 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志、详细评测报告、`CUSTOM_SCRIPT` 第一阶段闭环，以及详细评测产物对象化存储第一阶段。当前样例试运行与正式评测都已复用目录树源码快照装配，为后续前端在线 IDE 和更复杂实验环境提供稳定链路。
+交付 judge 当前切片，使平台既能继续支持 assignment 级 legacy 脚本评测，也能在结构化编程题提交后按 `submission_answer_id` 自动创建题目级评测作业、通过 RabbitMQ 队列第一阶段异步调度 go-judge 执行、回写结果，并补齐学生侧样例试运行、运行日志、详细评测报告、`CUSTOM_SCRIPT` 第一阶段闭环，以及详细评测产物对象化存储 phase 2。当前样例试运行与正式评测都已复用目录树源码快照装配，正式评测详细报告已经支持下载、归档元数据与 submission / answer / judge job 三维产物追踪，为后续前端在线 IDE 和更复杂实验环境提供稳定链路。
 
 ## 覆盖范围
 
@@ -33,6 +33,7 @@
     - 支持文件
     - CPU 速率限制
   - 详细评测报告优先写入对象存储，并通过 `judge_jobs.detail_report_object_key` 建立引用；旧 `detail_report_json` 仅作兼容回退
+  - 正式评测源码快照与归档清单会分别通过 `source_snapshot_object_key / artifact_manifest_object_key` 归档，数据库同步保留 `artifact_trace_json` 摘要
 - 当前支持结构化编程题样例试运行：
   - 独立的 `programming_sample_runs` 历史
   - 单样例或自定义标准输入运行
@@ -84,10 +85,10 @@
   - 运行时异常当前落成 `SUCCEEDED + RUNTIME_ERROR`，并在摘要中明确标注“程序运行失败”
   - 超时 / 超内存 / 超输出当前分别落成 `TIME_LIMIT_EXCEEDED / MEMORY_LIMIT_EXCEEDED / OUTPUT_LIMIT_EXCEEDED`
 16. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
-17. 正式评测详细报告当前优先保存为对象存储 JSON，数据库仅保留 `detail_report_object_key`、摘要和状态；旧 `detail_report_json` 只作为兼容回退。
+17. 正式评测详细报告当前优先保存为对象存储 JSON，数据库仅保留对象引用、追踪摘要、状态和索引；旧 `detail_report_json` 只作为兼容回退。
 18. 样例试运行当前优先把“详细报告 + 源码快照”对象化存储；数据库只保留 `detail_report_object_key / source_snapshot_object_key`、输入模式、结果摘要和工作区修订引用。
-19. 正式评测可复现链路第一阶段依赖 `submission_id / submission_answer_id / assignment_question_id / programmingLanguage / entryFilePath / artifactIds / compileArgs / runArgs / executionEnvironment / detailReportObject`；样例试运行额外依赖 `sourceSnapshotObject`。
-20. 第一阶段仍不保留 go-judge 镜像 digest、编译产物 bundle、对象版本化信息；这些属于后续更重的归档能力。
+19. 正式评测可复现链路 phase 2 当前依赖 `submission_id / submission_answer_id / assignment_question_id / judge_job_id / programmingLanguage / entryFilePath / artifactIds / compileArgs / runArgs / executionEnvironment / detailReportObject / sourceSnapshotObject / artifactManifestObject / artifactTraceSummary`；样例试运行额外依赖 `sourceSnapshotObject`。
+20. 当前仍不保留 go-judge 镜像 digest、编译产物 bundle、对象版本化信息，也不做批量历史回填；这些属于后续更重的归档能力。
 21. 为降低终态卡在 `RUNNING` 的风险，当前实现会先独立提交 `judge_jobs` 终态，再回写 `submission_answers` 与审计日志；后续同步失败时保留终态和错误日志，避免“已执行但看不到终态”。
 22. 对于存在编译阶段的语言，当前实现会拆成“编译 -> 运行”两个真实 go-judge `/run` 调用，并通过 `copyOut / copyIn` 回传编译产物，避免编译结果在第二阶段沙箱中丢失。
 23. 当前“支持文件”仅表示题目配置中的受控辅助文件，通过 go-judge `copyIn` 注入运行目录，不表示动态宿主目录挂载。
@@ -134,6 +135,9 @@
   - `error_message`：基础设施失败信息
   - `case_results_json`：逐测试点明细摘要，继续保留在数据库供列表接口直接读取
   - `detail_report_object_key`：详细评测报告对象引用，指向对象存储中的 JSON 归档
+  - `source_snapshot_object_key`：正式评测源码快照对象引用，指向对象存储中的 JSON 归档
+  - `artifact_manifest_object_key`：正式评测归档清单对象引用，指向对象存储中的 JSON 归档
+  - `artifact_trace_json`：submission / answer / judge job 三维产物追踪摘要
   - `detail_report_json`：旧详细评测报告 JSON，保留兼容回退
   - `result_summary`：用户可读摘要
   - `queued_at / started_at / finished_at`：状态时间戳
@@ -167,6 +171,7 @@
 - `GET /api/v1/me/submissions/{submissionId}/judge-jobs`
 - `GET /api/v1/me/submission-answers/{answerId}/judge-jobs`
 - `GET /api/v1/me/judge-jobs/{judgeJobId}/report`
+- `GET /api/v1/me/judge-jobs/{judgeJobId}/report/download`
 - `POST /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
 - `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs`
 - `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs/{sampleRunId}`
@@ -183,6 +188,7 @@
 - `GET /api/v1/teacher/submission-answers/{answerId}/judge-jobs`
 - `POST /api/v1/teacher/submission-answers/{answerId}/judge-jobs/requeue`
 - `GET /api/v1/teacher/judge-jobs/{judgeJobId}/report`
+- `GET /api/v1/teacher/judge-jobs/{judgeJobId}/report/download`
 
 ## 当前实现边界
 
@@ -210,10 +216,11 @@
   - `_aubb_judge_context.json`
 - `CUSTOM_SCRIPT` 当前约定 checker 输出一段 JSON，例如 `{\"verdict\":\"ACCEPTED\",\"score\":60,\"message\":\"样例通过\"}`；非法 JSON、未知 verdict、越界分数或 checker 执行异常会落成 `SYSTEM_ERROR`。
 - 当前逐测试点明细继续挂在 `judge_jobs.case_results_json` 并通过列表 API 返回；完整详细报告改为优先写入对象存储，通过 `detail_report_object_key` 回放，旧 `detail_report_json` 只保留兼容回退。
+- 正式评测当前会同步归档 `source_snapshot_object_key / artifact_manifest_object_key`，并在 `artifact_trace_json` 中保留三维追踪摘要；列表 API 只暴露 `artifactTraceAvailable`，详细追踪在报告接口中展开。
 - 样例试运行当前不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果、详细报告和源码快照优先写入对象存储，再在 `programming_sample_runs` 中保留对象引用；输入可来自题目样例或学生自定义标准输入。
 - 样例试运行当前可直接运行当前工作区或历史工作区修订，用来保证“断线恢复后的再次试运行”和“正式评测前最后一次自测”共享同一份源码快照。
-- 正式评测的可复现性第一阶段当前依赖 `submission_answers` 源码快照、附件引用和 `executionMetadata.sourceSnapshotRef`，暂不额外复制一份正式评测源码正文。
-- 第一阶段对象化只覆盖详细报告、case outputs、运行日志和样例试运行源码快照，不覆盖编译二进制、go-judge 镜像指纹或对象版本化归档。
+- 正式评测的可复现性当前优先依赖 `submission_answers` 源码快照、附件引用和 `executionMetadata.sourceSnapshotRef`，同时把正式评测源码快照摘要再归档一份对象引用，便于后续独立下载与追踪。
+- phase 2 对象化覆盖正式评测详细报告、case outputs、运行日志、正式评测源码快照、归档清单以及样例试运行源码快照；仍不覆盖编译二进制、go-judge 镜像指纹或对象版本化归档。
 - 当前已支持 RabbitMQ 队列第一阶段，并保留本地异步回退路径；尚未拆分独立评测 worker 与重试编排。
 - 为避免真实 RabbitMQ 集成测试与残留评测事务互相干扰，judge 相关 Testcontainers 集成测试当前会在清理前先 drain 运行中 job 并 purge 测试队列，再执行 `TRUNCATE`。
 - 当前 `STANDARD_IO` 继续使用严格输出匹配（规范化行尾后比较），更复杂容错判定通过 `CUSTOM_SCRIPT` 扩展。
@@ -236,7 +243,8 @@
 - 结构化编程题自动评测若基础设施失败，会把 answer 标记为 `PROGRAMMING_JUDGE_FAILED` 并保留失败反馈，便于教师区分“尚未评测”和“评测已失败”。
 - 教师重新排队后会新增一条新的评测作业历史。
 - 学生和教师都可以查询详细评测报告；学生侧默认看不到隐藏测试输入输出，教师侧可见。
+- 学生和教师都可以下载详细评测报告；学生下载仍保持隐藏测试点脱敏，教师下载保留隐藏测试输入输出与追踪摘要。
 - RabbitMQ 队列开启时，legacy judge、question-level judge 和详细报告回归都能通过真实 go-judge + RabbitMQ Testcontainers 验证。
 - 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`，但会保留目录树快照、工作区修订引用和详细日志。
-- MinIO 启用时，`judge_jobs` 的详细报告、`programming_sample_runs` 的详细报告和源码快照都能完成真实对象写入，并保持现有报告查询 API 回放正常。
+- MinIO 启用时，`judge_jobs` 的详细报告、源码快照、归档清单以及 `programming_sample_runs` 的详细报告和源码快照都能完成真实对象写入，并保持现有报告查询 / 下载 API 回放正常。
 - `mvnd verify` 或 `bash ./mvnw verify` 提供自动化测试证据。
