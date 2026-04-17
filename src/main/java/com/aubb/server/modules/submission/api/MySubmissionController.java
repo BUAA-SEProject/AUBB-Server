@@ -2,6 +2,7 @@ package com.aubb.server.modules.submission.api;
 
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.programming.ProgrammingSourceFile;
+import com.aubb.server.common.ratelimit.RateLimited;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.submission.application.SubmissionApplicationService;
@@ -42,6 +43,7 @@ public class MySubmissionController {
     @PostMapping("/assignments/{assignmentId}/submissions")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("isAuthenticated()")
+    @RateLimited(policy = "submission-create", subject = "'assignment:' + #assignmentId")
     public SubmissionView create(
             @PathVariable Long assignmentId,
             @Valid @RequestBody CreateSubmissionRequest request,
@@ -53,6 +55,7 @@ public class MySubmissionController {
     @PostMapping("/assignments/{assignmentId}/submission-artifacts")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("isAuthenticated()")
+    @RateLimited(policy = "submission-artifact-upload", subject = "'assignment:' + #assignmentId")
     public SubmissionArtifactView uploadArtifact(
             @PathVariable Long assignmentId,
             @RequestPart("file") MultipartFile file,

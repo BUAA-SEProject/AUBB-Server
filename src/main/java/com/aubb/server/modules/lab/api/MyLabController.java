@@ -1,6 +1,7 @@
 package com.aubb.server.modules.lab.api;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.ratelimit.RateLimited;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.lab.application.LabApplicationService;
 import com.aubb.server.modules.lab.application.LabReportAttachmentDownload;
@@ -64,6 +65,7 @@ public class MyLabController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "学生上传实验报告附件")
+    @RateLimited(policy = "lab-attachment-upload", subject = "'lab:' + #labId")
     public LabReportAttachmentView uploadAttachment(
             @PathVariable Long labId,
             @RequestPart("file") MultipartFile file,

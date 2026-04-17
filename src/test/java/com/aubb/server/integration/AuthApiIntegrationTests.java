@@ -15,6 +15,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -31,8 +33,14 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
     @Autowired
     private JwtDecoder jwtDecoder;
 
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) {
+        RedisIntegrationTestSupport.registerRedisProperties(registry);
+    }
+
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         jdbcTemplate.execute(
                 "TRUNCATE TABLE audit_logs, auth_sessions, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
 

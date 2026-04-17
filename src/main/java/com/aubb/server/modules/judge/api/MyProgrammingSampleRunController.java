@@ -1,6 +1,7 @@
 package com.aubb.server.modules.judge.api;
 
 import com.aubb.server.common.programming.ProgrammingSourceFile;
+import com.aubb.server.common.ratelimit.RateLimited;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.judge.application.sample.ProgrammingSampleRunApplicationService;
@@ -31,6 +32,7 @@ public class MyProgrammingSampleRunController {
     @PostMapping("/sample-runs")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("isAuthenticated()")
+    @RateLimited(policy = "sample-run", subject = "'assignment:' + #assignmentId + ':question:' + #questionId")
     public ProgrammingSampleRunView createSampleRun(
             @PathVariable Long assignmentId,
             @PathVariable Long questionId,

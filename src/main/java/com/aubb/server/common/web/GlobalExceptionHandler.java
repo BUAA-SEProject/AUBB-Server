@@ -2,6 +2,7 @@ package com.aubb.server.common.web;
 
 import com.aubb.server.common.api.ApiErrorResponse;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.common.ratelimit.RateLimitExceededException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiErrorResponse> handleBusinessException(BusinessException exception) {
+        if (exception instanceof RateLimitExceededException rateLimitExceededException) {
+            return ResponseEntity.status(exception.getStatus())
+                    .header("Retry-After", String.valueOf(rateLimitExceededException.getRetryAfterSeconds()))
+                    .body(ApiErrorResponse.of(exception.getCode(), exception.getMessage()));
+        }
         return ResponseEntity.status(exception.getStatus())
                 .body(ApiErrorResponse.of(exception.getCode(), exception.getMessage()));
     }
