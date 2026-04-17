@@ -4,15 +4,9 @@ import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityService;
-import com.aubb.server.modules.identityaccess.application.user.AcademicProfileView;
-import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
-import com.aubb.server.modules.identityaccess.domain.AcademicProfileStatus;
-import com.aubb.server.modules.identityaccess.domain.AccountStatus;
-import com.aubb.server.modules.identityaccess.infrastructure.AcademicProfileEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.AcademicProfileMapper;
-import com.aubb.server.modules.identityaccess.infrastructure.UserEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.UserMapper;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
 import java.util.Map;
@@ -29,8 +23,7 @@ public class AuthenticationApplicationService {
     private static final int MAX_FAILED_ATTEMPTS = 5;
 
     private final UserMapper userMapper;
-    private final AcademicProfileMapper academicProfileMapper;
-    private final ScopeIdentityService scopeIdentityService;
+    private final AuthenticatedPrincipalLoader authenticatedPrincipalLoader;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogApplicationService auditLogApplicationService;
 
@@ -65,7 +58,7 @@ public class AuthenticationApplicationService {
         user.setLastLoginAt(OffsetDateTime.now());
         userMapper.updateById(user);
 
-        AuthenticatedUserPrincipal principal = buildPrincipal(user);
+        AuthenticatedUserPrincipal principal = authenticatedPrincipalLoader.loadPrincipal(user.getId());
         auditLogApplicationService.record(
                 user.getId(),
                 AuditAction.LOGIN_SUCCESS,
@@ -78,34 +71,7 @@ public class AuthenticationApplicationService {
 
     @Transactional(readOnly = true)
     public AuthenticatedUserPrincipal loadPrincipal(Long userId) {
-        UserEntity user = userMapper.selectById(userId);
-        if (user == null) {
-            return null;
-        }
-        if (user.getExpiresAt() != null && user.getExpiresAt().isBefore(OffsetDateTime.now())) {
-            return null;
-        }
-        if (AccountStatus.DISABLED.name().equals(user.getAccountStatus())) {
-            return null;
-        }
-        if (AccountStatus.LOCKED.name().equals(user.getAccountStatus())
-                && (user.getLockedUntil() == null || user.getLockedUntil().isAfter(OffsetDateTime.now()))) {
-            return null;
-        }
-        return buildPrincipal(user);
-    }
-
-    public void logout(AuthenticatedUserPrincipal principal) {
-        if (principal == null) {
-            return;
-        }
-        auditLogApplicationService.record(
-                principal.getUserId(),
-                AuditAction.LOGOUT,
-                "USER",
-                String.valueOf(principal.getUserId()),
-                AuditResult.SUCCESS,
-                Map.of("username", principal.getUsername()));
+        return authenticatedPrincipalLoader.loadPrincipal(userId);
     }
 
     private void refreshExpiredAutoLock(UserEntity user) {
@@ -166,38 +132,10 @@ public class AuthenticationApplicationService {
         throw new BusinessException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "用户名或密码错误");
     }
 
-    private AuthenticatedUserPrincipal buildPrincipal(UserEntity user) {
-        return new AuthenticatedUserPrincipal(
-                user.getId(),
-                user.getUsername(),
-                user.getDisplayName(),
-                user.getPrimaryOrgUnitId(),
-                AccountStatus.valueOf(user.getAccountStatus()),
-                loadAcademicProfile(user.getId()),
-                scopeIdentityService.loadForUser(user.getId()));
-    }
-
     private String normalizeUsername(String username) {
         if (username == null || username.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "USERNAME_REQUIRED", "用户名不能为空");
         }
         return username.trim().toLowerCase();
-    }
-
-    private AcademicProfileView loadAcademicProfile(Long userId) {
-        AcademicProfileEntity profile = academicProfileMapper.selectOne(Wrappers.<AcademicProfileEntity>lambdaQuery()
-                .eq(AcademicProfileEntity::getUserId, userId)
-                .last("LIMIT 1"));
-        if (profile == null) {
-            return null;
-        }
-        return new AcademicProfileView(
-                profile.getId(),
-                profile.getUserId(),
-                profile.getAcademicId(),
-                profile.getRealName(),
-                AcademicIdentityType.valueOf(profile.getIdentityType()),
-                AcademicProfileStatus.valueOf(profile.getProfileStatus()),
-                profile.getPhone());
     }
 }

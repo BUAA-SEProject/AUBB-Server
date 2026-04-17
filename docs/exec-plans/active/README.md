@@ -12,4 +12,7 @@
 
 当前进行中的计划：
 
-- [2026-04-15 仓库整仓审查、修复与文档治理](2026-04-15-repository-audit-remediation.md)
+- [2026-04-16 作业模块能力重规划与阶段推进](2026-04-16-assignment-module-replan.md)
+- [2026-04-17 Redis 增强接入执行计划](2026-04-17-redis-enhancement.md)
+
+已完成计划请查看 `../completed/`。

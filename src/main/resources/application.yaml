@@ -4,7 +4,19 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  data:
+    redis:
+      repositories:
+        enabled: false
+logging:
+  include-application-name: false
+  pattern:
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
 management:
+  tracing:
+    enabled: ${AUBB_TRACING_ENABLED:false}
+    sampling:
+      probability: ${AUBB_TRACING_SAMPLING_PROBABILITY:1.0}
   endpoints:
     web:
       exposure:
@@ -18,6 +30,20 @@ management:
     health:
       probes:
         enabled: true
+      show-components: never
+      show-details: never
+      validate-group-membership: false
+      group:
+        readiness:
+          include:
+            - readinessState
+            - db
+            - redisEnhancement
+            - minioStorage
+            - goJudge
+            - judgeQueue
+          show-components: always
+          show-details: always
 info:
   app:
     name: AUBB-Server
@@ -29,8 +55,89 @@ springdoc:
   swagger-ui:
     enabled: ${AUBB_SWAGGER_UI_ENABLED:true}
 aubb:
+  bootstrap:
+    enabled: ${AUBB_BOOTSTRAP_ENABLED:false}
+    school:
+      code: ${AUBB_BOOTSTRAP_SCHOOL_CODE:}
+      name: ${AUBB_BOOTSTRAP_SCHOOL_NAME:}
+      sort-order: ${AUBB_BOOTSTRAP_SCHOOL_SORT_ORDER:1}
+    admin:
+      username: ${AUBB_BOOTSTRAP_ADMIN_USERNAME:}
+      display-name: ${AUBB_BOOTSTRAP_ADMIN_DISPLAY_NAME:}
+      email: ${AUBB_BOOTSTRAP_ADMIN_EMAIL:}
+      password: ${AUBB_BOOTSTRAP_ADMIN_PASSWORD:}
+      academic-id: ${AUBB_BOOTSTRAP_ADMIN_ACADEMIC_ID:}
+      real-name: ${AUBB_BOOTSTRAP_ADMIN_REAL_NAME:}
+      phone: ${AUBB_BOOTSTRAP_ADMIN_PHONE:}
+    platform-config:
+      platform-name: ${AUBB_BOOTSTRAP_PLATFORM_NAME:}
+      platform-short-name: ${AUBB_BOOTSTRAP_PLATFORM_SHORT_NAME:}
+      logo-url: ${AUBB_BOOTSTRAP_LOGO_URL:}
+      footer-text: ${AUBB_BOOTSTRAP_FOOTER_TEXT:}
+      default-home-path: ${AUBB_BOOTSTRAP_DEFAULT_HOME_PATH:/admin}
+      theme-key: ${AUBB_BOOTSTRAP_THEME_KEY:aubb-light}
+      login-notice: ${AUBB_BOOTSTRAP_LOGIN_NOTICE:}
   security:
     jwt:
       issuer: AUBB-Server
       ttl: PT2H
-      secret: ${AUBB_JWT_SECRET:change-this-secret-key-change-this-secret-key}
+      refresh-ttl: P14D
+      secret: ${AUBB_JWT_SECRET}
+  storage:
+    minio:
+      enabled: ${AUBB_MINIO_ENABLED:false}
+      endpoint: ${AUBB_MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${AUBB_MINIO_ACCESS_KEY:}
+      secret-key: ${AUBB_MINIO_SECRET_KEY:}
+      bucket: ${AUBB_MINIO_BUCKET:aubb-assets}
+      auto-create-bucket: ${AUBB_MINIO_AUTO_CREATE_BUCKET:false}
+  judge:
+    go-judge:
+      enabled: ${AUBB_GO_JUDGE_ENABLED:false}
+      base-url: ${AUBB_GO_JUDGE_BASE_URL:http://localhost:5050}
+    queue:
+      enabled: ${AUBB_JUDGE_QUEUE_ENABLED:false}
+      publisher-enabled: ${AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED:true}
+      consumer-enabled: ${AUBB_JUDGE_QUEUE_CONSUMER_ENABLED:true}
+      queue-name: ${AUBB_JUDGE_QUEUE_NAME:aubb.judge.jobs}
+      dlq-queue-name: ${AUBB_JUDGE_QUEUE_DLQ_NAME:aubb.judge.jobs.dlq}
+      dlq-exchange: ${AUBB_JUDGE_QUEUE_DLX:aubb.judge.jobs.dlx}
+      concurrency: ${AUBB_JUDGE_QUEUE_CONCURRENCY:4}
+      prefetch: ${AUBB_JUDGE_QUEUE_PREFETCH:8}
+      max-attempts: ${AUBB_JUDGE_QUEUE_MAX_ATTEMPTS:3}
+  redis:
+    enabled: ${AUBB_REDIS_ENABLED:false}
+    host: ${AUBB_REDIS_HOST:localhost}
+    port: ${AUBB_REDIS_PORT:6379}
+    password: ${AUBB_REDIS_PASSWORD:}
+    database: ${AUBB_REDIS_DATABASE:0}
+    namespace: ${AUBB_REDIS_NAMESPACE:aubb}
+    environment: ${AUBB_REDIS_ENV:${AUBB_DEPLOY_ENV:local}}
+    connect-timeout: ${AUBB_REDIS_CONNECT_TIMEOUT:PT2S}
+    command-timeout: ${AUBB_REDIS_COMMAND_TIMEOUT:PT2S}
+    cache:
+      notification-unread-ttl: ${AUBB_REDIS_CACHE_NOTIFICATION_UNREAD_TTL:PT1M}
+      my-courses-ttl: ${AUBB_REDIS_CACHE_MY_COURSES_TTL:PT2M}
+      question-bank-dictionary-ttl: ${AUBB_REDIS_CACHE_QUESTION_BANK_DICTIONARY_TTL:PT20M}
+      org-scope-ttl: ${AUBB_REDIS_CACHE_ORG_SCOPE_TTL:PT1M}
+    rate-limit:
+      enabled: ${AUBB_REDIS_RATE_LIMIT_ENABLED:true}
+      policies:
+        login:
+          limit: ${AUBB_REDIS_RATE_LIMIT_LOGIN_LIMIT:10}
+          window: ${AUBB_REDIS_RATE_LIMIT_LOGIN_WINDOW:PT1M}
+        refresh:
+          limit: ${AUBB_REDIS_RATE_LIMIT_REFRESH_LIMIT:20}
+          window: ${AUBB_REDIS_RATE_LIMIT_REFRESH_WINDOW:PT1M}
+        sample-run:
+          limit: ${AUBB_REDIS_RATE_LIMIT_SAMPLE_RUN_LIMIT:20}
+          window: ${AUBB_REDIS_RATE_LIMIT_SAMPLE_RUN_WINDOW:PT1M}
+        submission-create:
+          limit: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_CREATE_LIMIT:10}
+          window: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_CREATE_WINDOW:PT1M}
+        submission-artifact-upload:
+          limit: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_ARTIFACT_UPLOAD_LIMIT:30}
+          window: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_ARTIFACT_UPLOAD_WINDOW:PT1M}
+        lab-attachment-upload:
+          limit: ${AUBB_REDIS_RATE_LIMIT_LAB_ATTACHMENT_UPLOAD_LIMIT:20}
+          window: ${AUBB_REDIS_RATE_LIMIT_LAB_ATTACHMENT_UPLOAD_WINDOW:PT1M}

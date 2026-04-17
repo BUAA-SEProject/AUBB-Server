@@ -2,13 +2,14 @@ package com.aubb.server.config;
 
 import com.aubb.server.common.api.ApiErrorResponse;
 import com.aubb.server.common.web.RequestIdFilter;
+import com.aubb.server.modules.identityaccess.application.auth.AccessTokenSessionValidator;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -18,9 +19,11 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -30,23 +33,29 @@ import tools.jackson.databind.ObjectMapper;
 
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
+@EnableConfigurationProperties(JwtSecurityProperties.class)
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final ObjectMapper objectMapper;
     private final RequestIdFilter requestIdFilter;
     private final JwtPrincipalAuthenticationConverter jwtPrincipalAuthenticationConverter;
+    private final AccessTokenSessionValidator accessTokenSessionValidator;
 
     @Bean
+    @ConditionalOnWebApplication(type = Type.SERVLET)
     SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info")
+                        .requestMatchers(
+                                "/actuator/health", "/actuator/health/**", "/actuator/info", "/actuator/prometheus")
                         .permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh", "/api/v1/auth/revoke")
                         .permitAll()
                         .anyRequest()
                         .authenticated())
@@ -65,16 +74,18 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecretKey jwtSecretKey(
-            @Value("${aubb.security.jwt.secret:change-this-secret-key-change-this-secret-key}") String secret) {
-        return new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+    SecretKey jwtSecretKey(JwtSecurityProperties properties) {
+        return properties.secretKey();
     }
 
     @Bean
-    JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
-        return NimbusJwtDecoder.withSecretKey(jwtSecretKey)
+    JwtDecoder jwtDecoder(SecretKey jwtSecretKey, JwtSecurityProperties jwtSecurityProperties) {
+        NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey)
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+        jwtDecoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(jwtSecurityProperties.getIssuer()), accessTokenSessionValidator));
+        return jwtDecoder;
     }
 
     @Bean

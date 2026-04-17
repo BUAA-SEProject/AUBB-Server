@@ -18,14 +18,14 @@
 - 教务画像维护：学号/工号、真实姓名、身份类型、画像状态
 - 组织成员关系维护：课程/班级等业务成员归属
 - 账号状态管理：启用、停用、锁定、失效
-- JWT 身份认证：登录、退出、当前登录用户
+- JWT 身份认证：登录、刷新、撤销、退出、当前登录用户
+- 会话治理：管理员强制失效指定用户的活跃登录会话
 - 服务端授权：基于身份与作用域的资源保护
 - 基础审计：登录、配置更新、用户导入、身份与状态变更、组织创建
 
 ### 不在范围
 
 - 平台配置版本化、发布、回退、历史查询
-- 刷新令牌与服务端令牌撤销
 - OAuth2 / OIDC / SAML 正式接入
 - 平台运营概览与异常事件中心
 
@@ -41,6 +41,8 @@
 8. 密码长度不少于 8 位，且必须包含字母和数字。
 9. 连续 5 次登录失败后，账号默认锁定 30 分钟。
 10. JWT 访问令牌默认有效期为 2 小时。
+11. refresh token 默认有效期为 14 天，并在每次刷新后轮换。
+12. 用户主动退出、refresh token 撤销、管理员强制失效、账号停用都必须让既有会话即时失效。
 
 ## 身份模型
 
@@ -69,6 +71,8 @@
 ### 认证
 
 - `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/revoke`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
@@ -85,10 +89,12 @@
 ### 用户
 
 - `GET /api/v1/admin/users`
+  - 列表当前按 `createdAt DESC, id DESC` 排序，并在数据库侧完成作用域、账号状态、教务画像、治理身份和分页过滤；`orgUnitId` 仍保持“精确主组织过滤”而不是子树展开。
 - `GET /api/v1/admin/users/{userId}`
 - `POST /api/v1/admin/users`
 - `POST /api/v1/admin/users/import`
 - `PATCH /api/v1/admin/users/{userId}/status`
+- `POST /api/v1/admin/users/{userId}/sessions/revoke`
 - `PUT /api/v1/admin/users/{userId}/identities`
 - `PUT /api/v1/admin/users/{userId}/profile`
 - `PUT /api/v1/admin/users/{userId}/memberships`
@@ -102,6 +108,7 @@
 - `platform_configs`
 - `org_units`
 - `users`
+- `auth_sessions`
 - `academic_profiles`
 - `user_org_memberships`
 - `user_scope_roles`
@@ -121,9 +128,11 @@
 ## 当前实现边界
 
 - 平台配置和审计查询暂由学校管理员独占。
-- 首次学校与学校管理员的自举依赖部署初始化或种子数据。
-- 当前已实现教务画像和组织成员关系；教师 / 助教 / 学员课程角色已进入 `course_members`，但任务、实验、成绩等后续课程子域仍未实现。
+- 首次学校与学校管理员当前通过受配置开关控制的启动期 bootstrap 完成；不会开放匿名 HTTP bootstrap API。
+- 认证链路当前只实现单表 `auth_sessions` 的最小会话模型，不提供设备列表、登录终端画像或自助会话管理界面。
+- 当前已实现教务画像和组织成员关系；教师 / 助教 / 学员课程角色已进入 `course_members`，assignment、submission、judge、grading、lab/report 与 notification 当前都已开始复用该授权边界；更细粒度的课程域成员筛选仍留待后续增强。
 - 用户查询按管理员作用域过滤，课程域成员查询留待后续课程模块实现。
+- 用户治理热点列表当前已从“候选集全量加载 + Java 内存过滤”切换到“组织作用域集合预解析 + 数据库侧 count/page”；组织树祖先规则仍由 `GovernanceAuthorizationService` 统一维护，不在 controller 或 Mapper 中重复建模。
 
 ## 验收标准
 
@@ -134,5 +143,8 @@
 - 管理员可创建用户、批量导入用户并获得逐行校验结果
 - 同一用户可被分配多个作用域身份
 - 管理员可调整用户账号状态
+- 用户登录后可刷新 access token，且旧 refresh token 会失效
+- 用户主动退出、管理员强制失效和账号停用后，旧会话不能继续访问受保护资源
+- 新环境可通过标准启动参数一次性完成学校、首个管理员和必要平台配置初始化，重复执行不会产生脏数据
 - 未登录用户无法访问受保护资源；超出作用域的管理员会被拒绝
-- 登录失败锁定、账号状态限制、JWT 登录与配置即时生效具备自动化测试证据
+- 登录失败锁定、账号状态限制、refresh/revoke、JWT 登录与配置即时生效具备自动化测试证据

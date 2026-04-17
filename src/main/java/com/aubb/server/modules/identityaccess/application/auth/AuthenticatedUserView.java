@@ -1,8 +1,8 @@
 package com.aubb.server.modules.identityaccess.application.auth;
 
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
-import com.aubb.server.modules.identityaccess.application.user.AcademicProfileView;
-import com.aubb.server.modules.identityaccess.domain.AccountStatus;
+import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import java.util.List;
 
 public record AuthenticatedUserView(

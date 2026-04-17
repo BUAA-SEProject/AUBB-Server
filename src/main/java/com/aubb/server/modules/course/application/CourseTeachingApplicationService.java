@@ -1,27 +1,38 @@
 package com.aubb.server.modules.course.application;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.domain.CourseMemberRole;
-import com.aubb.server.modules.course.domain.CourseMemberSourceType;
-import com.aubb.server.modules.course.domain.CourseMemberStatus;
-import com.aubb.server.modules.course.domain.CourseOfferingStatus;
-import com.aubb.server.modules.course.domain.TeachingClassStatus;
-import com.aubb.server.modules.course.infrastructure.CourseMemberEntity;
-import com.aubb.server.modules.course.infrastructure.CourseMemberMapper;
-import com.aubb.server.modules.course.infrastructure.CourseOfferingEntity;
-import com.aubb.server.modules.course.infrastructure.CourseOfferingMapper;
-import com.aubb.server.modules.course.infrastructure.TeachingClassEntity;
-import com.aubb.server.modules.course.infrastructure.TeachingClassMapper;
+import com.aubb.server.modules.course.application.command.CourseMemberCommand;
+import com.aubb.server.modules.course.application.result.CourseMemberBatchError;
+import com.aubb.server.modules.course.application.result.CourseMemberBatchResult;
+import com.aubb.server.modules.course.application.result.CourseMemberImportResult;
+import com.aubb.server.modules.course.application.view.CourseMemberView;
+import com.aubb.server.modules.course.application.view.MyCourseClassView;
+import com.aubb.server.modules.course.application.view.MyCourseView;
+import com.aubb.server.modules.course.application.view.TeachingClassFeaturesView;
+import com.aubb.server.modules.course.application.view.TeachingClassView;
+import com.aubb.server.modules.course.domain.member.CourseMemberRole;
+import com.aubb.server.modules.course.domain.member.CourseMemberSourceType;
+import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
+import com.aubb.server.modules.course.domain.offering.CourseOfferingStatus;
+import com.aubb.server.modules.course.domain.teaching.TeachingClassStatus;
+import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
+import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
+import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
+import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
+import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
+import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.user.UserDirectoryApplicationService;
-import com.aubb.server.modules.identityaccess.application.user.UserDirectoryEntryView;
 import com.aubb.server.modules.identityaccess.application.user.UserOrgMembershipApplicationService;
-import com.aubb.server.modules.identityaccess.domain.MembershipSourceType;
-import com.aubb.server.modules.identityaccess.domain.MembershipStatus;
+import com.aubb.server.modules.identityaccess.application.user.view.UserDirectoryEntryView;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipSourceType;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipStatus;
 import com.aubb.server.modules.organization.application.OrgUnitSummaryView;
 import com.aubb.server.modules.organization.application.OrganizationApplicationService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -48,6 +59,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class CourseTeachingApplicationService {
 
+    static final String MY_COURSES_CACHE_NAME = "myCoursesSummary";
+
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseMemberMapper courseMemberMapper;
@@ -56,6 +69,8 @@ public class CourseTeachingApplicationService {
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
 
     @Transactional
     public TeachingClassView createTeachingClass(
@@ -328,6 +343,37 @@ public class CourseTeachingApplicationService {
 
     @Transactional(readOnly = true)
     public List<MyCourseView> listMyCourses(AuthenticatedUserPrincipal principal) {
+        return cacheService.getOrLoadList(
+                MY_COURSES_CACHE_NAME,
+                myCoursesCacheKey(principal.getUserId()),
+                redisEnhancementProperties.getCache().getMyCoursesTtl(),
+                MyCourseView.class,
+                () -> loadMyCourses(principal));
+    }
+
+    static String myCoursesCacheKey(Long userId) {
+        return "user:%d".formatted(userId);
+    }
+
+    void evictMyCoursesCache(Long userId) {
+        cacheService.evict(MY_COURSES_CACHE_NAME, myCoursesCacheKey(userId));
+    }
+
+    void evictMyCoursesCacheByOffering(Long offeringId) {
+        List<String> keySuffixes = courseMemberMapper
+                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name()))
+                .stream()
+                .map(CourseMemberEntity::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(CourseTeachingApplicationService::myCoursesCacheKey)
+                .toList();
+        cacheService.evictAll(MY_COURSES_CACHE_NAME, keySuffixes);
+    }
+
+    private List<MyCourseView> loadMyCourses(AuthenticatedUserPrincipal principal) {
         List<CourseMemberEntity> memberships = courseMemberMapper.selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                 .eq(CourseMemberEntity::getUserId, principal.getUserId())
                 .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
@@ -347,17 +393,18 @@ public class CourseTeachingApplicationService {
                                 offering -> offering,
                                 (left, right) -> left,
                                 LinkedHashMap::new));
-        Map<Long, TeachingClassEntity> classes = teachingClassMapper
-                .selectByIds(memberships.stream()
-                        .map(CourseMemberEntity::getTeachingClassId)
-                        .filter(Objects::nonNull)
-                        .toList())
-                .stream()
-                .collect(Collectors.toMap(
-                        TeachingClassEntity::getId,
-                        teachingClass -> teachingClass,
-                        (left, right) -> left,
-                        LinkedHashMap::new));
+        List<Long> teachingClassIds = memberships.stream()
+                .map(CourseMemberEntity::getTeachingClassId)
+                .filter(Objects::nonNull)
+                .toList();
+        Map<Long, TeachingClassEntity> classes = teachingClassIds.isEmpty()
+                ? Map.of()
+                : teachingClassMapper.selectByIds(teachingClassIds).stream()
+                        .collect(Collectors.toMap(
+                                TeachingClassEntity::getId,
+                                teachingClass -> teachingClass,
+                                (left, right) -> left,
+                                LinkedHashMap::new));
         Map<Long, OrgUnitSummaryView> colleges =
                 organizationApplicationService.loadSummaryMap(offerings.values().stream()
                         .map(CourseOfferingEntity::getPrimaryCollegeUnitId)
@@ -434,6 +481,7 @@ public class CourseTeachingApplicationService {
             offering.setSelectedCount(offering.getSelectedCount() + 1);
             courseOfferingMapper.updateById(offering);
         }
+        evictMyCoursesCache(userId);
     }
 
     private CourseMemberEntity findExistingMember(

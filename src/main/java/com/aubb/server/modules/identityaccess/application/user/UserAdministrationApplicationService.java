@@ -5,28 +5,35 @@ import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.identityaccess.application.auth.AuthSessionApplicationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.IdentityAssignmentCommand;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityService;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
-import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
-import com.aubb.server.modules.identityaccess.domain.AcademicProfileStatus;
-import com.aubb.server.modules.identityaccess.domain.AccountStatus;
-import com.aubb.server.modules.identityaccess.domain.GovernanceRole;
-import com.aubb.server.modules.identityaccess.domain.MembershipSourceType;
-import com.aubb.server.modules.identityaccess.domain.MembershipStatus;
-import com.aubb.server.modules.identityaccess.domain.MembershipType;
-import com.aubb.server.modules.identityaccess.domain.PasswordPolicy;
-import com.aubb.server.modules.identityaccess.domain.PasswordValidationResult;
-import com.aubb.server.modules.identityaccess.infrastructure.AcademicProfileEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.AcademicProfileMapper;
-import com.aubb.server.modules.identityaccess.infrastructure.UserEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.UserMapper;
-import com.aubb.server.modules.identityaccess.infrastructure.UserOrgMembershipEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.UserOrgMembershipMapper;
+import com.aubb.server.modules.identityaccess.application.user.command.AcademicProfileCommand;
+import com.aubb.server.modules.identityaccess.application.user.command.UserOrgMembershipCommand;
+import com.aubb.server.modules.identityaccess.application.user.result.BulkUserImportError;
+import com.aubb.server.modules.identityaccess.application.user.result.BulkUserImportResult;
+import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
+import com.aubb.server.modules.identityaccess.application.user.view.UserOrgMembershipView;
+import com.aubb.server.modules.identityaccess.application.user.view.UserView;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
+import com.aubb.server.modules.identityaccess.domain.account.PasswordPolicy;
+import com.aubb.server.modules.identityaccess.domain.account.PasswordValidationResult;
+import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipSourceType;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipStatus;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipType;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicProfileStatus;
+import com.aubb.server.modules.identityaccess.infrastructure.membership.UserOrgMembershipEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.membership.UserOrgMembershipMapper;
+import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicProfileEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicProfileMapper;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.organization.application.OrgUnitSummaryView;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -64,6 +71,7 @@ public class UserAdministrationApplicationService {
             organizationApplicationService;
     private final GovernanceAuthorizationService governanceAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final AuthSessionApplicationService authSessionApplicationService;
     private final PasswordEncoder passwordEncoder;
     private final PlatformTransactionManager transactionManager;
     private final PasswordPolicy passwordPolicy = new PasswordPolicy();
@@ -189,37 +197,49 @@ public class UserAdministrationApplicationService {
             governanceAuthorizationService.assertCanManageUserAt(principal, orgUnitId);
         }
 
-        LambdaQueryWrapper<UserEntity> query = Wrappers.<UserEntity>lambdaQuery()
-                .orderByDesc(UserEntity::getCreatedAt)
-                .orderByDesc(UserEntity::getId);
-        if (accountStatus != null) {
-            query.eq(UserEntity::getAccountStatus, accountStatus.name());
-        }
-        if (orgUnitId != null) {
-            query.eq(UserEntity::getPrimaryOrgUnitId, orgUnitId);
-        }
-        List<UserEntity> candidates = userMapper.selectList(query);
-        Map<Long, List<ScopeIdentityView>> identitiesByUserId = scopeIdentityService.loadForUsers(
-                candidates.stream().map(UserEntity::getId).toList());
-        Map<Long, AcademicProfileView> profilesByUserId =
-                loadAcademicProfiles(candidates.stream().map(UserEntity::getId).toList());
-
         String normalizedKeyword = normalizeKeyword(keyword);
         String normalizedAcademicId = normalizeOptionalLowercase(academicId);
-        List<UserEntity> visibleUsers = candidates.stream()
-                .filter(user -> governanceAuthorizationService.canManageUserAt(principal, user.getPrimaryOrgUnitId()))
-                .filter(user -> matchesKeyword(user, profilesByUserId.get(user.getId()), normalizedKeyword))
-                .filter(user -> matchesAcademicId(profilesByUserId.get(user.getId()), normalizedAcademicId))
-                .filter(user -> matchesIdentityType(profilesByUserId.get(user.getId()), identityType))
-                .filter(user -> matchesRoleCode(identitiesByUserId.getOrDefault(user.getId(), List.of()), roleCode))
-                .toList();
-
         long safePage = Math.max(page, 1);
         long safePageSize = Math.max(pageSize, 1);
         long offset = (safePage - 1) * safePageSize;
-        List<UserEntity> pagedUsers =
-                visibleUsers.stream().skip(offset).limit(safePageSize).toList();
-        // 先按数据库条件取候选集，再统一用组织树作用域规则做过滤，避免把层级授权逻辑散落在 SQL 里。
+        List<Long> manageableOrgIds = orgUnitId == null
+                ? governanceAuthorizationService.loadManageableOrgUnitIds(principal).stream()
+                        .toList()
+                : List.of(orgUnitId);
+        boolean includeUsersWithoutOrg =
+                orgUnitId == null && principal.hasAuthority(GovernanceRole.SCHOOL_ADMIN.name());
+        if (manageableOrgIds.isEmpty() && !includeUsersWithoutOrg) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+
+        long total = userMapper.countVisibleUsers(
+                manageableOrgIds,
+                includeUsersWithoutOrg,
+                normalizedKeyword,
+                normalizedAcademicId,
+                identityType == null ? null : identityType.name(),
+                accountStatus == null ? null : accountStatus.name(),
+                roleCode == null ? null : roleCode.name(),
+                orgUnitId);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+
+        List<UserEntity> pagedUsers = userMapper.selectVisibleUsersPage(
+                manageableOrgIds,
+                includeUsersWithoutOrg,
+                normalizedKeyword,
+                normalizedAcademicId,
+                identityType == null ? null : identityType.name(),
+                accountStatus == null ? null : accountStatus.name(),
+                roleCode == null ? null : roleCode.name(),
+                orgUnitId,
+                offset,
+                safePageSize);
+        Map<Long, List<ScopeIdentityView>> identitiesByUserId = scopeIdentityService.loadForUsers(
+                pagedUsers.stream().map(UserEntity::getId).toList());
+        Map<Long, AcademicProfileView> profilesByUserId =
+                loadAcademicProfiles(pagedUsers.stream().map(UserEntity::getId).toList());
         Map<Long, OrgUnitSummaryView> primaryOrgById = organizationApplicationService.loadSummaryMap(pagedUsers.stream()
                 .map(UserEntity::getPrimaryOrgUnitId)
                 .filter(Objects::nonNull)
@@ -234,7 +254,7 @@ public class UserAdministrationApplicationService {
                         primaryOrgById.get(user.getPrimaryOrgUnitId()),
                         membershipsByUserId.getOrDefault(user.getId(), List.of())))
                 .toList();
-        return new PageResponse<>(items, visibleUsers.size(), safePage, safePageSize);
+        return new PageResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -327,6 +347,10 @@ public class UserAdministrationApplicationService {
             user.setLockedUntil(null);
         }
         userMapper.updateById(user);
+        if (accountStatus != AccountStatus.ACTIVE) {
+            authSessionApplicationService.invalidateAllSessionsForUser(
+                    userId, principal.getUserId(), "ACCOUNT_STATUS_" + accountStatus.name());
+        }
         auditLogApplicationService.record(
                 principal.getUserId(),
                 AuditAction.USER_STATUS_CHANGED,
@@ -337,12 +361,27 @@ public class UserAdministrationApplicationService {
         return toView(user);
     }
 
+    @Transactional
+    public void invalidateSessions(Long userId, String reason, AuthenticatedUserPrincipal principal) {
+        UserEntity user = requireUser(userId);
+        governanceAuthorizationService.assertCanManageUserAt(principal, user.getPrimaryOrgUnitId());
+        authSessionApplicationService.invalidateAllSessionsForUser(
+                userId, principal.getUserId(), normalizeInvalidationReason(reason));
+    }
+
     private UserEntity requireUser(Long userId) {
         UserEntity user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "用户不存在");
         }
         return user;
+    }
+
+    private String normalizeInvalidationReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "ADMIN_FORCED_INVALIDATION";
+        }
+        return reason.trim();
     }
 
     private void validatePassword(String password) {
@@ -656,42 +695,6 @@ public class UserAdministrationApplicationService {
             return null;
         }
         return value.trim();
-    }
-
-    private boolean matchesKeyword(UserEntity entity, AcademicProfileView academicProfile, String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return true;
-        }
-        return containsIgnoreCase(entity.getUsername(), keyword)
-                || containsIgnoreCase(entity.getDisplayName(), keyword)
-                || containsIgnoreCase(entity.getEmail(), keyword)
-                || (academicProfile != null && containsIgnoreCase(academicProfile.realName(), keyword))
-                || (academicProfile != null && containsIgnoreCase(academicProfile.academicId(), keyword));
-    }
-
-    private boolean matchesAcademicId(AcademicProfileView academicProfile, String academicId) {
-        if (academicId == null || academicId.isBlank()) {
-            return true;
-        }
-        return academicProfile != null && containsIgnoreCase(academicProfile.academicId(), academicId);
-    }
-
-    private boolean matchesIdentityType(AcademicProfileView academicProfile, AcademicIdentityType identityType) {
-        if (identityType == null) {
-            return true;
-        }
-        return academicProfile != null && identityType == academicProfile.identityType();
-    }
-
-    private boolean matchesRoleCode(List<ScopeIdentityView> identities, GovernanceRole roleCode) {
-        if (roleCode == null) {
-            return true;
-        }
-        return identities.stream().anyMatch(identity -> roleCode.name().equals(identity.roleCode()));
-    }
-
-    private boolean containsIgnoreCase(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
     }
 
     private void upsertAcademicProfileInternal(Long userId, AcademicProfileCommand academicProfile) {

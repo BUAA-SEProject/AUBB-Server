@@ -33,3 +33,7 @@ build/
 .vscode/
 
 .m2
+.serena
+.codex
+prompt*
+todo.md

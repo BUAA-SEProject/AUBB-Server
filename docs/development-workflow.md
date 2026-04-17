@@ -13,7 +13,7 @@
 5. 做最小实现：优先在 `modules.<module>.{api,application,domain,infrastructure}` 中补齐实现，不把复杂逻辑堆进 Controller。
 6. 只补必要注释：仅在业务规则、授权边界、事务选择或不直观实现处添加简洁中文注释。
 7. 同步文档：涉及架构、API、数据库、安全、产品规格或上级系统文档的改动，必须在同一轮提交中同步更新。
-8. 统一格式化与验证：先执行 `./mvnw spotless:apply`，再执行 `./mvnw test` 与 `./mvnw verify`。
+8. 统一格式化与验证：先执行 `bash ./mvnw spotless:apply`，再执行 `bash ./mvnw test` 与 `bash ./mvnw verify`；若本机已安装 `mvnd`，可切换到 `mvnd test / mvnd verify`。
 
 ## Skills 使用原则
 
@@ -67,7 +67,7 @@
 
 ## 默认命令
 
-- 格式化：`./mvnw spotless:apply`
-- 快速测试：`./mvnw test`
-- 全量验证：`./mvnw verify`
+- 格式化：`bash ./mvnw spotless:apply`
+- 快速测试：`bash ./mvnw test`
+- 全量验证：`bash ./mvnw verify`
 - 如本机已安装 `mvnd`，可使用 `mvnd test` / `mvnd verify` 提升速度

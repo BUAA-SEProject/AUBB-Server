@@ -2,10 +2,10 @@ package com.aubb.server.config;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
-import com.aubb.server.modules.identityaccess.application.user.AcademicProfileView;
-import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
-import com.aubb.server.modules.identityaccess.domain.AcademicProfileStatus;
-import com.aubb.server.modules.identityaccess.domain.AccountStatus;
+import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicProfileStatus;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +36,7 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 jwt.getSubject(),
                 jwt.getClaimAsString("displayName"),
                 readLong(jwt.getClaim("primaryOrgUnitId")),
+                jwt.getClaimAsString("sid"),
                 AccountStatus.valueOf(jwt.getClaimAsString("accountStatus")),
                 readAcademicProfile(jwt),
                 identities);

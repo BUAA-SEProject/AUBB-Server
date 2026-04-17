@@ -1,12 +1,14 @@
 package com.aubb.server.modules.identityaccess.application.user;
 
 import com.aubb.server.common.api.PageResponse;
-import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
-import com.aubb.server.modules.identityaccess.domain.AcademicProfileStatus;
-import com.aubb.server.modules.identityaccess.infrastructure.AcademicProfileEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.AcademicProfileMapper;
-import com.aubb.server.modules.identityaccess.infrastructure.UserEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.UserMapper;
+import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
+import com.aubb.server.modules.identityaccess.application.user.view.UserDirectoryEntryView;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicProfileStatus;
+import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicProfileEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicProfileMapper;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.Collection;
 import java.util.LinkedHashMap;

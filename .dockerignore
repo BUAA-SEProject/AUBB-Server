@@ -1,0 +1,14 @@
+.git
+.github
+.idea
+.vscode
+.agents
+.mvn/mvnd.bin
+target
+docs
+deploy
+task_plan.md
+findings.md
+progress.md
+todo.md
+*.iml

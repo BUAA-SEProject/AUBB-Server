@@ -4,14 +4,17 @@ import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.IdentityAssignmentCommand;
-import com.aubb.server.modules.identityaccess.application.user.AcademicProfileCommand;
-import com.aubb.server.modules.identityaccess.application.user.BulkUserImportResult;
 import com.aubb.server.modules.identityaccess.application.user.UserAdministrationApplicationService;
-import com.aubb.server.modules.identityaccess.application.user.UserOrgMembershipCommand;
-import com.aubb.server.modules.identityaccess.application.user.UserView;
-import com.aubb.server.modules.identityaccess.domain.AcademicIdentityType;
-import com.aubb.server.modules.identityaccess.domain.AccountStatus;
-import com.aubb.server.modules.identityaccess.domain.GovernanceRole;
+import com.aubb.server.modules.identityaccess.application.user.command.AcademicProfileCommand;
+import com.aubb.server.modules.identityaccess.application.user.command.UserOrgMembershipCommand;
+import com.aubb.server.modules.identityaccess.application.user.result.BulkUserImportResult;
+import com.aubb.server.modules.identityaccess.application.user.view.UserView;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
+import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -116,6 +119,18 @@ public class UserAdminController {
                 userId, request.accountStatus(), request.reason(), principal);
     }
 
+    @PostMapping("/{userId}/sessions/revoke")
+    @Operation(summary = "管理员强制失效指定用户的全部登录会话")
+    @ApiResponse(responseCode = "204", description = "No Content")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN', 'COURSE_ADMIN', 'CLASS_ADMIN')")
+    public void revokeSessions(
+            @PathVariable Long userId,
+            @Valid @RequestBody RevokeUserSessionsRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        userAdministrationApplicationService.invalidateSessions(userId, request.reason(), principal);
+    }
+
     @PutMapping("/{userId}/profile")
     @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN', 'COURSE_ADMIN', 'CLASS_ADMIN')")
     public UserView upsertProfile(
@@ -151,4 +166,7 @@ public class UserAdminController {
     public record UpdateMembershipsRequest(List<@Valid UserOrgMembershipCommand> memberships) {}
 
     public record UpdateStatusRequest(@NotNull AccountStatus accountStatus, String reason) {}
+
+    public record RevokeUserSessionsRequest(
+            @Schema(description = "强制失效原因") String reason) {}
 }

@@ -1,20 +1,238 @@
 services:
   postgres:
-    image: 'postgres:16'
+    image: 'postgres:16.10'
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      - 'POSTGRES_DB=${AUBB_POSTGRES_DB:-aubb}'
+      - 'POSTGRES_PASSWORD=${AUBB_POSTGRES_PASSWORD:-aubb-secret}'
+      - 'POSTGRES_USER=${AUBB_POSTGRES_USER:-aubb}'
     ports:
-      - '5432'
+      - '${AUBB_POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - 'postgres-data:/var/lib/postgresql/data'
   rabbitmq:
-    image: 'rabbitmq:4'
+    image: 'rabbitmq:4.1.0-management'
     environment:
-      - 'RABBITMQ_DEFAULT_PASS=secret'
-      - 'RABBITMQ_DEFAULT_USER=myuser'
+      - 'RABBITMQ_DEFAULT_PASS=${AUBB_RABBITMQ_PASSWORD:-aubb-secret}'
+      - 'RABBITMQ_DEFAULT_USER=${AUBB_RABBITMQ_USER:-aubb}'
     ports:
-      - '5672'
+      - '${AUBB_RABBITMQ_PORT:-5672}:5672'
+      - '${AUBB_RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - 'rabbitmq-data:/var/lib/rabbitmq'
+  minio:
+    image: 'minio/minio:RELEASE.2025-09-07T16-13-09Z'
+    command: server /data --console-address ":9001"
+    environment:
+      - 'MINIO_ROOT_USER=${AUBB_MINIO_ACCESS_KEY:-aubbminio}'
+      - 'MINIO_ROOT_PASSWORD=${AUBB_MINIO_SECRET_KEY:-aubbminio-secret}'
+    ports:
+      - '${AUBB_MINIO_PORT:-9000}:9000'
+      - '${AUBB_MINIO_CONSOLE_PORT:-9001}:9001'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - 'minio-data:/data'
   redis:
-    image: 'redis:7'
+    image: 'redis:7.4-alpine'
+    command: ["redis-server", "--requirepass", "${AUBB_REDIS_PASSWORD:-aubb-redis-secret}"]
     ports:
-      - '6379'
+      - '${AUBB_REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$AUBB_REDIS_PASSWORD ping | grep PONG >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      - 'AUBB_REDIS_PASSWORD=${AUBB_REDIS_PASSWORD:-aubb-redis-secret}'
+    volumes:
+      - 'redis-data:/data'
+  go-judge:
+    build:
+      context: .
+      dockerfile: docker/go-judge/Dockerfile
+    privileged: true
+    shm_size: '256m'
+    ports:
+      - '${AUBB_GO_JUDGE_PORT:-5050}:5050'
+  app:
+    profiles: ['app']
+    image: 'aubb-server:local'
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint:
+      - sh
+      - -c
+      - |
+        test -n "$$AUBB_JWT_SECRET" || {
+          echo "AUBB_JWT_SECRET is required for app profile" >&2
+          exit 1
+        }
+        exec java $$JAVA_OPTS -jar /opt/aubb/app.jar
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      go-judge:
+        condition: service_started
+    environment:
+      - 'SPRING_DOCKER_COMPOSE_ENABLED=false'
+      - 'SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${AUBB_POSTGRES_DB:-aubb}'
+      - 'SPRING_DATASOURCE_USERNAME=${AUBB_POSTGRES_USER:-aubb}'
+      - 'SPRING_DATASOURCE_PASSWORD=${AUBB_POSTGRES_PASSWORD:-aubb-secret}'
+      - 'SPRING_RABBITMQ_HOST=rabbitmq'
+      - 'SPRING_RABBITMQ_PORT=5672'
+      - 'SPRING_RABBITMQ_USERNAME=${AUBB_RABBITMQ_USER:-aubb}'
+      - 'SPRING_RABBITMQ_PASSWORD=${AUBB_RABBITMQ_PASSWORD:-aubb-secret}'
+      - 'AUBB_JWT_SECRET=${AUBB_JWT_SECRET:-}'
+      - 'AUBB_MINIO_ENABLED=${AUBB_MINIO_ENABLED:-true}'
+      - 'AUBB_MINIO_ENDPOINT=http://minio:9000'
+      - 'AUBB_MINIO_ACCESS_KEY=${AUBB_MINIO_ACCESS_KEY:-aubbminio}'
+      - 'AUBB_MINIO_SECRET_KEY=${AUBB_MINIO_SECRET_KEY:-aubbminio-secret}'
+      - 'AUBB_MINIO_BUCKET=${AUBB_MINIO_BUCKET:-aubb-assets}'
+      - 'AUBB_MINIO_AUTO_CREATE_BUCKET=${AUBB_MINIO_AUTO_CREATE_BUCKET:-true}'
+      - 'AUBB_GO_JUDGE_ENABLED=${AUBB_GO_JUDGE_ENABLED:-true}'
+      - 'AUBB_GO_JUDGE_BASE_URL=http://go-judge:5050'
+      - 'AUBB_REDIS_ENABLED=${AUBB_REDIS_ENABLED:-false}'
+      - 'AUBB_REDIS_HOST=redis'
+      - 'AUBB_REDIS_PORT=6379'
+      - 'AUBB_REDIS_PASSWORD=${AUBB_REDIS_PASSWORD:-aubb-redis-secret}'
+      - 'AUBB_REDIS_DATABASE=${AUBB_REDIS_DATABASE:-0}'
+      - 'AUBB_REDIS_NAMESPACE=${AUBB_REDIS_NAMESPACE:-aubb}'
+      - 'AUBB_REDIS_RATE_LIMIT_ENABLED=${AUBB_REDIS_RATE_LIMIT_ENABLED:-true}'
+      - 'AUBB_REDIS_REALTIME_ENABLED=${AUBB_REDIS_REALTIME_ENABLED:-true}'
+      - 'AUBB_JUDGE_QUEUE_ENABLED=${AUBB_JUDGE_QUEUE_ENABLED:-true}'
+      - 'AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED=${AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED:-true}'
+      - 'AUBB_JUDGE_QUEUE_CONSUMER_ENABLED=false'
+      - 'AUBB_JUDGE_QUEUE_DLQ_NAME=${AUBB_JUDGE_QUEUE_DLQ_NAME:-aubb.judge.jobs.dlq}'
+      - 'AUBB_JUDGE_QUEUE_DLX=${AUBB_JUDGE_QUEUE_DLX:-aubb.judge.jobs.dlx}'
+      - 'AUBB_JUDGE_QUEUE_PREFETCH=${AUBB_JUDGE_QUEUE_PREFETCH:-8}'
+      - 'AUBB_JUDGE_QUEUE_MAX_ATTEMPTS=${AUBB_JUDGE_QUEUE_MAX_ATTEMPTS:-3}'
+      - 'AUBB_DEPLOY_ENV=${AUBB_DEPLOY_ENV:-local}'
+      - 'AUBB_TRACING_ENABLED=${AUBB_TRACING_ENABLED:-false}'
+      - 'AUBB_TRACING_SAMPLING_PROBABILITY=${AUBB_TRACING_SAMPLING_PROBABILITY:-1.0}'
+      - 'AUBB_OTLP_TRACING_ENDPOINT=${AUBB_OTLP_TRACING_ENDPOINT:-}'
+      - 'OTEL_EXPORTER_OTLP_ENDPOINT=${AUBB_OTLP_TRACING_ENDPOINT:-}'
+      - 'OTEL_SERVICE_NAME=AUBB-Server'
+      - 'OTEL_RESOURCE_ATTRIBUTES=service.namespace=aubb,deployment.environment=${AUBB_DEPLOY_ENV:-local}'
+      - 'AUBB_API_DOCS_ENABLED=${AUBB_API_DOCS_ENABLED:-true}'
+      - 'AUBB_SWAGGER_UI_ENABLED=${AUBB_SWAGGER_UI_ENABLED:-true}'
+      - 'AUBB_BOOTSTRAP_ENABLED=${AUBB_BOOTSTRAP_ENABLED:-false}'
+      - 'AUBB_BOOTSTRAP_SCHOOL_CODE=${AUBB_BOOTSTRAP_SCHOOL_CODE:-}'
+      - 'AUBB_BOOTSTRAP_SCHOOL_NAME=${AUBB_BOOTSTRAP_SCHOOL_NAME:-}'
+      - 'AUBB_BOOTSTRAP_SCHOOL_SORT_ORDER=${AUBB_BOOTSTRAP_SCHOOL_SORT_ORDER:-1}'
+      - 'AUBB_BOOTSTRAP_ADMIN_USERNAME=${AUBB_BOOTSTRAP_ADMIN_USERNAME:-}'
+      - 'AUBB_BOOTSTRAP_ADMIN_DISPLAY_NAME=${AUBB_BOOTSTRAP_ADMIN_DISPLAY_NAME:-}'
+      - 'AUBB_BOOTSTRAP_ADMIN_EMAIL=${AUBB_BOOTSTRAP_ADMIN_EMAIL:-}'
+      - 'AUBB_BOOTSTRAP_ADMIN_PASSWORD=${AUBB_BOOTSTRAP_ADMIN_PASSWORD:-}'
+      - 'AUBB_BOOTSTRAP_ADMIN_ACADEMIC_ID=${AUBB_BOOTSTRAP_ADMIN_ACADEMIC_ID:-}'
+      - 'AUBB_BOOTSTRAP_ADMIN_REAL_NAME=${AUBB_BOOTSTRAP_ADMIN_REAL_NAME:-}'
+      - 'AUBB_BOOTSTRAP_ADMIN_PHONE=${AUBB_BOOTSTRAP_ADMIN_PHONE:-}'
+      - 'AUBB_BOOTSTRAP_PLATFORM_NAME=${AUBB_BOOTSTRAP_PLATFORM_NAME:-}'
+      - 'AUBB_BOOTSTRAP_PLATFORM_SHORT_NAME=${AUBB_BOOTSTRAP_PLATFORM_SHORT_NAME:-}'
+      - 'AUBB_BOOTSTRAP_LOGO_URL=${AUBB_BOOTSTRAP_LOGO_URL:-}'
+      - 'AUBB_BOOTSTRAP_FOOTER_TEXT=${AUBB_BOOTSTRAP_FOOTER_TEXT:-}'
+      - 'AUBB_BOOTSTRAP_DEFAULT_HOME_PATH=${AUBB_BOOTSTRAP_DEFAULT_HOME_PATH:-/admin}'
+      - 'AUBB_BOOTSTRAP_THEME_KEY=${AUBB_BOOTSTRAP_THEME_KEY:-aubb-light}'
+      - 'AUBB_BOOTSTRAP_LOGIN_NOTICE=${AUBB_BOOTSTRAP_LOGIN_NOTICE:-}'
+    ports:
+      - '${AUBB_APP_PORT:-8080}:8080'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+  judge-worker:
+    profiles: ['app']
+    image: 'aubb-server:local'
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint:
+      - sh
+      - -c
+      - |
+        test -n "$$AUBB_JWT_SECRET" || {
+          echo "AUBB_JWT_SECRET is required for app profile" >&2
+          exit 1
+        }
+        exec java $$JAVA_OPTS -jar /opt/aubb/app.jar
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      go-judge:
+        condition: service_started
+    environment:
+      - 'SPRING_DOCKER_COMPOSE_ENABLED=false'
+      - 'SPRING_MAIN_WEB_APPLICATION_TYPE=none'
+      - 'SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${AUBB_POSTGRES_DB:-aubb}'
+      - 'SPRING_DATASOURCE_USERNAME=${AUBB_POSTGRES_USER:-aubb}'
+      - 'SPRING_DATASOURCE_PASSWORD=${AUBB_POSTGRES_PASSWORD:-aubb-secret}'
+      - 'SPRING_RABBITMQ_HOST=rabbitmq'
+      - 'SPRING_RABBITMQ_PORT=5672'
+      - 'SPRING_RABBITMQ_USERNAME=${AUBB_RABBITMQ_USER:-aubb}'
+      - 'SPRING_RABBITMQ_PASSWORD=${AUBB_RABBITMQ_PASSWORD:-aubb-secret}'
+      - 'AUBB_JWT_SECRET=${AUBB_JWT_SECRET:-}'
+      - 'AUBB_MINIO_ENABLED=${AUBB_MINIO_ENABLED:-true}'
+      - 'AUBB_MINIO_ENDPOINT=http://minio:9000'
+      - 'AUBB_MINIO_ACCESS_KEY=${AUBB_MINIO_ACCESS_KEY:-aubbminio}'
+      - 'AUBB_MINIO_SECRET_KEY=${AUBB_MINIO_SECRET_KEY:-aubbminio-secret}'
+      - 'AUBB_MINIO_BUCKET=${AUBB_MINIO_BUCKET:-aubb-assets}'
+      - 'AUBB_MINIO_AUTO_CREATE_BUCKET=${AUBB_MINIO_AUTO_CREATE_BUCKET:-true}'
+      - 'AUBB_GO_JUDGE_ENABLED=${AUBB_GO_JUDGE_ENABLED:-true}'
+      - 'AUBB_GO_JUDGE_BASE_URL=http://go-judge:5050'
+      - 'AUBB_REDIS_ENABLED=${AUBB_REDIS_ENABLED:-false}'
+      - 'AUBB_REDIS_HOST=redis'
+      - 'AUBB_REDIS_PORT=6379'
+      - 'AUBB_REDIS_PASSWORD=${AUBB_REDIS_PASSWORD:-aubb-redis-secret}'
+      - 'AUBB_REDIS_DATABASE=${AUBB_REDIS_DATABASE:-0}'
+      - 'AUBB_REDIS_NAMESPACE=${AUBB_REDIS_NAMESPACE:-aubb}'
+      - 'AUBB_REDIS_RATE_LIMIT_ENABLED=${AUBB_REDIS_RATE_LIMIT_ENABLED:-true}'
+      - 'AUBB_REDIS_REALTIME_ENABLED=${AUBB_REDIS_REALTIME_ENABLED:-true}'
+      - 'AUBB_JUDGE_QUEUE_ENABLED=${AUBB_JUDGE_QUEUE_ENABLED:-true}'
+      - 'AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED=false'
+      - 'AUBB_JUDGE_QUEUE_CONSUMER_ENABLED=true'
+      - 'AUBB_JUDGE_QUEUE_DLQ_NAME=${AUBB_JUDGE_QUEUE_DLQ_NAME:-aubb.judge.jobs.dlq}'
+      - 'AUBB_JUDGE_QUEUE_DLX=${AUBB_JUDGE_QUEUE_DLX:-aubb.judge.jobs.dlx}'
+      - 'AUBB_JUDGE_QUEUE_PREFETCH=${AUBB_JUDGE_QUEUE_PREFETCH:-8}'
+      - 'AUBB_JUDGE_QUEUE_MAX_ATTEMPTS=${AUBB_JUDGE_QUEUE_MAX_ATTEMPTS:-3}'
+      - 'AUBB_DEPLOY_ENV=${AUBB_DEPLOY_ENV:-local}'
+      - 'AUBB_TRACING_ENABLED=${AUBB_TRACING_ENABLED:-false}'
+      - 'AUBB_TRACING_SAMPLING_PROBABILITY=${AUBB_TRACING_SAMPLING_PROBABILITY:-1.0}'
+      - 'AUBB_OTLP_TRACING_ENDPOINT=${AUBB_OTLP_TRACING_ENDPOINT:-}'
+      - 'OTEL_EXPORTER_OTLP_ENDPOINT=${AUBB_OTLP_TRACING_ENDPOINT:-}'
+      - 'OTEL_SERVICE_NAME=AUBB-Server'
+      - 'OTEL_RESOURCE_ATTRIBUTES=service.namespace=aubb,deployment.environment=${AUBB_DEPLOY_ENV:-local}'
+      - 'AUBB_API_DOCS_ENABLED=false'
+      - 'AUBB_SWAGGER_UI_ENABLED=false'
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  minio-data:
+  redis-data:

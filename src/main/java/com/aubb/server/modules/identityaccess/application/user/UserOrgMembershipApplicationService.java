@@ -1,10 +1,10 @@
 package com.aubb.server.modules.identityaccess.application.user;
 
-import com.aubb.server.modules.identityaccess.domain.MembershipSourceType;
-import com.aubb.server.modules.identityaccess.domain.MembershipStatus;
-import com.aubb.server.modules.identityaccess.domain.MembershipType;
-import com.aubb.server.modules.identityaccess.infrastructure.UserOrgMembershipEntity;
-import com.aubb.server.modules.identityaccess.infrastructure.UserOrgMembershipMapper;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipSourceType;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipStatus;
+import com.aubb.server.modules.identityaccess.domain.membership.MembershipType;
+import com.aubb.server.modules.identityaccess.infrastructure.membership.UserOrgMembershipEntity;
+import com.aubb.server.modules.identityaccess.infrastructure.membership.UserOrgMembershipMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;

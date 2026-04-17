@@ -48,6 +48,15 @@ public class OrganizationApplicationService {
                 != null) {
             throw new BusinessException(HttpStatus.CONFLICT, "ORG_CODE_DUPLICATED", "组织编码已存在");
         }
+        if (parentId == null
+                && type == OrgUnitType.SCHOOL
+                && orgUnitMapper.selectOne(Wrappers.<OrgUnitEntity>lambdaQuery()
+                                .isNull(OrgUnitEntity::getParentId)
+                                .eq(OrgUnitEntity::getType, OrgUnitType.SCHOOL.name())
+                                .last("LIMIT 1"))
+                        != null) {
+            throw new BusinessException(HttpStatus.CONFLICT, "ORG_ROOT_ALREADY_EXISTS", "学校根节点已存在");
+        }
 
         governanceAuthorizationService.assertCanCreateOrg(principal, parentId, type);
 
@@ -160,12 +169,11 @@ public class OrganizationApplicationService {
         }
 
         Set<Long> visibleRoots = governanceAuthorizationService.visibleScopeRootIds(principal);
-        Map<Long, OrgUnitEntity> orgUnitIndex = governanceAuthorizationService.loadOrgUnitIndex();
         List<OrgUnitTreeNode> roots = new ArrayList<>();
         for (Long rootId : visibleRoots.stream().sorted().toList()) {
             boolean coveredByAnotherRoot = visibleRoots.stream()
                     .filter(other -> !other.equals(rootId))
-                    .anyMatch(other -> governanceAuthorizationService.isDescendantOrSelf(rootId, other, orgUnitIndex));
+                    .anyMatch(other -> governanceAuthorizationService.isDescendantOrSelf(rootId, other));
             if (!coveredByAnotherRoot) {
                 OrgUnitTreeNode root = nodeIndex.get(rootId);
                 if (root != null) {

@@ -1,10 +1,10 @@
 package com.aubb.server.modules.course.api;
 
 import com.aubb.server.common.api.PageResponse;
-import com.aubb.server.modules.course.application.AcademicTermView;
 import com.aubb.server.modules.course.application.CourseAdministrationApplicationService;
-import com.aubb.server.modules.course.domain.AcademicTermSemester;
-import com.aubb.server.modules.course.domain.AcademicTermStatus;
+import com.aubb.server.modules.course.application.view.AcademicTermView;
+import com.aubb.server.modules.course.domain.term.AcademicTermSemester;
+import com.aubb.server.modules.course.domain.term.AcademicTermStatus;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
