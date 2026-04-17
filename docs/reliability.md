@@ -8,7 +8,7 @@
 - MinIO 已具备正式接入路径；默认关闭，启用后 bucket 可用性进入健康检查。
 - RabbitMQ 当前在 `aubb.judge.queue.enabled=true` 时属于条件化硬依赖；readiness 会暴露 `judgeQueue` 组件。
 - go-judge 当前在 `aubb.judge.go-judge.enabled=true` 时属于条件化硬依赖；readiness 会暴露 `goJudge` 组件。
-- Redis 当前仍无真实业务落地，暂按 optional 基础设施保留，不纳入 readiness，也不应阻塞当前 V1 运行。
+- Redis 已从当前运行时基线移除，不纳入 readiness，也不再作为本地联调或远程部署前提。
 - 本地开发优先通过 Docker Compose 提供可重复依赖，测试通过 Testcontainers 保证独立验证。
 - 应用当前已具备根目录 `Dockerfile`、本地 compose `app` profile 和最小 GitHub Actions `verify -> image -> deploy` 闭环；本地联调与远程部署都必须走仓库内标准入口，而不是依赖临时命令拼装。
 - OpenAPI 当前以运行时 `/v3/api-docs` 作为事实契约入口，`/swagger-ui/index.html` 作为联调入口；稳定接口范围通过 `docs/stable-api.md` 固化，并由集成测试回归兜底。
@@ -26,7 +26,7 @@
 
 - 快速路径：仓库测试验证配置、领域规则、平台治理接口、课程系统、公开健康检查和代码结构约束。
 - 集成路径：通过 PostgreSQL Testcontainers 验证 Flyway 迁移、持久化与登录/治理链路。
-- 本地运行路径：使用 `compose.yaml` 提供 PostgreSQL、RabbitMQ、Redis、MinIO 开发依赖。
+- 本地运行路径：使用 `compose.yaml` 提供 PostgreSQL、RabbitMQ、MinIO、go-judge 开发依赖。
 - 容器路径：使用根目录 `Dockerfile` 构建应用镜像，通过 `docker compose --profile app config/up` 验证本地联调编排。
 - 健康检查路径：
   - 顶层活性：`GET /actuator/health`
@@ -42,7 +42,7 @@
   - `/actuator/health/readiness`：只看依赖是否就绪
   - `/actuator/prometheus`：暴露运行时与业务指标，供 Prometheus 周期抓取
 - 当前最小业务指标集如下：
-  - `aubb_judge_queue_depth`：judge 队列长度；当 judge queue 未启用时返回 `NaN`，不会把 Redis 或其他可选依赖混入
+  - `aubb_judge_queue_depth`：judge 队列长度；当 judge queue 未启用时返回 `NaN`
   - `aubb_judge_job_executions_total{result=\"succeeded|failed\"}`：judge 任务执行次数；失败率通过 `failed / total` 计算
   - `aubb_judge_job_execution_seconds_count|sum|max{result=\"succeeded|failed\"}`：judge 任务执行耗时
   - `aubb_grading_grade_publications_total{publish_type=\"initial|republish\"}`：成绩发布次数
@@ -62,7 +62,7 @@
 7. 启用对象存储后，bucket 缺失或不可访问必须能通过健康检查及时暴露，而不是在业务首次写入时才发现。
 8. `aubb.judge.queue.enabled=true` 时，RabbitMQ 必须进入 readiness；若 broker 不可达或评测队列缺失，不能继续返回“应用已就绪”。
 9. `aubb.judge.go-judge.enabled=true` 时，go-judge 必须进入 readiness；若 `/version` 不可达或返回异常响应，必须能从健康检查直接看出故障原因。
-10. Redis 当前没有真实业务落地；在 Step 6 明确去留前，不得让 Redis 健康状态成为 readiness 的默认阻塞项。
+10. 当前运行时不再引入 Redis；若未来要重新引入，必须同时补齐真实业务用途、健康检查策略、部署说明和自动化验证。
 11. 涉及异步评测的测试或运维脚本，不得在存在运行中 judge job 时直接批量清库；至少要先 drain 运行中任务，避免 `judge_jobs / submission_answers / audit_logs` 锁顺序反转。
 12. 涉及令牌撤销的改动，必须同时验证 access token 即时失效、refresh token 轮换和用户状态变更触发的旧会话失效，避免只实现半条链路。
 13. 涉及新环境初始化的改动，必须提供标准启动参数、幂等重复执行语义和自动化验证，不能继续依赖手工 SQL 插数。

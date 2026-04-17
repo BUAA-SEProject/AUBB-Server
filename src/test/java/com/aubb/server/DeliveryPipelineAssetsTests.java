@@ -33,6 +33,8 @@ class DeliveryPipelineAssetsTests {
                 compose.contains("AUBB_JWT_SECRET is required for app profile"),
                 "App compose should fail fast when the app profile starts without JWT");
         assertTrue(compose.contains("dockerfile: Dockerfile"), "App compose should build from root Dockerfile");
+        assertTrue(!compose.contains("SPRING_DATA_REDIS_"), "Redis wiring should be removed from root compose");
+        assertTrue(!compose.contains("\n  redis:\n"), "Redis service should be removed from root compose");
     }
 
     @Test
@@ -42,5 +44,6 @@ class DeliveryPipelineAssetsTests {
         assertTrue(deployCompose.contains("AUBB_APP_IMAGE:?"), "Deploy compose must require explicit image version");
         assertTrue(deployCompose.contains("SPRING_DATASOURCE_URL:?"), "Deploy compose must require datasource wiring");
         assertTrue(deployCompose.contains("AUBB_JWT_SECRET:?"), "Deploy compose must require JWT secret");
+        assertTrue(!deployCompose.contains("SPRING_DATA_REDIS_"), "Deploy compose should not require Redis envs");
     }
 }

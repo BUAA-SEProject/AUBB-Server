@@ -2,7 +2,7 @@
 
 AUBB-Server 是 AUBB 平台的后端仓库。当前仓库已经完成平台治理基线，并继续沿模块化单体路线推进课程、assignment、submission、grading、judge、lab/report 与 notification。当前真实代码已覆盖平台配置、学校/学院/课程/班级组织、用户与多身份治理、账号状态、JWT 登录、refresh token 轮换、会话撤销与强制失效、首个学校 / 管理员 bootstrap 初始化闭环、基础审计、站内通知与未读状态，以及课程模板、开课实例、教学班、课程成员、班级功能开关、作业创建 / 发布 / 关闭、开课实例内题库、结构化试卷快照、文本与附件正式提交、分题答案与客观题自动评分摘要、教师 / 助教人工批改、assignment 级成绩发布、教师与学生成绩册第一阶段、教师侧成绩册 CSV 导出与统计报告第一阶段、多作业权重与加权总评第一阶段、学生侧成绩册 CSV 导出第一阶段、成绩册排名与通过率第一阶段、成绩申诉与复核第一阶段、assignment 级批量成绩调整与 CSV 导入导出第一阶段、基于 go-judge 的 assignment 级脚本评测、结构化编程题题目级自动评测、编程题模板工作区、目录树工作区快照、工作区修订历史与恢复、样例试运行历史与日志回放、RabbitMQ 驱动的评测队列第一阶段、共享 MinIO 对象存储接入能力、judge 详细产物对象化存储 phase 2（正式评测报告下载、源码快照归档与产物追踪）、教学班级实验与实验报告 MVP，以及应用 Dockerfile、compose 本地联调入口、GHCR 镜像构建与最小 SSH deploy 流水线基线。
 
-运行时基线为 Spring Boot 4 + Java 25，基础设施目标包括 PostgreSQL、RabbitMQ、Redis、Flyway 与 MyBatis-Plus。
+运行时基线为 Spring Boot 4 + Java 25，基础设施目标包括 PostgreSQL、RabbitMQ、MinIO、go-judge、Flyway 与 MyBatis-Plus。
 
 ## 当前状态
 
@@ -142,7 +142,7 @@ docker build -t aubb-server:local .
 本地 compose 约定：
 
 - 根 `compose.yaml` 的 `app` 服务默认不启用，避免破坏现有宿主机 `spring-boot-docker-compose` 使用方式。
-- `app` profile 启用后，会自动连到 compose 内的 PostgreSQL、RabbitMQ、Redis、MinIO 和 go-judge。
+- `app` profile 启用后，会自动连到 compose 内的 PostgreSQL、RabbitMQ、MinIO 和 go-judge。
 - `app` profile 会在应用容器启动入口检查 `AUBB_JWT_SECRET`；缺失时直接失败，不提供弱默认值，同时不影响默认 infra 模式的 `compose up/down/config`。
 - 若本机已有其他服务占用 `5050`、`5432`、`5672` 等端口，可通过 `AUBB_GO_JUDGE_PORT`、`AUBB_POSTGRES_PORT`、`AUBB_RABBITMQ_PORT` 等环境变量覆盖宿主机映射端口。
 - 如需首启初始化，可在上述命令上额外注入 `AUBB_BOOTSTRAP_*` 环境变量。

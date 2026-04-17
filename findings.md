@@ -1,5 +1,21 @@
 # 发现与决策
 
+## 2026-04-17 Redis 去留收口发现
+
+- 仓库全文审计确认：Redis 只有 `pom.xml` 依赖、`compose.yaml` / deploy 变量、`application.yaml` 里的健康检查开关和文档口径残留，没有任何生产代码调用 `RedisTemplate`、`StringRedisTemplate`、Spring Cache Redis 或 Redis repository。
+- 通知中心 v1 已经明确走“数据库入箱 + receipt 已读状态 + 轮询补拉”路径；认证会话也已经落到 `auth_sessions`，因此 Redis 既不承接通知实时推送，也不承接登录态或 revoke。
+- 继续保留 Redis 的唯一理由只剩“将来可能要用”，这不足以支撑当前运行时依赖、compose 服务、部署变量和运维说明继续把它当成基线的一部分。
+- 推荐方案是“移除 Redis”，而不是继续保持 optional：
+  - 这样能消除误导性的部署前提和 compose 复杂度
+  - 也能避免后续把“已引入但未使用”的技术债继续滚到下一个里程碑
+- 这轮不需要新增替代实现，因为当前没有任何业务功能建立在 Redis 之上。
+- 若未来真的要重新引入 Redis，必须至少补齐：
+  - 第一个真实业务用途
+  - 对应健康检查策略
+  - 自动化验证路径
+  - 部署和运维说明
+  否则不能再次进入运行时基线。
+
 ## 2026-04-17 关键业务 metrics 基线发现
 
 - 仓库里已经接入 `spring-boot-starter-actuator` 和 `micrometer-registry-prometheus`，`application.yaml` 也把 `prometheus` 放进了公开 exposure 列表，但在本轮之前代码里没有任何 judge / grading 业务指标采集点。

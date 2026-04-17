@@ -2,11 +2,25 @@
 
 ## 当前目标
 
-基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2、Step 3 成绩发布快照 v1、Step 4 健康检查收口与 Step 5 关键业务指标已通过；若继续推进，下一步进入 Step 6：Redis 去留收口。
+基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2、Step 3 成绩发布快照 v1、Step 4 健康检查收口、Step 5 关键业务指标与 Step 6 Redis 去留收口已通过；若继续推进，下一步进入 Step 7：状态台账与最终交付结论。
 
 ## 当前阶段
 
-Phase 51 completed，Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 52 completed，Phase 51 completed，Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 52：Redis 去留收口
+
+- [x] 审计 `pom.xml`、`application.yaml`、`compose.yaml`、`deploy/compose.yaml`、`.github/workflows/deploy.yml` 与仓库全文引用，确认 Redis 只有依赖、compose、部署变量和文档残留，没有真实业务使用
+- [x] 明确保留 Redis 的理由不足：通知、认证、缓存、消息、健康检查和指标都未落到 Redis
+- [x] 选择“移除 Redis”方案，避免继续维持误导性的运行时依赖与部署前提
+- [x] 从 `pom.xml` 移除 `spring-boot-starter-data-redis` 与 `spring-boot-starter-data-redis-test`
+- [x] 从 `application.yaml` 移除 `management.health.redis` 配置
+- [x] 从根 `compose.yaml` 移除 Redis 服务、端口、volume、`depends_on` 和应用容器内的 `SPRING_DATA_REDIS_*` 注入
+- [x] 从 `deploy/compose.yaml`、`deploy/.env.production.example` 与 `.github/workflows/deploy.yml` 中移除 Redis 相关环境变量
+- [x] 扩展 `DeliveryPipelineAssetsTests`，固定“根 compose 与 deploy compose 不再包含 Redis wiring”的收口约束
+- [x] 同步 README、ARCHITECTURE、AGENTS、`docs/reliability.md`、`docs/deployment.md`、`docs/product-specs/platform-baseline.md` 与完成执行计划
+- [x] 执行 `bash ./mvnw spotless:apply`、`bash ./mvnw -q -DskipTests compile`、`bash ./mvnw -Dtest=HarnessHealthSmokeTests,DeliveryPipelineAssetsTests,AubbServerApplicationTests test`、compose config、actionlint 与 `git diff --check`
+- **Status:** completed
 
 ### Phase 51：关键业务 metrics 基线
 

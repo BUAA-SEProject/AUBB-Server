@@ -1,5 +1,32 @@
 # 进度日志
 
+## Session: 2026-04-17 Redis 去留收口
+
+### Phase 52：Step 6 M5 最小治理包第三段
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `pom.xml`、`application.yaml`、`compose.yaml`、`deploy/compose.yaml`、`deploy/.env.production.example`、`.github/workflows/deploy.yml`、`README.md`、`ARCHITECTURE.md`、`docs/reliability.md`、`docs/deployment.md`
+  - 全仓库搜索 Redis 相关依赖、配置、环境变量与代码调用，确认生产代码不存在 `RedisTemplate`、Spring Cache Redis 或 Redis repository 等真实用法
+  - 基于审计结论选择“移除 Redis”方案，而不是继续把它保留为 optional 基础设施
+  - 从 `pom.xml` 移除 `spring-boot-starter-data-redis` 与 `spring-boot-starter-data-redis-test`
+  - 从 `application.yaml` 移除 `management.health.redis` 配置
+  - 从根 `compose.yaml` 移除 Redis 服务、healthcheck、volume、应用容器依赖和 `SPRING_DATA_REDIS_*` 注入
+  - 从 `deploy/compose.yaml`、`deploy/.env.production.example` 与 `.github/workflows/deploy.yml` 中移除 Redis 相关部署变量
+  - 扩展 `DeliveryPipelineAssetsTests`，固定“根 compose / deploy compose 不再包含 Redis wiring”的验证约束
+  - 同步 README、AGENTS、ARCHITECTURE、`docs/reliability.md`、`docs/deployment.md`、`docs/product-specs/platform-baseline.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=HarnessHealthSmokeTests,DeliveryPipelineAssetsTests,AubbServerApplicationTests test`
+  - `docker compose --profile app config`
+  - `docker compose -f deploy/compose.yaml --env-file deploy/.env.production.example config`
+  - `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7`
+  - `git diff --check`
+  - 当前结果：`BUILD SUCCESS`，定向 `7` 个测试通过；compose config、deploy compose config、actionlint 与 diff 检查通过
+  - 决策结论：Redis 已从当前运行时基线移除，若未来重引入必须伴随真实业务用途与验证路径
+
 ## Session: 2026-04-17 关键业务 metrics 基线
 
 ### Phase 51：Step 5 M5 最小治理包第二段

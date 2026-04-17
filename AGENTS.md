@@ -12,7 +12,7 @@
 ## 项目概览
 
 - 运行时：Spring Boot 4 + Java 25
-- 基础设施目标：PostgreSQL、RabbitMQ、Redis
+- 基础设施目标：PostgreSQL、RabbitMQ、MinIO、go-judge
 - 持久化基线：Flyway + MyBatis-Plus
 - 当前真实业务进度：平台治理、课程、assignment、submission、grading、judge 第一阶段已打通，并已补齐开课实例级评测环境模板、题目级运行环境快照、教师侧成绩册 CSV 导出 / 统计报告第一阶段与 `GO122` 真实评测链路；当前优先级是在线 IDE 前端、多语言运行时稳定化、题库与组卷第二阶段、多作业总评与评测可复现性
 - 公共健康检查端点：`/actuator/health`
