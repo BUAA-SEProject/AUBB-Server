@@ -105,4 +105,3 @@
   - GradebookIntegrationTests 与题库集成测试
   - NotificationCenterIntegrationTests 与 OpenAPI 契约测试
 - 变更完成后执行定向测试，再做一次 `bash ./mvnw verify`。
-
