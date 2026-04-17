@@ -22,7 +22,11 @@ class JudgeMetricsRecorderTests {
         queueProperties.put(RabbitAdmin.QUEUE_MESSAGE_COUNT, 7);
         when(amqpAdmin.getQueueProperties("aubb.judge.jobs")).thenReturn(queueProperties);
 
-        new JudgeMetricsRecorder(meterRegistry, amqpAdmin, new JudgeQueueProperties(true, "aubb.judge.jobs", "2"));
+        new JudgeMetricsRecorder(
+                meterRegistry,
+                amqpAdmin,
+                new JudgeQueueProperties(
+                        true, true, true, "aubb.judge.jobs", "aubb.judge.jobs.dlq", "aubb.judge.jobs.dlx", "2", 8, 3));
 
         assertThat(meterRegistry
                         .get(JudgeMetricsRecorder.JUDGE_QUEUE_DEPTH_METRIC)
@@ -35,7 +39,18 @@ class JudgeMetricsRecorderTests {
     void executionMetricsTrackSucceededAndFailedRunsSeparately() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         JudgeMetricsRecorder recorder = new JudgeMetricsRecorder(
-                meterRegistry, mock(AmqpAdmin.class), new JudgeQueueProperties(false, "aubb.judge.jobs", "2"));
+                meterRegistry,
+                mock(AmqpAdmin.class),
+                new JudgeQueueProperties(
+                        false,
+                        false,
+                        false,
+                        "aubb.judge.jobs",
+                        "aubb.judge.jobs.dlq",
+                        "aubb.judge.jobs.dlx",
+                        "2",
+                        8,
+                        3));
 
         recorder.recordExecution(Duration.ofMillis(120), false);
         recorder.recordExecution(Duration.ofMillis(80), true);

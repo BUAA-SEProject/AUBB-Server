@@ -1,0 +1,44 @@
+groups:
+  - name: aubb-platform
+    interval: 30s
+    rules:
+      - alert: AubbAppDown
+        expr: up{job="aubb-app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: AUBB API 不可达
+          description: Prometheus 连续 2 分钟无法抓取 `aubb-app` 指标。
+
+      - alert: AubbJudgeQueueDepthHigh
+        expr: max_over_time(aubb_judge_queue_depth[5m]) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Judge 队列积压偏高
+          description: `aubb_judge_queue_depth` 在 10 分钟内持续高于 50，请检查 judge worker 消费速度。
+
+      - alert: AubbJudgeDlqHasMessages
+        expr: max_over_time(aubb_judge_queue_depth{queue=~".*dlq.*"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Judge 死信队列出现消息
+          description: judge DLQ 持续存在消息，请执行 redrive 或排查不可恢复任务。
+
+      - alert: AubbJudgeFailureRateHigh
+        expr: |
+          (
+            sum(rate(aubb_judge_job_executions_total{result="FAILED"}[10m]))
+            /
+            clamp_min(sum(rate(aubb_judge_job_executions_total[10m])), 1)
+          ) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Judge 失败率偏高
+          description: 最近 10 分钟 judge 失败率超过 20%，请检查 go-judge、题目配置与 worker 运行时。

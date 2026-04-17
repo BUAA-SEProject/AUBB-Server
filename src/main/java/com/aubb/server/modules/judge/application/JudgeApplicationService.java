@@ -24,10 +24,12 @@ import com.aubb.server.modules.submission.infrastructure.answer.SubmissionAnswer
 import com.aubb.server.modules.submission.infrastructure.answer.SubmissionAnswerMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -176,8 +178,21 @@ public class JudgeApplicationService {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
         courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
-        assertJudgeConfigured(assignment.getId());
-        return createJudgeJob(submission, assignment, null, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
+        if (isJudgeConfigured(assignment.getId())) {
+            return createJudgeJob(submission, assignment, null, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
+        }
+        List<SubmissionAnswerEntity> programmingAnswers =
+                loadProgrammingAnswers(submission.getId(), assignment.getId());
+        if (programmingAnswers.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_NOT_CONFIGURED", "当前任务未配置自动评测");
+        }
+        List<JudgeJobView> queuedJobs = new ArrayList<>(programmingAnswers.size());
+        for (SubmissionAnswerEntity answer : programmingAnswers) {
+            requireProgrammingQuestion(assignment.getId(), answer.getAssignmentQuestionId());
+            queuedJobs.add(createJudgeJob(
+                    submission, assignment, answer, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE));
+        }
+        return queuedJobs.getFirst();
     }
 
     @Transactional
@@ -313,14 +328,29 @@ public class JudgeApplicationService {
         return judgeJob;
     }
 
-    private void assertJudgeConfigured(Long assignmentId) {
-        if (!isJudgeConfigured(assignmentId)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_JUDGE_NOT_CONFIGURED", "当前任务未配置自动评测");
-        }
-    }
-
     private boolean isJudgeConfigured(Long assignmentId) {
         return assignmentJudgeProfileMapper.selectById(assignmentId) != null;
+    }
+
+    private List<SubmissionAnswerEntity> loadProgrammingAnswers(Long submissionId, Long assignmentId) {
+        Map<Long, AssignmentQuestionSnapshot> programmingQuestions =
+                assignmentPaperApplicationService.loadQuestionSnapshots(assignmentId).stream()
+                        .filter(question -> AssignmentQuestionType.PROGRAMMING.equals(question.questionType()))
+                        .collect(Collectors.toMap(
+                                AssignmentQuestionSnapshot::id,
+                                question -> question,
+                                (left, right) -> left,
+                                LinkedHashMap::new));
+        if (programmingQuestions.isEmpty()) {
+            return List.of();
+        }
+        return submissionAnswerMapper
+                .selectList(Wrappers.<SubmissionAnswerEntity>lambdaQuery()
+                        .eq(SubmissionAnswerEntity::getSubmissionId, submissionId)
+                        .orderByAsc(SubmissionAnswerEntity::getId))
+                .stream()
+                .filter(answer -> programmingQuestions.containsKey(answer.getAssignmentQuestionId()))
+                .toList();
     }
 
     private AssignmentQuestionSnapshot requireProgrammingQuestion(Long assignmentId, Long assignmentQuestionId) {

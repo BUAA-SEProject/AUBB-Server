@@ -166,13 +166,13 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
         waitForLatestAnswerJudgeJobTerminal(answerId);
 
-        assertThat(queryForInt("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 4
-                          AND n.type = 'JUDGE_COMPLETED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForInt("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 4
+                                  AND n.type = 'JUDGE_COMPLETED'
+                                """), 1);
 
         mockMvc.perform(get("/api/v1/me/submission-answers/{answerId}/judge-jobs", answerId)
                         .header("Authorization", "Bearer " + studentToken))
@@ -212,6 +212,78 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.submissionAnswerId").value(answerId))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.triggerType").value("MANUAL_REJUDGE"));
+
+        waitForAnswerJudgeJobCount(answerId, 2);
+        waitForLatestAnswerJudgeJobTerminal(answerId);
+
+        mockMvc.perform(get("/api/v1/teacher/submission-answers/{answerId}/judge-jobs", answerId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].triggerType").value("MANUAL_REJUDGE"))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
+    }
+
+    @Test
+    void submissionScopedRequeueSupportsStructuredProgrammingAnswers() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-RQ", "重排队班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        MvcResult submissionResult = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {
+                                      "assignmentQuestionId":%s,
+                                      "entryFilePath":"main.py",
+                                      "files":[
+                                        {
+                                          "path":"main.py",
+                                          "content":"a, b = map(int, input().split())\\nprint(a + b)"
+                                        }
+                                      ],
+                                      "programmingLanguage":"PYTHON3"
+                                    }
+                                  ]
+                                }
+                                """.formatted(questionId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long submissionId = readLong(submissionResult, "$.id");
+        Long answerId = readLong(submissionResult, "$.answers[0].id");
+
+        waitForLatestAnswerJudgeJobTerminal(answerId);
+
+        mockMvc.perform(post("/api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue", submissionId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.submissionId").value(submissionId))
+                .andExpect(jsonPath("$.submissionAnswerId").value(answerId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.triggerType").value("MANUAL_REJUDGE"));
 

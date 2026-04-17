@@ -16,13 +16,23 @@
   - 默认：基础设施依赖
   - `app` profile：应用 + 基础设施联调
 - `deploy/compose.yaml`
-  - 远程主机最小部署编排，只部署应用容器
+  - 远程主机最小部署编排，包含 `app + judge-worker`
 - `deploy/.env.production.example`
   - 远程部署环境变量模板
+- `deploy/.env.staging.example`
+  - staging 环境模板
+- `deploy/.env.uat.example`
+  - UAT 环境模板
 - `.github/workflows/ci.yml`
   - `verify -> image`
 - `.github/workflows/deploy.yml`
-  - 手动指定镜像 tag 执行远程部署
+  - 手动指定镜像 tag 执行远程部署 / 演练 / 回滚
+- `ops/release/*.sh`
+  - 数据库备份恢复、发布演练与手工回滚脚本
+- `monitoring/**`
+  - Prometheus / 告警 / Grafana / Loki / Promtail 样例资产
+- `docs/redis.md`
+  - Redis 用途边界、key/TTL/降级与监控说明
 
 ## 本地容器联调
 
@@ -39,6 +49,7 @@ docker compose up -d
 - PostgreSQL `16.10`
 - RabbitMQ `4.1.0-management`
 - MinIO `RELEASE.2025-09-07T16-13-09Z`
+- Redis `7.4-alpine`
 - go-judge（由仓库 `docker/go-judge/Dockerfile` 构建）
 
 ### 应用联调模式
@@ -58,6 +69,14 @@ docker compose --profile app up --build
   - MinIO
   - go-judge
   - RabbitMQ 队列
+- Redis 默认随基础设施一起启动，但应用默认仍以 `AUBB_REDIS_ENABLED=false` 运行；只有显式打开后才接入限流 / 缓存增强链路
+- 本地如需启用 Redis 增强，可追加：
+
+```bash
+AUBB_JWT_SECRET='replace-with-at-least-32-characters' \
+AUBB_REDIS_ENABLED=true \
+docker compose --profile app up --build
+```
 - 如需首启初始化，可再追加 `AUBB_BOOTSTRAP_*` 变量；`app` profile 当前会把这些变量完整透传到应用容器
 - 若本机已有服务占用默认端口，可覆盖 `AUBB_APP_PORT`、`AUBB_GO_JUDGE_PORT`、`AUBB_POSTGRES_PORT`、`AUBB_RABBITMQ_PORT`、`AUBB_MINIO_PORT`
 
@@ -79,10 +98,14 @@ docker compose --profile app up --build
 - `GET /actuator/health/readiness`
   - 依赖就绪检查
   - 当前固定包含 `db`
+  - 固定暴露 `redisEnhancement`
   - 当 `AUBB_MINIO_ENABLED=true` 时纳入 `minioStorage`
   - 当 `AUBB_GO_JUDGE_ENABLED=true` 时纳入 `goJudge`
   - 当 `AUBB_JUDGE_QUEUE_ENABLED=true` 时纳入 `judgeQueue`
-- Redis 已从当前运行时基线移除，不纳入 readiness，也不应再作为当前 V1 启动阻塞项或部署前提
+- `redisEnhancement` 的语义：
+  - `AUBB_REDIS_ENABLED=false` 时显示 `UP / mode=disabled`
+  - `AUBB_REDIS_ENABLED=true` 且 Redis 暂不可达时显示 `UNKNOWN / mode=degraded`
+  - Redis 故障会被显式暴露，但不会把 PostgreSQL 级别的主链路故障语义混入其中
 
 ### Prometheus 抓取
 
@@ -90,6 +113,10 @@ docker compose --profile app up --build
   - 当前作为公开抓取入口
   - 用于 Prometheus 周期采集运行时与业务指标，不替代活性或 readiness 检查
 - 当前最关键的业务指标包括：
+  - `aubb_cache_operations_total{cache,operation,result}`
+  - `aubb_rate_limit_decisions_total{policy,result}`
+  - `aubb_redis_available`
+  - `aubb_redis_enabled`
   - `aubb_judge_queue_depth`
   - `aubb_judge_job_executions_total{result=...}`
   - `aubb_judge_job_execution_seconds_*{result=...}`
@@ -170,6 +197,7 @@ bash ./mvnw -B verify
 
 - Docker + Compose Plugin
 - 能访问 PostgreSQL、RabbitMQ、MinIO、go-judge
+- 若启用 Redis 增强，则还需能访问 Redis
 - 能访问 GHCR
 
 ### GitHub Environment Secrets / Vars
@@ -200,6 +228,7 @@ bash ./mvnw -B verify
 - `AUBB_MINIO_ACCESS_KEY`
 - `AUBB_MINIO_SECRET_KEY`
 - `AUBB_GO_JUDGE_BASE_URL`
+- `AUBB_REDIS_PASSWORD`
 
 常用 vars：
 
@@ -211,6 +240,13 @@ bash ./mvnw -B verify
 - `AUBB_MINIO_BUCKET`
 - `AUBB_MINIO_AUTO_CREATE_BUCKET`
 - `AUBB_GO_JUDGE_ENABLED`
+- `AUBB_REDIS_ENABLED`
+- `AUBB_REDIS_HOST`
+- `AUBB_REDIS_PORT`
+- `AUBB_REDIS_DATABASE`
+- `AUBB_REDIS_NAMESPACE`
+- `AUBB_REDIS_RATE_LIMIT_ENABLED`
+- `AUBB_REDIS_REALTIME_ENABLED`
 - `AUBB_JUDGE_QUEUE_ENABLED`
 - `AUBB_JUDGE_QUEUE_NAME`
 - `AUBB_JUDGE_QUEUE_CONCURRENCY`
@@ -222,7 +258,7 @@ bash ./mvnw -B verify
 `deploy.yml` 当前会：
 
 1. 计算目标镜像 `ghcr.io/<owner>/<repo>:<image_tag>`
-2. 渲染远程 `.env.production`
+2. 渲染远程 `.env.production`，包含数据库、RabbitMQ、MinIO、go-judge 与可选 Redis 变量
 3. 通过 SSH / SCP 上传 `deploy/compose.yaml` 与 `.env.production`
 4. 远程执行：
    - `docker login ghcr.io`
@@ -250,6 +286,7 @@ bash ./mvnw -B verify
   - `/actuator/health`：公开活性检查
   - `/actuator/health/readiness`：依赖就绪检查，固定包含数据库，并按开关条件纳入 `minioStorage`、`goJudge`、`judgeQueue`
 - 当前 `/actuator/prometheus` 同样保持公开，用于 Prometheus 抓取；它不是业务 API，也不应用作 readiness / liveness 的替代品。
+- Redis 当前只作为限流 / 缓存 / 实时协调预留基础设施接入；即使远端未启用 Redis，`deploy/compose.yaml` 也能正常启动应用。
 - 当前 deploy 不负责远程主机初始化，也不负责 PostgreSQL / RabbitMQ / MinIO / go-judge 的生产编排
 - 当前没有蓝绿、金丝雀或多副本滚动升级
 - 当前没有自动数据库备份、自动回滚或 Helm / Kubernetes 资产

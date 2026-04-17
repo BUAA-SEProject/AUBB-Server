@@ -15,7 +15,7 @@
 - Swagger UI：`GET /swagger-ui/index.html`
 - 业务接口基线：`/api/v1/**`
 
-当前仓库没有额外生成静态 OpenAPI 快照文件；运行时 `/v3/api-docs` 就是接口契约事实来源。`docs/product-specs/*.md` 负责解释业务语义，本文件负责约束“哪些接口已经进入稳定范围”。
+当前仓库会在发布演练或 deploy workflow 中通过 `bash ops/openapi/export-static.sh` 导出静态 `docs/openapi/aubb-openapi.json` 产物，但它只作为发布辅助快照，不替代运行时 `/v3/api-docs` 这一事实来源。`docs/product-specs/*.md` 负责解释业务语义，本文件负责约束“哪些接口已经进入稳定范围”。
 
 ## 兼容边界
 

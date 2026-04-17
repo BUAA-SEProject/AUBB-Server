@@ -4,13 +4,27 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  data:
+    redis:
+      repositories:
+        enabled: false
+logging:
+  include-application-name: false
+  pattern:
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
 management:
+  tracing:
+    enabled: ${AUBB_TRACING_ENABLED:false}
+    sampling:
+      probability: ${AUBB_TRACING_SAMPLING_PROBABILITY:1.0}
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
   health:
     rabbit:
+      enabled: false
+    redis:
       enabled: false
   endpoint:
     health:
@@ -24,6 +38,7 @@ management:
           include:
             - readinessState
             - db
+            - redisEnhancement
             - minioStorage
             - goJudge
             - judgeQueue
@@ -82,5 +97,47 @@ aubb:
       base-url: ${AUBB_GO_JUDGE_BASE_URL:http://localhost:5050}
     queue:
       enabled: ${AUBB_JUDGE_QUEUE_ENABLED:false}
+      publisher-enabled: ${AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED:true}
+      consumer-enabled: ${AUBB_JUDGE_QUEUE_CONSUMER_ENABLED:true}
       queue-name: ${AUBB_JUDGE_QUEUE_NAME:aubb.judge.jobs}
+      dlq-queue-name: ${AUBB_JUDGE_QUEUE_DLQ_NAME:aubb.judge.jobs.dlq}
+      dlq-exchange: ${AUBB_JUDGE_QUEUE_DLX:aubb.judge.jobs.dlx}
       concurrency: ${AUBB_JUDGE_QUEUE_CONCURRENCY:4}
+      prefetch: ${AUBB_JUDGE_QUEUE_PREFETCH:8}
+      max-attempts: ${AUBB_JUDGE_QUEUE_MAX_ATTEMPTS:3}
+  redis:
+    enabled: ${AUBB_REDIS_ENABLED:false}
+    host: ${AUBB_REDIS_HOST:localhost}
+    port: ${AUBB_REDIS_PORT:6379}
+    password: ${AUBB_REDIS_PASSWORD:}
+    database: ${AUBB_REDIS_DATABASE:0}
+    namespace: ${AUBB_REDIS_NAMESPACE:aubb}
+    environment: ${AUBB_REDIS_ENV:${AUBB_DEPLOY_ENV:local}}
+    connect-timeout: ${AUBB_REDIS_CONNECT_TIMEOUT:PT2S}
+    command-timeout: ${AUBB_REDIS_COMMAND_TIMEOUT:PT2S}
+    cache:
+      notification-unread-ttl: ${AUBB_REDIS_CACHE_NOTIFICATION_UNREAD_TTL:PT1M}
+      my-courses-ttl: ${AUBB_REDIS_CACHE_MY_COURSES_TTL:PT2M}
+      question-bank-dictionary-ttl: ${AUBB_REDIS_CACHE_QUESTION_BANK_DICTIONARY_TTL:PT20M}
+      org-scope-ttl: ${AUBB_REDIS_CACHE_ORG_SCOPE_TTL:PT1M}
+    rate-limit:
+      enabled: ${AUBB_REDIS_RATE_LIMIT_ENABLED:true}
+      policies:
+        login:
+          limit: ${AUBB_REDIS_RATE_LIMIT_LOGIN_LIMIT:10}
+          window: ${AUBB_REDIS_RATE_LIMIT_LOGIN_WINDOW:PT1M}
+        refresh:
+          limit: ${AUBB_REDIS_RATE_LIMIT_REFRESH_LIMIT:20}
+          window: ${AUBB_REDIS_RATE_LIMIT_REFRESH_WINDOW:PT1M}
+        sample-run:
+          limit: ${AUBB_REDIS_RATE_LIMIT_SAMPLE_RUN_LIMIT:20}
+          window: ${AUBB_REDIS_RATE_LIMIT_SAMPLE_RUN_WINDOW:PT1M}
+        submission-create:
+          limit: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_CREATE_LIMIT:10}
+          window: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_CREATE_WINDOW:PT1M}
+        submission-artifact-upload:
+          limit: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_ARTIFACT_UPLOAD_LIMIT:30}
+          window: ${AUBB_REDIS_RATE_LIMIT_SUBMISSION_ARTIFACT_UPLOAD_WINDOW:PT1M}
+        lab-attachment-upload:
+          limit: ${AUBB_REDIS_RATE_LIMIT_LAB_ATTACHMENT_UPLOAD_LIMIT:20}
+          window: ${AUBB_REDIS_RATE_LIMIT_LAB_ATTACHMENT_UPLOAD_WINDOW:PT1M}

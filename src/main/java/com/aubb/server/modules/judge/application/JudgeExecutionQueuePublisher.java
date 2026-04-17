@@ -8,7 +8,10 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 @Component
-@ConditionalOnProperty(prefix = "aubb.judge.queue", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(
+        prefix = "aubb.judge.queue",
+        name = {"enabled", "publisher-enabled"},
+        havingValue = "true")
 class JudgeExecutionQueuePublisher {
 
     private final RabbitTemplate rabbitTemplate;

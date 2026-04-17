@@ -3,13 +3,23 @@ name: Deploy
 on:
   workflow_dispatch:
     inputs:
+      release_action:
+        description: '发布动作：deploy / drill / rollback'
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - drill
+          - rollback
       environment:
-        description: 'GitHub Environment 名称，例如 staging 或 production'
+        description: 'GitHub Environment 名称，例如 staging / uat / production'
         required: true
         default: staging
         type: choice
         options:
           - staging
+          - uat
           - production
       image_tag:
         description: '要部署的镜像 tag，例如 sha-abcdef1 或 v0.0.1'
@@ -52,6 +62,8 @@ jobs:
         env:
           AUBB_APP_IMAGE: ${{ steps.image_name.outputs.image }}
           AUBB_APP_PORT: ${{ vars.AUBB_APP_PORT || '8080' }}
+          AUBB_DEPLOY_ENV: ${{ inputs.environment }}
+          AUBB_TRACING_ENABLED: ${{ vars.AUBB_TRACING_ENABLED || 'true' }}
           SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
           SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
           SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
@@ -71,14 +83,32 @@ jobs:
           AUBB_MINIO_AUTO_CREATE_BUCKET: ${{ vars.AUBB_MINIO_AUTO_CREATE_BUCKET || 'false' }}
           AUBB_GO_JUDGE_ENABLED: ${{ vars.AUBB_GO_JUDGE_ENABLED || 'false' }}
           AUBB_GO_JUDGE_BASE_URL: ${{ secrets.AUBB_GO_JUDGE_BASE_URL }}
+          AUBB_REDIS_ENABLED: ${{ vars.AUBB_REDIS_ENABLED || 'false' }}
+          AUBB_REDIS_HOST: ${{ vars.AUBB_REDIS_HOST || '' }}
+          AUBB_REDIS_PORT: ${{ vars.AUBB_REDIS_PORT || '6379' }}
+          AUBB_REDIS_PASSWORD: ${{ secrets.AUBB_REDIS_PASSWORD }}
+          AUBB_REDIS_DATABASE: ${{ vars.AUBB_REDIS_DATABASE || '0' }}
+          AUBB_REDIS_NAMESPACE: ${{ vars.AUBB_REDIS_NAMESPACE || 'aubb' }}
+          AUBB_REDIS_RATE_LIMIT_ENABLED: ${{ vars.AUBB_REDIS_RATE_LIMIT_ENABLED || 'true' }}
+          AUBB_REDIS_REALTIME_ENABLED: ${{ vars.AUBB_REDIS_REALTIME_ENABLED || 'true' }}
           AUBB_JUDGE_QUEUE_ENABLED: ${{ vars.AUBB_JUDGE_QUEUE_ENABLED || 'false' }}
+          AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED: ${{ vars.AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED || 'true' }}
+          AUBB_JUDGE_QUEUE_CONSUMER_ENABLED: ${{ vars.AUBB_JUDGE_QUEUE_CONSUMER_ENABLED || 'true' }}
           AUBB_JUDGE_QUEUE_NAME: ${{ vars.AUBB_JUDGE_QUEUE_NAME || 'aubb.judge.jobs' }}
+          AUBB_JUDGE_QUEUE_DLQ_NAME: ${{ vars.AUBB_JUDGE_QUEUE_DLQ_NAME || 'aubb.judge.jobs.dlq' }}
+          AUBB_JUDGE_QUEUE_DLX: ${{ vars.AUBB_JUDGE_QUEUE_DLX || 'aubb.judge.jobs.dlx' }}
           AUBB_JUDGE_QUEUE_CONCURRENCY: ${{ vars.AUBB_JUDGE_QUEUE_CONCURRENCY || '4' }}
+          AUBB_JUDGE_QUEUE_PREFETCH: ${{ vars.AUBB_JUDGE_QUEUE_PREFETCH || '8' }}
+          AUBB_JUDGE_QUEUE_MAX_ATTEMPTS: ${{ vars.AUBB_JUDGE_QUEUE_MAX_ATTEMPTS || '3' }}
+          AUBB_TRACING_SAMPLING_PROBABILITY: ${{ vars.AUBB_TRACING_SAMPLING_PROBABILITY || '1.0' }}
+          AUBB_OTLP_TRACING_ENDPOINT: ${{ secrets.AUBB_OTLP_TRACING_ENDPOINT }}
         run: |
           set -euo pipefail
           cat > deploy/.env.production <<EOF
           AUBB_APP_IMAGE=${AUBB_APP_IMAGE}
           AUBB_APP_PORT=${AUBB_APP_PORT}
+          AUBB_DEPLOY_ENV=${AUBB_DEPLOY_ENV}
+          AUBB_TRACING_ENABLED=${AUBB_TRACING_ENABLED}
           SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
           SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
           SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
@@ -98,10 +128,38 @@ jobs:
           AUBB_MINIO_AUTO_CREATE_BUCKET=${AUBB_MINIO_AUTO_CREATE_BUCKET}
           AUBB_GO_JUDGE_ENABLED=${AUBB_GO_JUDGE_ENABLED}
           AUBB_GO_JUDGE_BASE_URL=${AUBB_GO_JUDGE_BASE_URL}
+          AUBB_REDIS_ENABLED=${AUBB_REDIS_ENABLED}
+          AUBB_REDIS_HOST=${AUBB_REDIS_HOST}
+          AUBB_REDIS_PORT=${AUBB_REDIS_PORT}
+          AUBB_REDIS_PASSWORD=${AUBB_REDIS_PASSWORD}
+          AUBB_REDIS_DATABASE=${AUBB_REDIS_DATABASE}
+          AUBB_REDIS_NAMESPACE=${AUBB_REDIS_NAMESPACE}
+          AUBB_REDIS_RATE_LIMIT_ENABLED=${AUBB_REDIS_RATE_LIMIT_ENABLED}
+          AUBB_REDIS_REALTIME_ENABLED=${AUBB_REDIS_REALTIME_ENABLED}
           AUBB_JUDGE_QUEUE_ENABLED=${AUBB_JUDGE_QUEUE_ENABLED}
+          AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED=${AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED}
+          AUBB_JUDGE_QUEUE_CONSUMER_ENABLED=${AUBB_JUDGE_QUEUE_CONSUMER_ENABLED}
           AUBB_JUDGE_QUEUE_NAME=${AUBB_JUDGE_QUEUE_NAME}
+          AUBB_JUDGE_QUEUE_DLQ_NAME=${AUBB_JUDGE_QUEUE_DLQ_NAME}
+          AUBB_JUDGE_QUEUE_DLX=${AUBB_JUDGE_QUEUE_DLX}
           AUBB_JUDGE_QUEUE_CONCURRENCY=${AUBB_JUDGE_QUEUE_CONCURRENCY}
+          AUBB_JUDGE_QUEUE_PREFETCH=${AUBB_JUDGE_QUEUE_PREFETCH}
+          AUBB_JUDGE_QUEUE_MAX_ATTEMPTS=${AUBB_JUDGE_QUEUE_MAX_ATTEMPTS}
+          AUBB_TRACING_SAMPLING_PROBABILITY=${AUBB_TRACING_SAMPLING_PROBABILITY}
+          AUBB_OTLP_TRACING_ENDPOINT=${AUBB_OTLP_TRACING_ENDPOINT}
           EOF
+
+      - name: Package deploy bundle
+        run: |
+          set -euo pipefail
+          mkdir -p docs/openapi
+          tar czf deploy-bundle.tgz \
+            deploy/compose.yaml \
+            deploy/.env.production \
+            ops/preflight \
+            ops/openapi \
+            ops/release \
+            docs/openapi
 
       - name: Upload deploy bundle
         env:
@@ -112,7 +170,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p '${DEPLOY_PATH}'"
-          scp -P "${DEPLOY_PORT:-22}" deploy/compose.yaml deploy/.env.production "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
+          scp -P "${DEPLOY_PORT:-22}" deploy-bundle.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
 
       - name: Apply deployment
         env:
@@ -122,24 +180,57 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          RELEASE_ACTION: ${{ inputs.release_action }}
         run: |
           set -euo pipefail
           GHCR_TOKEN_B64="$(printf '%s' "$GHCR_TOKEN" | base64 -w0)"
           ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
             set -euo pipefail
             cd '${DEPLOY_PATH}'
+            rm -rf ops docs
+            tar xzf deploy-bundle.tgz
+            mkdir -p docs/openapi
+            set -a
+            . ./.env.production
+            set +a
+            bash ops/preflight/check-runtime-deps.sh
             printf '%s' '${GHCR_TOKEN_B64}' | base64 -d | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
-            docker compose --env-file .env.production pull app
-            docker compose --env-file .env.production up -d
+            docker compose --env-file .env.production pull app judge-worker
+            docker compose --env-file .env.production up -d app judge-worker
             docker compose --env-file .env.production ps
             for attempt in \$(seq 1 24); do
               if docker compose --env-file .env.production exec -T app curl -fsS http://localhost:8080/actuator/health/readiness; then
-                exit 0
+                break
               fi
               sleep 5
             done
-            exit 1
+            docker compose --env-file .env.production exec -T app curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null
+            if [ '${RELEASE_ACTION}' != 'rollback' ]; then
+              AUBB_RELEASE_BASE_URL=http://localhost:\${AUBB_APP_PORT} bash ops/release/release-drill.sh
+            fi
+            AUBB_OPENAPI_URL=http://localhost:\${AUBB_APP_PORT}/v3/api-docs \
+              AUBB_OPENAPI_OUTPUT_PATH=docs/openapi/aubb-openapi.json \
+              bash ops/openapi/export-static.sh
           "
+
+      - name: Download static OpenAPI artifact
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          scp -P "${DEPLOY_PORT:-22}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docs/openapi/aubb-openapi.json" \
+            aubb-openapi.json
+
+      - name: Upload static OpenAPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-openapi
+          if-no-files-found: ignore
+          path: aubb-openapi.json
 
       - name: Collect remote app logs
         if: failure()
@@ -150,7 +241,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
-            cd '${DEPLOY_PATH}' && docker compose --env-file .env.production logs --no-color --tail=200 app
+            cd '${DEPLOY_PATH}' && docker compose --env-file .env.production logs --no-color --tail=200 app judge-worker
           " > deploy-app.log || true
 
       - name: Upload remote app logs

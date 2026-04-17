@@ -8,7 +8,10 @@
 - MinIO 已具备正式接入路径；默认关闭，启用后 bucket 可用性进入健康检查。
 - RabbitMQ 当前在 `aubb.judge.queue.enabled=true` 时属于条件化硬依赖；readiness 会暴露 `judgeQueue` 组件。
 - go-judge 当前在 `aubb.judge.go-judge.enabled=true` 时属于条件化硬依赖；readiness 会暴露 `goJudge` 组件。
-- Redis 已从当前运行时基线移除，不纳入 readiness，也不再作为本地联调或远程部署前提。
+- Redis 当前作为可选增强组件引入，默认关闭；关闭时不得影响主链路可用性。
+- readiness 当前固定暴露 `redisEnhancement` 组件：
+  - 关闭时返回 `UP + mode=disabled`
+  - 启用但不可用时返回 `UNKNOWN + mode=degraded`
 - 本地开发优先通过 Docker Compose 提供可重复依赖，测试通过 Testcontainers 保证独立验证。
 - 应用当前已具备根目录 `Dockerfile`、本地 compose `app` profile 和最小 GitHub Actions `verify -> image -> deploy` 闭环；本地联调与远程部署都必须走仓库内标准入口，而不是依赖临时命令拼装。
 - OpenAPI 当前以运行时 `/v3/api-docs` 作为事实契约入口，`/swagger-ui/index.html` 作为联调入口；稳定接口范围通过 `docs/stable-api.md` 固化，并由集成测试回归兜底。
@@ -42,6 +45,10 @@
   - `/actuator/health/readiness`：只看依赖是否就绪
   - `/actuator/prometheus`：暴露运行时与业务指标，供 Prometheus 周期抓取
 - 当前最小业务指标集如下：
+  - `aubb_cache_operations_total{cache,operation,result}`：Redis 缓存命中 / 未命中 / 驱逐 / 异常计数
+  - `aubb_rate_limit_decisions_total{policy,result}`：Redis 限流放行 / 拒绝 / 降级计数
+  - `aubb_redis_available`：Redis 增强链路当前可用性，1 为可用
+  - `aubb_redis_enabled`：Redis 增强链路是否启用，1 为启用
   - `aubb_judge_queue_depth`：judge 队列长度；当 judge queue 未启用时返回 `NaN`
   - `aubb_judge_job_executions_total{result=\"succeeded|failed\"}`：judge 任务执行次数；失败率通过 `failed / total` 计算
   - `aubb_judge_job_execution_seconds_count|sum|max{result=\"succeeded|failed\"}`：judge 任务执行耗时
@@ -62,7 +69,7 @@
 7. 启用对象存储后，bucket 缺失或不可访问必须能通过健康检查及时暴露，而不是在业务首次写入时才发现。
 8. `aubb.judge.queue.enabled=true` 时，RabbitMQ 必须进入 readiness；若 broker 不可达或评测队列缺失，不能继续返回“应用已就绪”。
 9. `aubb.judge.go-judge.enabled=true` 时，go-judge 必须进入 readiness；若 `/version` 不可达或返回异常响应，必须能从健康检查直接看出故障原因。
-10. 当前运行时不再引入 Redis；若未来要重新引入，必须同时补齐真实业务用途、健康检查策略、部署说明和自动化验证。
+10. Redis 只能作为增强组件，不得承载评测结果、提交记录、最终成绩、成绩发布快照等核心业务真相。
 11. 涉及异步评测的测试或运维脚本，不得在存在运行中 judge job 时直接批量清库；至少要先 drain 运行中任务，避免 `judge_jobs / submission_answers / audit_logs` 锁顺序反转。
 12. 涉及令牌撤销的改动，必须同时验证 access token 即时失效、refresh token 轮换和用户状态变更触发的旧会话失效，避免只实现半条链路。
 13. 涉及新环境初始化的改动，必须提供标准启动参数、幂等重复执行语义和自动化验证，不能继续依赖手工 SQL 插数。
@@ -75,3 +82,4 @@
 20. 涉及热点列表优化时，优先把权限过滤和分页下推到数据库；若组织树或课程成员边界仍需服务层预解析，也应先收敛成有限作用域集合，再交给 SQL 做 count/page，避免全量候选集进入内存。
 21. 稳定 API 发生变更时，必须在同一轮提交中同步更新 `docs/stable-api.md`，并至少验证 `/v3/api-docs` 仍可访问且包含当前承诺路径。
 22. `/actuator/prometheus` 与 `/actuator/health/readiness` 不能混用；监控系统抓 metrics，部署 smoke 与探活继续看 health/readiness。
+23. 所有 Redis 接入都必须同时给出 key 设计、TTL、失效点、一致性边界与降级策略；若做不到，宁可不缓存。
