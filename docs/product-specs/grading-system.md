@@ -16,6 +16,7 @@
   - `PROGRAMMING`
 - 人工批改写回分题得分、评分反馈、批改人和批改时间
 - 教师在 assignment 维度发布成绩
+- 教师查看 assignment 成绩发布快照批次与批次详情
 - 教师 / 管理员按开课实例查看成绩册
 - 教师 / 管理员 / 班级助教按教学班查看成绩册
 - 教师 / 管理员按单个学生查看成绩册
@@ -51,21 +52,25 @@
 6. assignment 级成绩发布前，学生仍可查看自己的提交与客观题即时分，但看不到人工评分、人工反馈和人工部分总分。
 7. assignment 级成绩发布要求当前 assignment 下已有提交的所有分题答案都不处于 `PENDING_MANUAL / PENDING_PROGRAMMING_JUDGE`。
 8. 成绩发布是 assignment 维度的全局开关；一旦发布，后续该 assignment 下的新批改结果也按已发布状态对学生可见。
-9. 教师侧成绩册第一阶段默认按“每个学生、每个作业最新一次正式提交”聚合，不提供 `latestOnly=false` 的历史矩阵视图。
-10. 当前成绩册按 assignment 级 `gradeWeight` 计算加权总分，默认公式为 `finalScore / assignmentMaxScore * gradeWeight`；若某作业尚无最新正式提交，则不计入学生当前 `totalWeight`。
-11. 教学班成绩册会同时显示课程公共作业和该教学班专属作业；其他班级专属作业不会混入该视图。
-12. offering 级和单学生成绩册当前只对教师 / 管理员开放；具备班级责任的 TA 只可查看自己负责教学班的班级成绩册。
-13. 当前成绩册只覆盖结构化作业；legacy 文本作业暂不进入第一阶段成绩册。
-14. 教师侧 CSV 导出必须复用与成绩册视图相同的聚合结果，不允许导出与页面语义不一致的历史版本或额外作业。
-15. 教师侧统计报告当前复用成绩册最新正式提交矩阵，只提供总体摘要、按作业统计、按班级对比和五档成绩分布；班级视图不返回额外班级对比列表。
-16. 班级责任 TA 当前只可导出和查看自己负责教学班的班级成绩册与统计报告，不能通过 offering 维度越权读取全课程导出或统计结果。
-17. 学生侧 CSV 导出必须与“我的成绩册”返回完全一致的可见性边界，未发布人工分、人工反馈和人工部分总分不得因为导出接口被提前泄露。
-18. 当前成绩分布固定为五档：`EXCELLENT / GOOD / MEDIUM / PASS / FAIL`；总评分布按学生当前加权得分率统计，若学生尚无加权权重则回退到总分得分率；作业分布只统计已提交学生。
-19. 成绩册中的 `offeringRank / teachingClassRank` 当前都是只读派生结果，不做持久化存储。
-20. 统计报告当前会在总体、按作业和按班级三个层级返回 `passedStudentCount` 与 `passRate`。
-21. 成绩申诉当前只支持非客观题，且必须在 assignment 成绩已发布后才能发起；同一答案同一时间只允许一个 `PENDING / IN_REVIEW` 申诉。
-22. 申诉复核在 `ACCEPTED` 时会复用单题人工批改写回最终分数与反馈，若未提供新分数则维持当前分数。
-23. assignment 级 batch-adjust 与 CSV 导入当前单次最多处理 `100` 条调整项，且所有调整都必须属于同一个 assignment。
+9. 每次 assignment 成绩发布都会生成一个新的成绩发布快照批次，用于追溯“当时发布给学生看的成绩状态”。
+10. 第一次发布会写入 `assignments.grade_published_at / grade_published_by_user_id` 并向学生发送成绩发布通知；重复发布只新增快照批次，不重置首发时间。
+11. 成绩发布快照当前按“每个学生在该作业下最新一次正式提交”生成，不额外为未提交学生补空快照。
+12. 成绩发布快照当前只用于追踪和后续冻结 / 回滚预留数据基础，不直接替代学生成绩读取链路。
+13. 教师侧成绩册第一阶段默认按“每个学生、每个作业最新一次正式提交”聚合，不提供 `latestOnly=false` 的历史矩阵视图。
+14. 当前成绩册按 assignment 级 `gradeWeight` 计算加权总分，默认公式为 `finalScore / assignmentMaxScore * gradeWeight`；若某作业尚无最新正式提交，则不计入学生当前 `totalWeight`。
+15. 教学班成绩册会同时显示课程公共作业和该教学班专属作业；其他班级专属作业不会混入该视图。
+16. offering 级和单学生成绩册当前只对教师 / 管理员开放；具备班级责任的 TA 只可查看自己负责教学班的班级成绩册。
+17. 当前成绩册只覆盖结构化作业；legacy 文本作业暂不进入第一阶段成绩册。
+18. 教师侧 CSV 导出必须复用与成绩册视图相同的聚合结果，不允许导出与页面语义不一致的历史版本或额外作业。
+19. 教师侧统计报告当前复用成绩册最新正式提交矩阵，只提供总体摘要、按作业统计、按班级对比和五档成绩分布；班级视图不返回额外班级对比列表。
+20. 班级责任 TA 当前只可导出和查看自己负责教学班的班级成绩册与统计报告，不能通过 offering 维度越权读取全课程导出或统计结果。
+21. 学生侧 CSV 导出必须与“我的成绩册”返回完全一致的可见性边界，未发布人工分、人工反馈和人工部分总分不得因为导出接口被提前泄露。
+22. 当前成绩分布固定为五档：`EXCELLENT / GOOD / MEDIUM / PASS / FAIL`；总评分布按学生当前加权得分率统计，若学生尚无加权权重则回退到总分得分率；作业分布只统计已提交学生。
+23. 成绩册中的 `offeringRank / teachingClassRank` 当前都是只读派生结果，不做持久化存储。
+24. 统计报告当前会在总体、按作业和按班级三个层级返回 `passedStudentCount` 与 `passRate`。
+25. 成绩申诉当前只支持非客观题，且必须在 assignment 成绩已发布后才能发起；同一答案同一时间只允许一个 `PENDING / IN_REVIEW` 申诉。
+26. 申诉复核在 `ACCEPTED` 时会复用单题人工批改写回最终分数与反馈，若未提供新分数则维持当前分数。
+27. assignment 级 batch-adjust 与 CSV 导入当前单次最多处理 `100` 条调整项，且所有调整都必须属于同一个 assignment。
 
 ## 核心数据模型
 
@@ -85,6 +90,10 @@
   - 保存学生围绕非客观题答案发起的成绩申诉、处理状态与复核结果
 - `course_members`
   - 提供课程 / 班级名册与 TA 作用域
+- `grade_publish_snapshot_batches`
+  - 保存 assignment 每次成绩发布的批次头、发布时间、发布序号、是否首次发布和快照数量
+- `grade_publish_snapshots`
+  - 保存某次发布批次下每个学生的已发布成绩快照、关联提交和结构化快照 JSON
 - `audit_logs`
   - `SUBMISSION_ANSWER_GRADED`
   - `ASSIGNMENT_GRADES_PUBLISHED`
@@ -133,6 +142,8 @@
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/import`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/batch-adjust`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/publish`
+- `GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches`
+- `GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches/{batchId}`
 - `GET /api/v1/teacher/assignments/{assignmentId}/grade-appeals`
 - `POST /api/v1/teacher/grade-appeals/{appealId}/review`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook`
@@ -153,6 +164,9 @@
 ## 当前实现边界
 
 - 当前发布粒度是 assignment 级，而不是按提交、按学生或按班级的细粒度发布。
+- 当前成绩发布快照 v1 只保证“发布时生成可追踪快照批次”和“教师可查看批次详情”，暂不支持基于快照的完整回滚、学生侧快照对比或冻结恢复。
+- 当前快照只覆盖该 assignment 下“已有最新正式提交”的学生，不为名册中未提交学生生成空白快照。
+- 当前学生成绩读取链路仍以 `assignments.grade_published_at` 为发布开关；快照是附加追踪模型，不替换现有成绩册与提交详情读取逻辑。
 - 当前单题人工批改、JSON batch-adjust 和 CSV 导入 / 导出都已实现第一阶段，但仍没有独立的批量批改工作台。
 - 当前成绩册不新建成绩表，直接复用 `assignments / submissions / submission_answers / course_members` 读模型。
 - 当前成绩册默认只按最新正式提交聚合，不提供历史版本并排比较。
@@ -173,6 +187,8 @@
 - 未发布成绩前，学生无法读取人工评分与反馈。
 - 发布成绩后，学生可以读取人工评分、总分与反馈。
 - 存在待批改或待编程评测答案时，assignment 成绩发布会被拒绝。
+- 教师每次发布 assignment 成绩时，系统都会生成一个新的成绩发布快照批次，并能通过教师 API 追溯该批次的学生成绩快照详情。
+- 重复发布 assignment 成绩时，系统会生成新的快照批次，但不会重置第一次发布时间，也不会重复发送“成绩首次发布”通知。
 - 教师 / 管理员可查看开课实例和单学生成绩册；班级责任 TA 可查看本班成绩册。
 - 教师 / 管理员可导出开课实例 / 教学班 CSV 成绩册，并读取与页面聚合语义一致的统计报告；班级责任 TA 只能访问自己负责教学班的导出与统计接口。
 - 教师侧成绩册与单学生视图当前会返回开课实例排名 / 教学班排名，统计报告当前会返回通过人数与通过率第一阶段结果。

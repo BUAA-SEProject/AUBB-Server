@@ -1,5 +1,37 @@
 # 进度日志
 
+## Session: 2026-04-17 成绩发布快照 v1
+
+### Phase 49：Step 3 成绩发布快照收口
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `GradingApplicationService`、`TeacherGradingController`、`GradebookApplicationService`、`SubmissionApplicationService`、`SubmissionAnswerApplicationService`、`GradeAppealApplicationService`、`docs/product-specs/grading-system.md`
+  - 确认当前成绩发布链路只在 `publishAssignmentGrades` 中写入 `assignments.grade_published_at / grade_published_by_user_id`，没有快照模型
+  - 通过子代理复核学生侧可见性仍以 `assignments.grade_published_at` 为开关，决定本轮不重写现有读链路
+  - 新增 `V30__grade_publish_snapshots_v1.sql`，引入 `grade_publish_snapshot_batches / grade_publish_snapshots`
+  - 新增 snapshot 实体、mapper、读模型 view，并在 `GradingApplicationService` 中接入每次发布都生成批次快照的逻辑
+  - 扩展 `AssignmentGradePublicationView`，补回 `snapshotBatchId / snapshotPublishSequence / snapshotCapturedAt / snapshotCount / initialPublication`
+  - 扩展 `TeacherGradingController`，新增教师侧发布快照批次列表 / 详情 API
+  - 扩展 `GradingIntegrationTests`，覆盖：
+    - 发布生成快照
+    - 教师查询快照详情
+    - 重复发布生成新批次但不重置首次发布时间
+  - 发现并修复两个真实阻塞：
+    - 课程公共作业 `teachingClassId=null` 时的快照采集空指针
+    - 首次发布响应与数据库回读时间精度不一致导致的重复发布断言失败
+  - 扩展 `OpenApiContractIntegrationTests`，把新教师快照追踪接口纳入运行时 OpenAPI 契约 smoke
+  - 同步 README、grading 规格、稳定接口清单、数据库结构说明和完成执行计划
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=GradingIntegrationTests test`
+  - `bash ./mvnw -Dtest=GradingIntegrationTests,GradebookIntegrationTests test`
+  - `bash ./mvnw -Dtest=GradingIntegrationTests,GradebookIntegrationTests,OpenApiContractIntegrationTests test`
+  - `git diff --check`
+  - 当前结果：`BUILD SUCCESS`，定向 `20` 个测试通过，diff 检查通过
+
 ## Session: 2026-04-17 文档漂移与 OpenAPI / 稳定接口清单
 
 ### Phase 47：优先级 10 文档与契约收口

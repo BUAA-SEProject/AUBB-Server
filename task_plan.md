@@ -2,11 +2,23 @@
 
 ## 当前目标
 
-基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收已通过；当前正在处理 Step 2：judge 详细产物对象化存储 phase 2，补齐下载、归档元数据和产物追踪闭环，为后续成绩发布快照与治理收口建立稳定基线。
+基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2 与 Step 3 成绩发布快照 v1 已通过；若继续推进，下一步进入 Step 4：M5 最小治理包中的健康检查收口。
 
 ## 当前阶段
 
-Phase 48 in progress，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 49：成绩发布快照 v1
+
+- [x] 审计 grading / gradebook 当前成绩发布链路，确认当前只靠 `assignments.grade_published_at` 控制学生可见性
+- [x] 明确快照 v1 只做“发布时生成快照 + 教师可追踪批次”，不混入完整回滚或读模型重写
+- [x] 新增 `grade_publish_snapshot_batches / grade_publish_snapshots` migration 与对应 MyBatis 实体 / mapper
+- [x] 在 `publishAssignmentGrades` 中接入批次快照生成逻辑，并保持“仅首次发布写入 assignment 首发时间 / 首次通知”的兼容语义
+- [x] 新增教师侧快照批次列表 / 详情 API，支持按作业追溯已发布成绩快照
+- [x] 补齐发布生成快照、查询追踪快照、重复发布行为和 gradebook 回归测试
+- [x] 同步 grading 规格、README、稳定接口清单、数据库结构、OpenAPI 回归测试与完成执行计划
+- [x] 执行 `git diff --check` 并完成最终最小测试回归
+- **Status:** completed
 
 ### Phase 48：judge 详细产物对象化存储 phase 2
 

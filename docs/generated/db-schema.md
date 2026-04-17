@@ -31,6 +31,7 @@
 - `src/main/resources/db/migration/V27__notification_center_mvp.sql`
 - `src/main/resources/db/migration/V28__db_paginated_permission_filter_indexes.sql`
 - `src/main/resources/db/migration/V29__judge_artifact_tracking_phase2.sql`
+- `src/main/resources/db/migration/V30__grade_publish_snapshots_v1.sql`
 
 ## 总览
 
@@ -70,6 +71,8 @@
 - `submission_artifacts`：提交附件元数据
 - `submission_answers`：分题答案、人工批改与题目级评测回写状态
 - `grade_appeals`：成绩申诉与复核记录
+- `grade_publish_snapshot_batches`：assignment 成绩发布批次头
+- `grade_publish_snapshots`：按学生展开的成绩发布快照
 - `programming_workspaces`：编程题工作区草稿
 - `programming_workspace_revisions`：工作区历史修订与恢复点
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
@@ -739,6 +742,61 @@
 - `idx_grade_appeals_submission_answer`
 - `uq_grade_appeals_active_answer`
 
+### `grade_publish_snapshot_batches`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
+| `publish_sequence` | `integer` | 必填，作业内发布序号，`>= 1` |
+| `snapshot_count` | `integer` | 必填，默认 `0`，`>= 0` |
+| `initial_publication` | `boolean` | 必填，是否首次发布 |
+| `published_at` | `timestamptz` | 必填，本批次快照采集时间 |
+| `published_by_user_id` | `bigint` | 可空，发布人，外键到 `users.id`，删除置空 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_grade_publish_snapshot_batches_assignment_sequence`
+- `idx_grade_publish_snapshot_batches_assignment_published_at`
+- `idx_grade_publish_snapshot_batches_offering_published_at`
+- `ck_grade_publish_snapshot_batches_sequence`
+- `ck_grade_publish_snapshot_batches_count`
+
+### `grade_publish_snapshots`
+
+| 列名 | 类型 | 约束 / 说明 |
+| --- | --- | --- |
+| `id` | `bigint` | 主键，identity |
+| `publish_batch_id` | `bigint` | 必填，外键到 `grade_publish_snapshot_batches.id`，级联删除 |
+| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
+| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
+| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
+| `student_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
+| `submission_id` | `bigint` | 可空，外键到 `submissions.id`，删除置空 |
+| `submission_no` | `text` | 可空，提交编号快照 |
+| `attempt_no` | `integer` | 可空，若存在则 `>= 1` |
+| `submitted_at` | `timestamptz` | 可空，提交时间快照 |
+| `total_final_score` | `integer` | 必填，默认 `0`，`>= 0` |
+| `total_max_score` | `integer` | 必填，默认 `0`，`>= 0` |
+| `auto_scored_score` | `integer` | 必填，默认 `0`，`>= 0` |
+| `manual_scored_score` | `integer` | 可空，人工部分总分 |
+| `fully_graded` | `boolean` | 必填，默认 `false` |
+| `snapshot_json` | `text` | 必填，保存发布时的学生 / 提交 / 成绩摘要 / 分题批改快照 |
+| `created_at` | `timestamptz` | 必填，默认 `now()` |
+
+索引与约束：
+
+- `ux_grade_publish_snapshots_batch_student`
+- `idx_grade_publish_snapshots_assignment_batch`
+- `idx_grade_publish_snapshots_student_batch`
+- `ck_grade_publish_snapshots_attempt_no`
+- `ck_grade_publish_snapshots_total_final_score`
+- `ck_grade_publish_snapshots_total_max_score`
+- `ck_grade_publish_snapshots_auto_scored_score`
+
 ### `programming_workspaces`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -966,6 +1024,16 @@
 - `assignments.teaching_class_id -> teaching_classes.id`
 - `assignments.grade_published_by_user_id -> users.id`
 - `assignments.created_by_user_id -> users.id`
+- `grade_publish_snapshot_batches.assignment_id -> assignments.id`
+- `grade_publish_snapshot_batches.offering_id -> course_offerings.id`
+- `grade_publish_snapshot_batches.teaching_class_id -> teaching_classes.id`
+- `grade_publish_snapshot_batches.published_by_user_id -> users.id`
+- `grade_publish_snapshots.publish_batch_id -> grade_publish_snapshot_batches.id`
+- `grade_publish_snapshots.assignment_id -> assignments.id`
+- `grade_publish_snapshots.offering_id -> course_offerings.id`
+- `grade_publish_snapshots.teaching_class_id -> teaching_classes.id`
+- `grade_publish_snapshots.student_user_id -> users.id`
+- `grade_publish_snapshots.submission_id -> submissions.id`
 - `question_bank_questions.offering_id -> course_offerings.id`
 - `question_bank_questions.category_id -> question_bank_categories.id`
 - `question_bank_questions.created_by_user_id -> users.id`
@@ -1042,6 +1110,7 @@
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
 - `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕；编程题自动评测失败时会把 `grading_status` 标记为 `PROGRAMMING_JUDGE_FAILED`，便于与“仍在等待评测”的 `PENDING_PROGRAMMING_JUDGE` 区分。成绩册排名、通过率和 batch-adjust 第一阶段都继续复用该表，不新增独立成绩明细表。
 - `grade_appeals` 当前保存学生围绕非客观题答案发起的成绩申诉和复核结果，约束“同一答案同一时间最多一个活动申诉”。
+- `grade_publish_snapshot_batches / grade_publish_snapshots` 当前作为成绩发布快照 v1 的最小追踪模型存在；每次 assignment 级成绩发布都会生成一个新批次，快照按“每个学生最新正式提交”写入，不直接替代现有成绩读取链路。
 - `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`；当前还会记录目录列表与最近一次标准输入，便于断线恢复。
 - `programming_workspace_revisions` 以追加写方式保存工作区历史版本，用于模板重置、历史恢复和试运行复用，不单独引入复杂的增量补丁协议。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。

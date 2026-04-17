@@ -129,6 +129,8 @@
 - `GET /api/v1/teacher/assignments/{assignmentId}/grades/import-template`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/import`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/publish`
+- `GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches`
+- `GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches/{batchId}`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/export`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/report`

@@ -6,7 +6,10 @@ import com.aubb.server.modules.grading.application.BatchManualGradeResultView;
 import com.aubb.server.modules.grading.application.GradeImportTemplateContent;
 import com.aubb.server.modules.grading.application.GradingApplicationService;
 import com.aubb.server.modules.grading.application.ManualGradeResultView;
+import com.aubb.server.modules.grading.application.snapshot.GradePublishBatchDetailView;
+import com.aubb.server.modules.grading.application.snapshot.GradePublishBatchSummaryView;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -39,6 +42,7 @@ public class TeacherGradingController {
     private final GradingApplicationService gradingApplicationService;
 
     @PostMapping("/submissions/{submissionId}/answers/{answerId}/grade")
+    @Operation(summary = "教师或助教对分题答案执行人工批改")
     @PreAuthorize("isAuthenticated()")
     public ManualGradeResultView gradeAnswer(
             @PathVariable Long submissionId,
@@ -50,6 +54,7 @@ public class TeacherGradingController {
     }
 
     @PostMapping("/assignments/{assignmentId}/grades/batch-adjust")
+    @Operation(summary = "教师按作业批量调整分题成绩")
     @PreAuthorize("isAuthenticated()")
     public BatchManualGradeResultView batchAdjustAnswers(
             @PathVariable Long assignmentId,
@@ -63,6 +68,7 @@ public class TeacherGradingController {
     }
 
     @GetMapping("/assignments/{assignmentId}/grades/import-template")
+    @Operation(summary = "教师导出作业批量调分模板")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<byte[]> exportBatchGradeTemplate(
             @PathVariable Long assignmentId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
@@ -70,6 +76,7 @@ public class TeacherGradingController {
     }
 
     @PostMapping("/assignments/{assignmentId}/grades/import")
+    @Operation(summary = "教师导入作业批量调分结果")
     @PreAuthorize("isAuthenticated()")
     public BatchGradeImportResultView importBatchGrades(
             @PathVariable Long assignmentId,
@@ -79,10 +86,29 @@ public class TeacherGradingController {
     }
 
     @PostMapping("/assignments/{assignmentId}/grades/publish")
+    @Operation(summary = "教师发布作业成绩并生成发布快照")
     @PreAuthorize("isAuthenticated()")
     public AssignmentGradePublicationView publishAssignmentGrades(
             @PathVariable Long assignmentId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return gradingApplicationService.publishAssignmentGrades(assignmentId, principal);
+    }
+
+    @GetMapping("/assignments/{assignmentId}/grade-publish-batches")
+    @Operation(summary = "教师查看作业成绩发布快照批次列表")
+    @PreAuthorize("isAuthenticated()")
+    public List<GradePublishBatchSummaryView> listGradePublishBatches(
+            @PathVariable Long assignmentId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return gradingApplicationService.listGradePublishBatches(assignmentId, principal);
+    }
+
+    @GetMapping("/assignments/{assignmentId}/grade-publish-batches/{batchId}")
+    @Operation(summary = "教师查看作业成绩发布快照批次详情")
+    @PreAuthorize("isAuthenticated()")
+    public GradePublishBatchDetailView getGradePublishBatch(
+            @PathVariable Long assignmentId,
+            @PathVariable Long batchId,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return gradingApplicationService.getGradePublishBatch(assignmentId, batchId, principal);
     }
 
     private ResponseEntity<byte[]> toDownloadResponse(GradeImportTemplateContent exportContent) {

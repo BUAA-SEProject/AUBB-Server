@@ -33,6 +33,8 @@ class OpenApiContractIntegrationTests {
                 .andExpect(content().string(containsString("/api/v1/admin/users")))
                 .andExpect(content().string(containsString("/api/v1/me/assignments")))
                 .andExpect(content().string(containsString("/api/v1/me/notifications")))
+                .andExpect(content()
+                        .string(containsString("/api/v1/teacher/assignments/{assignmentId}/grade-publish-batches")))
                 .andExpect(content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/labs")));
     }
 
