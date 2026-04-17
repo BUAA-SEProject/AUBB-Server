@@ -1,14 +1,17 @@
 package com.aubb.server.config;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
 import com.aubb.server.modules.identityaccess.domain.profile.AcademicProfileStatus;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -31,6 +34,8 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                     .toList();
         }
         List<ScopeIdentityView> identities = readIdentities(jwt);
+        List<GroupBindingView> groupBindings = readGroupBindings(jwt);
+        Set<String> permissionCodes = readPermissionCodes(jwt);
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
                 readLong(jwt.getClaim("userId")),
                 jwt.getSubject(),
@@ -39,7 +44,10 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 jwt.getClaimAsString("sid"),
                 AccountStatus.valueOf(jwt.getClaimAsString("accountStatus")),
                 readAcademicProfile(jwt),
-                identities);
+                identities,
+                groupBindings,
+                permissionCodes,
+                readLong(jwt.getClaim("permissionVersion")));
         return new UsernamePasswordAuthenticationToken(principal, jwt.getTokenValue(), authorities);
     }
 
@@ -58,6 +66,31 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                         String.valueOf(identity.get("scopeOrgType")),
                         String.valueOf(identity.get("scopeOrgName"))))
                 .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<GroupBindingView> readGroupBindings(Jwt jwt) {
+        Object groupBindingsClaim = jwt.getClaim("groupBindings");
+        if (!(groupBindingsClaim instanceof List<?> bindings)) {
+            return List.of();
+        }
+        return bindings.stream()
+                .filter(Map.class::isInstance)
+                .map(Map.class::cast)
+                .map(binding -> new GroupBindingView(
+                        String.valueOf(binding.get("source")),
+                        String.valueOf(binding.get("templateCode")),
+                        String.valueOf(binding.get("scopeType")),
+                        readLong(binding.get("scopeRefId"))))
+                .toList();
+    }
+
+    private Set<String> readPermissionCodes(Jwt jwt) {
+        List<String> codes = jwt.getClaimAsStringList("permissionCodes");
+        if (codes == null) {
+            return Set.of();
+        }
+        return codes.stream().collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
     @SuppressWarnings("unchecked")

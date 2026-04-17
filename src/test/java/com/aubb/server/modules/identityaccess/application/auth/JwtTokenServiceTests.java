@@ -3,9 +3,11 @@ package com.aubb.server.modules.identityaccess.application.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aubb.server.config.JwtSecurityProperties;
+import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -34,9 +36,19 @@ class JwtTokenServiceTests {
     @Test
     void issuesAccessTokenWithSessionClaimAndRefreshPayload() {
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
-                1L, "school-admin", "School Admin", 1L, AccountStatus.ACTIVE, null, List.of());
+                1L,
+                "school-admin",
+                "School Admin",
+                1L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(new GroupBindingView("LEGACY_GOVERNANCE", "school-admin", "SCHOOL", 1L)),
+                Set.of("org.unit.manage", "auth.group.manage"),
+                42L);
 
-        LoginResultView result = jwtTokenService.issueToken(principal, "session-123", "refresh-token-123");
+        LoginResultView result = jwtTokenService.issueToken(principal, "session-123", "refresh-token-123", 42L);
         Jwt jwt = jwtDecoder.decode(result.accessToken());
 
         assertThat(result.refreshToken()).isEqualTo("refresh-token-123");
@@ -45,5 +57,8 @@ class JwtTokenServiceTests {
         assertThat(jwt.getClaimAsString("sid")).isEqualTo("session-123");
         assertThat(jwt.getClaimAsString("tokenType")).isEqualTo("access");
         assertThat(((Number) jwt.getClaim("userId")).longValue()).isEqualTo(1L);
+        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("org.unit.manage", "auth.group.manage");
+        assertThat(((List<?>) jwt.getClaim("groupBindings"))).hasSize(1);
+        assertThat(((Number) jwt.getClaim("permissionVersion")).longValue()).isEqualTo(42L);
     }
 }

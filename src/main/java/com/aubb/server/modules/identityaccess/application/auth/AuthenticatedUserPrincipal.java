@@ -1,5 +1,6 @@
 package com.aubb.server.modules.identityaccess.application.auth;
 
+import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
@@ -27,6 +28,9 @@ public class AuthenticatedUserPrincipal implements Serializable {
     private final AccountStatus accountStatus;
     private final AcademicProfileView academicProfile;
     private final List<ScopeIdentityView> identities;
+    private final List<GroupBindingView> groupBindings;
+    private final Set<String> permissionCodes;
+    private final Long permissionVersion;
     private final Set<String> authorityCodes;
 
     public AuthenticatedUserPrincipal(
@@ -37,7 +41,18 @@ public class AuthenticatedUserPrincipal implements Serializable {
             AccountStatus accountStatus,
             AcademicProfileView academicProfile,
             List<ScopeIdentityView> identities) {
-        this(userId, username, displayName, primaryOrgUnitId, null, accountStatus, academicProfile, identities);
+        this(
+                userId,
+                username,
+                displayName,
+                primaryOrgUnitId,
+                null,
+                accountStatus,
+                academicProfile,
+                identities,
+                List.of(),
+                Set.of(),
+                null);
     }
 
     public AuthenticatedUserPrincipal(
@@ -49,6 +64,32 @@ public class AuthenticatedUserPrincipal implements Serializable {
             AccountStatus accountStatus,
             AcademicProfileView academicProfile,
             List<ScopeIdentityView> identities) {
+        this(
+                userId,
+                username,
+                displayName,
+                primaryOrgUnitId,
+                sessionId,
+                accountStatus,
+                academicProfile,
+                identities,
+                List.of(),
+                Set.of(),
+                null);
+    }
+
+    public AuthenticatedUserPrincipal(
+            Long userId,
+            String username,
+            String displayName,
+            Long primaryOrgUnitId,
+            String sessionId,
+            AccountStatus accountStatus,
+            AcademicProfileView academicProfile,
+            List<ScopeIdentityView> identities,
+            List<GroupBindingView> groupBindings,
+            Set<String> permissionCodes,
+            Long permissionVersion) {
         this.userId = userId;
         this.username = username;
         this.displayName = displayName;
@@ -56,8 +97,11 @@ public class AuthenticatedUserPrincipal implements Serializable {
         this.sessionId = sessionId;
         this.accountStatus = accountStatus;
         this.academicProfile = academicProfile;
-        this.identities = identities;
-        this.authorityCodes = identities.stream()
+        this.identities = List.copyOf(identities == null ? List.of() : identities);
+        this.groupBindings = List.copyOf(groupBindings == null ? List.of() : groupBindings);
+        this.permissionCodes = Set.copyOf(permissionCodes == null ? Set.of() : permissionCodes);
+        this.permissionVersion = permissionVersion;
+        this.authorityCodes = this.identities.stream()
                 .map(ScopeIdentityView::roleCode)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
