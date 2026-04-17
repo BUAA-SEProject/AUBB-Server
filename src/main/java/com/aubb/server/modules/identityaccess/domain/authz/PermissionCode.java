@@ -61,6 +61,36 @@ public enum PermissionCode {
         return code;
     }
 
+    public boolean isWriteAction() {
+        return switch (this) {
+            case ORG_UNIT_MANAGE,
+                    USER_MANAGE,
+                    USER_IDENTITY_MANAGE,
+                    USER_MEMBERSHIP_MANAGE,
+                    USER_SESSION_REVOKE,
+                    COURSE_MANAGE,
+                    OFFERING_MANAGE,
+                    CLASS_MANAGE,
+                    MEMBER_MANAGE,
+                    ASSIGNMENT_CREATE,
+                    ASSIGNMENT_UPDATE,
+                    ASSIGNMENT_PUBLISH,
+                    ASSIGNMENT_CLOSE,
+                    QUESTION_MANAGE,
+                    JUDGE_PROFILE_MANAGE,
+                    JUDGE_HIDDEN_MANAGE,
+                    SUBMISSION_GRADE,
+                    SUBMISSION_REJUDGE,
+                    GRADE_OVERRIDE,
+                    GRADE_PUBLISH,
+                    APPEAL_REVIEW,
+                    LAB_MANAGE,
+                    LAB_REPORT_REVIEW,
+                    AUTH_GROUP_MANAGE -> true;
+            default -> false;
+        };
+    }
+
     public static PermissionCode fromCode(String code) {
         return Arrays.stream(values())
                 .filter(permissionCode -> permissionCode.code.equalsIgnoreCase(code))

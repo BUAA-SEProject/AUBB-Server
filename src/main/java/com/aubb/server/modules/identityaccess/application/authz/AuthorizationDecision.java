@@ -15,4 +15,8 @@ public record AuthorizationDecision(boolean allowed, String reasonCode, List<Per
     public static AuthorizationDecision deny(String reasonCode) {
         return new AuthorizationDecision(false, reasonCode, List.of());
     }
+
+    public static AuthorizationDecision deny(String reasonCode, List<PermissionGrantView> grants) {
+        return new AuthorizationDecision(false, reasonCode, grants);
+    }
 }

@@ -1,14 +1,25 @@
 package com.aubb.server.modules.identityaccess.application.authz;
 
+import com.aubb.server.modules.identityaccess.application.authz.guard.PolicyGuardRegistry;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class AuthorizationService {
 
     private final List<PermissionGrantResolver> grantResolvers;
+    private final PolicyGuardRegistry policyGuardRegistry;
+
+    @Autowired
+    public AuthorizationService(List<PermissionGrantResolver> grantResolvers, PolicyGuardRegistry policyGuardRegistry) {
+        this.grantResolvers = List.copyOf(grantResolvers);
+        this.policyGuardRegistry = policyGuardRegistry;
+    }
+
+    AuthorizationService(List<PermissionGrantResolver> grantResolvers) {
+        this(grantResolvers, PolicyGuardRegistry.noop());
+    }
 
     public AuthorizationDecision decide(AuthorizationRequest request) {
         List<PermissionGrantView> grants = grantResolvers.stream()
@@ -19,6 +30,6 @@ public class AuthorizationService {
         if (grants.isEmpty()) {
             return AuthorizationDecision.deny("NO_PERMISSION");
         }
-        return AuthorizationDecision.allow(grants);
+        return policyGuardRegistry.evaluate(request, grants).orElseGet(() -> AuthorizationDecision.allow(grants));
     }
 }
