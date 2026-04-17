@@ -33,7 +33,9 @@ class OpenApiContractIntegrationTests {
                 .andExpect(content().string(containsString("/api/v1/admin/users")))
                 .andExpect(content().string(containsString("/api/v1/me/assignments")))
                 .andExpect(content().string(containsString("/api/v1/me/announcements/{announcementId}")))
+                .andExpect(content().string(containsString("/api/v1/me/discussions/{discussionId}")))
                 .andExpect(content().string(containsString("/api/v1/me/course-classes/{teachingClassId}/resources")))
+                .andExpect(content().string(containsString("/api/v1/me/course-classes/{teachingClassId}/discussions")))
                 .andExpect(content().string(containsString("/api/v1/me/notifications")))
                 .andExpect(content().string(containsString("/api/v1/me/notifications/stream")))
                 .andExpect(content()
@@ -42,7 +44,9 @@ class OpenApiContractIntegrationTests {
                 .andExpect(content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/labs")))
                 .andExpect(
                         content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/announcements")))
-                .andExpect(content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/resources")));
+                .andExpect(content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/resources")))
+                .andExpect(
+                        content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/discussions")));
     }
 
     @Test

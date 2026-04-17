@@ -14,6 +14,7 @@
 
 - [产品规格](product-specs/index.md)
 - [稳定接口清单](stable-api.md)
+- [前端全生命周期开发指南](frontend-development-guide.md)
 - [生成数据库结构](generated/db-schema.md)
 - [可靠性](reliability.md)
 - [安全](security.md)

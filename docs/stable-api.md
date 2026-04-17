@@ -79,6 +79,15 @@
 - `GET /api/v1/teacher/course-resources/{resourceId}/download`
 - `GET /api/v1/me/course-classes/{teachingClassId}/resources`
 - `GET /api/v1/me/course-resources/{resourceId}/download`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/discussions`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/discussions`
+- `GET /api/v1/teacher/discussions/{discussionId}`
+- `POST /api/v1/teacher/discussions/{discussionId}/replies`
+- `PUT /api/v1/teacher/discussions/{discussionId}/lock-state`
+- `POST /api/v1/me/course-classes/{teachingClassId}/discussions`
+- `GET /api/v1/me/course-classes/{teachingClassId}/discussions`
+- `GET /api/v1/me/discussions/{discussionId}`
+- `POST /api/v1/me/discussions/{discussionId}/replies`
 
 ### 作业与题库
 

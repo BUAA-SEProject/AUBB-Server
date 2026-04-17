@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付课程域增强切片，使平台具备课程模板、学期、开课实例、教学班、课程成员、班级功能开关、课程公告和教学资源能力，能够支撑教师组织课程、维护教学班、批量管理课程成员，并为作业等下游模块提供稳定主数据与课程内容入口。
+交付课程域增强切片，使平台具备课程模板、学期、开课实例、教学班、课程成员、班级功能开关、课程公告、课程讨论和教学资源能力，能够支撑教师组织课程、维护教学班、批量管理课程成员，并为作业等下游模块提供稳定主数据与课程内容入口。
 
 ## 覆盖范围
 
@@ -20,13 +20,15 @@
 - 班级功能开关：公告、讨论区、资源、实验、作业
 - 教师创建课程公告，按开课或教学班定向发布
 - 学生按教学班查看可见课程公告
+- 教师按开课或教学班发起课程讨论，并可锁定讨论串
+- 学生按教学班查看可见讨论、发帖与回复
 - 教师上传课程资源，按开课或教学班定向投放
 - 学生按教学班查看与下载可见课程资源
 - “我的课程”聚合查询
 
 ### 不在范围
 
-- 课程讨论帖、课程首页装修、资源目录树与版本化
+- 课程首页装修、资源目录树与版本化
 - 学生自主选课、邀请码加课、退课、选组
 - 提交、实验、评测、成绩
 - 助教细粒度授权范围自定义与通用 ABAC 引擎
@@ -51,6 +53,8 @@
 - `teaching_classes`
 - `course_members`
 - `course_announcements`
+- `course_discussions`
+- `course_discussion_posts`
 - `course_resources`
 
 ## 角色边界
@@ -109,6 +113,11 @@
 - `GET /api/v1/teacher/course-offerings/{offeringId}/members`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/announcements`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/announcements`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/discussions`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/discussions`
+- `GET /api/v1/teacher/discussions/{discussionId}`
+- `POST /api/v1/teacher/discussions/{discussionId}/replies`
+- `PUT /api/v1/teacher/discussions/{discussionId}/lock-state`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/resources`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/resources`
 - `GET /api/v1/teacher/course-resources/{resourceId}/download`
@@ -118,6 +127,10 @@
 - `GET /api/v1/me/courses`
 - `GET /api/v1/me/course-classes/{teachingClassId}/announcements`
 - `GET /api/v1/me/announcements/{announcementId}`
+- `POST /api/v1/me/course-classes/{teachingClassId}/discussions`
+- `GET /api/v1/me/course-classes/{teachingClassId}/discussions`
+- `GET /api/v1/me/discussions/{discussionId}`
+- `POST /api/v1/me/discussions/{discussionId}/replies`
 - `GET /api/v1/me/course-classes/{teachingClassId}/resources`
 - `GET /api/v1/me/course-resources/{resourceId}/download`
 
@@ -131,6 +144,8 @@
 - 同一用户可在一个班级中是学生，在另一个班级中是助教。
 - 助教在被授权班级内可查看成员，但不能修改成员和班级功能。
 - 教师可发布开课级或教学班级课程公告，学生只看到自己有权限的公告。
+- 教师和学生可在已启用讨论功能的教学班内发帖、回复，且跨班访问会被拒绝。
+- 教师可锁定讨论串；锁定后学生不可继续回复。
 - 教师可上传开课级或教学班级课程资源，学生只下载自己有权限的资源。
-- 当教学班关闭公告或资源功能后，对应学生读取入口会被拒绝。
+- 当教学班关闭公告、讨论或资源功能后，对应学生读取入口会被拒绝。
 - `mvnd verify` 或 `bash ./mvnw verify` 提供自动化测试证据。

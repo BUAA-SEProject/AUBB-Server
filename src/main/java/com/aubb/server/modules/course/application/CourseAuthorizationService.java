@@ -118,6 +118,28 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanManageDiscussions(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertCanManageOffering(principal, offeringId);
+        if (teachingClassId != null) {
+            assertDiscussionFeatureEnabled(offeringId, teachingClassId);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanParticipateDiscussionsForClass(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertDiscussionFeatureEnabled(offeringId, teachingClassId);
+        if (canManageOfferingAsAdmin(principal, offeringId)
+                || isInstructor(principal.getUserId(), offeringId)
+                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
+                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权参与该课程讨论");
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanManageLabs(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertCanManageOffering(principal, offeringId);
         assertLabFeatureEnabled(offeringId, teachingClassId);
@@ -351,6 +373,13 @@ public class CourseAuthorizationService {
         TeachingClassEntity teachingClass = requireTeachingClassInOffering(offeringId, teachingClassId);
         if (!Boolean.TRUE.equals(teachingClass.getResourceEnabled())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "RESOURCE_DISABLED", "当前教学班未启用课程资源功能");
+        }
+    }
+
+    private void assertDiscussionFeatureEnabled(Long offeringId, Long teachingClassId) {
+        TeachingClassEntity teachingClass = requireTeachingClassInOffering(offeringId, teachingClassId);
+        if (!Boolean.TRUE.equals(teachingClass.getDiscussionEnabled())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "DISCUSSION_DISABLED", "当前教学班未启用课程讨论功能");
         }
     }
 

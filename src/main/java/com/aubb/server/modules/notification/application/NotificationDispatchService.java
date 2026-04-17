@@ -6,6 +6,7 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.infrastructure.announcement.CourseAnnouncementEntity;
+import com.aubb.server.modules.course.infrastructure.discussion.CourseDiscussionEntity;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.resource.CourseResourceEntity;
@@ -108,6 +109,27 @@ public class NotificationDispatchService {
                 resource.getTeachingClassId(),
                 Map.of("resourceId", resource.getId()),
                 loadActiveStudentRecipients(resource.getOfferingId(), resource.getTeachingClassId()));
+    }
+
+    @Transactional
+    public void notifyCourseDiscussionUpdated(
+            CourseDiscussionEntity discussion, Long actorUserId, boolean notifyStudents) {
+        if (discussion == null) {
+            return;
+        }
+        enqueueNotification(
+                NotificationType.COURSE_DISCUSSION_UPDATED,
+                "课程讨论有新动态：" + discussion.getTitle(),
+                notifyStudents ? "教师更新了课程讨论，请及时查看。" : "有学生发起或回复了课程讨论，请及时查看。",
+                actorUserId,
+                "COURSE_DISCUSSION",
+                String.valueOf(discussion.getId()),
+                discussion.getOfferingId(),
+                discussion.getTeachingClassId(),
+                Map.of("discussionId", discussion.getId()),
+                notifyStudents
+                        ? loadActiveStudentRecipients(discussion.getOfferingId(), discussion.getTeachingClassId())
+                        : loadTeachingRecipients(discussion.getOfferingId(), discussion.getTeachingClassId()));
     }
 
     @Transactional
