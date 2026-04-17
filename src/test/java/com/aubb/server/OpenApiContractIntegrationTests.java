@@ -33,13 +33,27 @@ class OpenApiContractIntegrationTests {
                 .andExpect(content().string(containsString("/api/v1/admin/users")))
                 .andExpect(content().string(containsString("/api/v1/me/assignments")))
                 .andExpect(content().string(containsString("/api/v1/me/notifications")))
+                .andExpect(content().string(containsString("/api/v1/me/notifications/stream")))
                 .andExpect(content()
                         .string(containsString("/api/v1/teacher/assignments/{assignmentId}/grade-publish-batches")))
+                .andExpect(content().string(containsString("/api/v1/teacher/assignments/{assignmentId}/paper")))
                 .andExpect(content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/labs")));
     }
 
     @Test
     void swaggerUiIndexIsPublic() throws Exception {
         mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
+    }
+
+    @Test
+    void noContentEndpointsExpose204InOpenApiContract() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/logout'].post.responses['204']")
+                        .exists())
+                .andExpect(jsonPath("$.paths['/api/v1/auth/revoke'].post.responses['204']")
+                        .exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/users/{userId}/sessions/revoke'].post.responses['204']")
+                        .exists());
     }
 }

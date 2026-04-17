@@ -114,6 +114,29 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void teacherListsMultipleAssignmentsUnderSameOffering() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+
+        Long assignmentIdA = createAssignment(teacherToken, offeringId, classId, "链表实验一");
+        Long assignmentIdB = createAssignment(teacherToken, offeringId, classId, "链表实验二");
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].id").value(assignmentIdB))
+                .andExpect(jsonPath("$.items[1].id").value(assignmentIdA));
+    }
+
+    @Test
     void studentSeesOnlyPublishedAssignmentsForOwnCourseAndClass() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -138,20 +161,20 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, offeringAssignmentId);
         publishAssignment(teacherToken, classAssignmentId);
 
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 4
-                          AND n.type = 'ASSIGNMENT_PUBLISHED'
-                        """)).isEqualTo(2);
-        assertThat(queryForCount("""
-                        SELECT COUNT(*)
-                        FROM notification_receipts nr
-                        JOIN notifications n ON n.id = nr.notification_id
-                        WHERE nr.recipient_user_id = 5
-                          AND n.type = 'ASSIGNMENT_PUBLISHED'
-                        """)).isEqualTo(1);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 4
+                                  AND n.type = 'ASSIGNMENT_PUBLISHED'
+                                """), 2);
+        IntegrationTestAwait.awaitCount(() -> queryForCount("""
+                                SELECT COUNT(*)
+                                FROM notification_receipts nr
+                                JOIN notifications n ON n.id = nr.notification_id
+                                WHERE nr.recipient_user_id = 5
+                                  AND n.type = 'ASSIGNMENT_PUBLISHED'
+                                """), 1);
 
         mockMvc.perform(get("/api/v1/me/assignments").header("Authorization", "Bearer " + studentAToken))
                 .andExpect(status().isOk())

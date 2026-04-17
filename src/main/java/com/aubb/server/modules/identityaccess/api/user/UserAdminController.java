@@ -14,6 +14,7 @@ import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
 import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -21,7 +22,6 @@ import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -121,13 +121,14 @@ public class UserAdminController {
 
     @PostMapping("/{userId}/sessions/revoke")
     @Operation(summary = "管理员强制失效指定用户的全部登录会话")
+    @ApiResponse(responseCode = "204", description = "No Content")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN', 'COURSE_ADMIN', 'CLASS_ADMIN')")
-    public ResponseEntity<Void> revokeSessions(
+    public void revokeSessions(
             @PathVariable Long userId,
             @Valid @RequestBody RevokeUserSessionsRequest request,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         userAdministrationApplicationService.invalidateSessions(userId, request.reason(), principal);
-        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{userId}/profile")
