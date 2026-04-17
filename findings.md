@@ -1,5 +1,24 @@
 # 发现与决策
 
+## 2026-04-17 关键业务 metrics 基线发现
+
+- 仓库里已经接入 `spring-boot-starter-actuator` 和 `micrometer-registry-prometheus`，`application.yaml` 也把 `prometheus` 放进了公开 exposure 列表，但在本轮之前代码里没有任何 judge / grading 业务指标采集点。
+- `/actuator/prometheus` 在当前 Spring Boot 4 基线上没有自动出现，单靠 exposure 配置会得到 404。最小可行修复不是引入额外监控组件，而是显式提供 `PrometheusMeterRegistry` 和 scrape controller。
+- judge 失败率不需要单独预计算成 gauge；对 v1 最稳的表达是：
+  - `aubb_judge_job_executions_total{result="succeeded|failed"}`
+  - 运维侧按 `failed / total` 计算失败率
+- judge 主耗时不应把终态 side effects 算进去，否则它会混入通知、审计、submission 状态写回等链路，偏离“评测本体执行耗时”。
+- judge 队列长度最稳的来源不是应用内存状态，而是 RabbitMQ 队列属性；这让指标在真实 queue consumer 模式和测试模式下都能复用。
+- 成绩发布和申诉计数最容易踩到“事务已回滚但指标已累加”的坑。最小稳妥方案是在事务 `afterCommit` 中记数，而不是在 service 方法内直接 `counter.increment()`。
+- 指标命名要先按 Prometheus 最终暴露名反推，否则很容易出现文档、测试和 scrape 实际名字不一致：
+  - `aubb.judge.queue.depth` -> `aubb_judge_queue_depth`
+  - `aubb.judge.job.executions` -> `aubb_judge_job_executions_total`
+  - `aubb.judge.job.execution` -> `aubb_judge_job_execution_seconds_*`
+  - `aubb.grading.grade.publications` -> `aubb_grading_grade_publications_total`
+  - `aubb.grading.appeal.creations` -> `aubb_grading_appeal_creations_total`
+  - `aubb.grading.appeal.reviews` -> `aubb_grading_appeal_reviews_total`
+- `/actuator/prometheus` 被纳入公开运维面是有意取舍：当前只暴露低基数系统与业务指标，不包含用户级、作业级或提交级高基数标签；如果后续运维要求更强收口，可以交给反向代理或内网策略处理。
+
 ## 2026-04-17 健康检查收口发现
 
 - 当前 `application.yaml` 里 `management.health.rabbit.enabled=false`、`management.health.redis.enabled=false`，会导致 `/actuator/health` 在 judge 队列启用时仍可能返回“应用已健康”，这是典型的 false positive。

@@ -22,7 +22,7 @@
 - 已列入本清单的路径，不应在无文档同步的情况下改名、删除或改变权限语义。
 - 已列入本清单的响应允许增加向后兼容的可选字段，但不应移除现有字段或改变已存在字段的核心含义。
 - 未列入本清单的路径，默认视为内部实现细节、过渡接口或后续扩展位，不承诺稳定性。
-- `/actuator/health`、`/actuator/health/readiness` 与 `/actuator/info` 属于公开运维检查面；其他 `actuator` 端点不属于稳定业务 API。
+- `/actuator/health`、`/actuator/health/readiness`、`/actuator/info` 与 `/actuator/prometheus` 属于公开运维检查面；其他 `actuator` 端点不属于稳定业务 API。
 - 当前通知中心只承诺轮询式 HTTP 接口，不把未来 WebSocket / Redis 推送纳入本轮稳定承诺。
 
 ## 当前稳定接口范围
@@ -32,6 +32,7 @@
 - `GET /actuator/health`
 - `GET /actuator/health/readiness`
 - `GET /actuator/info`
+- `GET /actuator/prometheus`
 - `GET /v3/api-docs`
 - `GET /swagger-ui/index.html`
 
@@ -178,4 +179,4 @@
 - 未来可能引入的 WebSocket / SSE 通知推送通道
 - 更细粒度的课程成员查询、设备会话管理、自助登录终端管理
 - 更复杂的题库组卷、实验报告版本历史和高级统计策略
-- 除 `health` / `info` 之外的其他 `actuator` 端点
+- 除 `health` / `info` / `prometheus` 之外的其他 `actuator` 端点

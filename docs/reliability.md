@@ -31,8 +31,25 @@
 - 健康检查路径：
   - 顶层活性：`GET /actuator/health`
   - 依赖就绪：`GET /actuator/health/readiness`
+  - 指标抓取：`GET /actuator/prometheus`
   - 当前 readiness 固定包含 `db`，并按开关条件纳入 `minioStorage`、`goJudge`、`judgeQueue`
 - 文档同步由开发流程约束和人工评审负责，不再放入自动工作流校验。
+
+## 指标与抓取边界
+
+- `/actuator/prometheus` 当前作为公开 Prometheus 抓取入口，与 `/actuator/health`、`/actuator/health/readiness` 分工不同：
+  - `/actuator/health`：只看应用是否存活
+  - `/actuator/health/readiness`：只看依赖是否就绪
+  - `/actuator/prometheus`：暴露运行时与业务指标，供 Prometheus 周期抓取
+- 当前最小业务指标集如下：
+  - `aubb_judge_queue_depth`：judge 队列长度；当 judge queue 未启用时返回 `NaN`，不会把 Redis 或其他可选依赖混入
+  - `aubb_judge_job_executions_total{result=\"succeeded|failed\"}`：judge 任务执行次数；失败率通过 `failed / total` 计算
+  - `aubb_judge_job_execution_seconds_count|sum|max{result=\"succeeded|failed\"}`：judge 任务执行耗时
+  - `aubb_grading_grade_publications_total{publish_type=\"initial|republish\"}`：成绩发布次数
+  - `aubb_grading_appeal_creations_total`：学生发起申诉数量
+  - `aubb_grading_appeal_reviews_total{result=\"pending|in_review|accepted|rejected\"}`：申诉处理结果数量
+- 当前指标只使用低基数标签；不得把 `assignmentId`、`submissionId`、`userId` 等高基数字段直接写入指标标签。
+- 当前 v1 只暴露最小业务指标，不在仓库内引入额外的 recording rules、告警平台或独立 metrics 服务。
 
 ## 可靠性规则
 
@@ -57,3 +74,4 @@
 19. 通知中心 v1 必须先保证“持久化 + 已读状态 + 未读数 + 列表补拉”闭环，再考虑 WebSocket 推送；实时通道故障不能影响通知入库和已读状态正确性。
 20. 涉及热点列表优化时，优先把权限过滤和分页下推到数据库；若组织树或课程成员边界仍需服务层预解析，也应先收敛成有限作用域集合，再交给 SQL 做 count/page，避免全量候选集进入内存。
 21. 稳定 API 发生变更时，必须在同一轮提交中同步更新 `docs/stable-api.md`，并至少验证 `/v3/api-docs` 仍可访问且包含当前承诺路径。
+22. `/actuator/prometheus` 与 `/actuator/health/readiness` 不能混用；监控系统抓 metrics，部署 smoke 与探活继续看 health/readiness。

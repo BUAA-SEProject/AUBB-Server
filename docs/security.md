@@ -7,9 +7,10 @@
 - JWT 签名密钥无仓库内默认值，必须由外部配置提供；缺失、空白或长度不足时应用在启动阶段直接失败。
 - access token 默认有效期 2 小时，refresh token 默认有效期 14 天。
 - 首个学校 / 管理员 bootstrap 默认关闭；启用时管理员初始密码同样必须通过外部配置注入，不能写入仓库。
-- `/actuator/health`、`/actuator/health/readiness` 和 `/actuator/info` 保持公开，用于部署检查、依赖就绪判断与 smoke 验证。
+- `/actuator/health`、`/actuator/health/readiness`、`/actuator/info` 和 `/actuator/prometheus` 保持公开，用于部署检查、依赖就绪判断、Prometheus 抓取与 smoke 验证。
 - OpenAPI 发现端点当前默认保持公开，以支持后端开发阶段联调；当前事实入口是 `GET /v3/api-docs` 与 `GET /swagger-ui/index.html`，生产环境可通过 `AUBB_API_DOCS_ENABLED=false` 和 `AUBB_SWAGGER_UI_ENABLED=false` 关闭。
 - 除登录、健康检查和文档发现端点外，其他业务路由默认要求认证。
+- `/actuator/prometheus` 当前只暴露低基数运维指标，不返回用户级、作业级或提交级敏感标识；如生产环境需要进一步收口，可放到反向代理或 ServiceMesh 层处理。
 - MinIO 访问账号和密钥必须通过环境变量或外部配置注入，不能写入生产配置文件。
 - 当前稳定业务接口范围见 [stable-api.md](stable-api.md)；如果代码与本文件或该清单冲突，以代码和运行时 OpenAPI 为准。
 

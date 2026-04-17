@@ -9,6 +9,7 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.grading.application.GradingApplicationService;
+import com.aubb.server.modules.grading.application.GradingMetricsRecorder;
 import com.aubb.server.modules.grading.application.ManualGradeResultView;
 import com.aubb.server.modules.grading.domain.appeal.GradeAppealStatus;
 import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
@@ -47,6 +48,7 @@ public class GradeAppealApplicationService {
     private final UserMapper userMapper;
     private final CourseAuthorizationService courseAuthorizationService;
     private final GradingApplicationService gradingApplicationService;
+    private final GradingMetricsRecorder gradingMetricsRecorder;
     private final AuditLogApplicationService auditLogApplicationService;
     private final NotificationDispatchService notificationDispatchService;
 
@@ -97,6 +99,7 @@ public class GradeAppealApplicationService {
                         "assignmentId", assignment.getId(),
                         "submissionId", submission.getId(),
                         "submissionAnswerId", answerId));
+        gradingMetricsRecorder.recordAppealCreated();
         return toView(entity, assignment, answerView);
     }
 
@@ -212,6 +215,7 @@ public class GradeAppealApplicationService {
                 AuditResult.SUCCESS,
                 metadata);
         notificationDispatchService.notifyGradeAppealResolved(appeal, assignment, principal.getUserId());
+        gradingMetricsRecorder.recordAppealReviewed(nextStatus);
         return toView(appeal, assignment, answerView);
     }
 

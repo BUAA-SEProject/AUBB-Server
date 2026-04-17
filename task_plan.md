@@ -2,11 +2,25 @@
 
 ## 当前目标
 
-基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2、Step 3 成绩发布快照 v1 与 Step 4 健康检查收口已通过；若继续推进，下一步进入 Step 5：M5 最小治理包中的关键业务 metrics。
+基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2、Step 3 成绩发布快照 v1、Step 4 健康检查收口与 Step 5 关键业务指标已通过；若继续推进，下一步进入 Step 6：Redis 去留收口。
 
 ## 当前阶段
 
-Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 51 completed，Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 51：关键业务 metrics 基线
+
+- [x] 审计 `pom.xml`、`application.yaml`、`SecurityConfig` 与现有 actuator / prometheus 暴露基线，确认 Micrometer 依赖已在仓库中但还没有任何业务指标采集点
+- [x] 明确最小指标范围：judge 队列长度、judge 执行次数 / 耗时 / 失败率基础计数、成绩发布次数、申诉创建与处理结果
+- [x] 新增 `JudgeMetricsRecorder`，收口 RabbitMQ 队列深度 gauge 与 judge 成功 / 失败计数、耗时 timer
+- [x] 在 `JudgeExecutionService` 中接入 judge 执行耗时与成功 / 失败计数，保持主耗时不包含终态 side effects
+- [x] 新增 `GradingMetricsRecorder`，收口成绩发布次数、申诉创建数量与申诉处理结果数量
+- [x] 在 `GradingApplicationService`、`GradeAppealApplicationService` 中接入业务指标，并通过事务 `afterCommit` 避免回滚脏计数
+- [x] 补齐 `PrometheusMetricsConfiguration`，固化 `/actuator/prometheus` 抓取入口，并在 `SecurityConfig` 中明确公开放行
+- [x] 补齐 `JudgeMetricsRecorderTests`、`GradingMetricsRecorderTests`、`HarnessHealthSmokeTests` 与 judge / grading 集成测试，验证指标暴露与关键路径计数
+- [x] 同步 README、`docs/reliability.md`、`docs/deployment.md`、`docs/security.md`、`docs/stable-api.md` 与完成执行计划
+- [x] 执行 `bash ./mvnw spotless:apply`、指标专项测试与 `git diff --check`
+- **Status:** completed
 
 ### Phase 50：健康检查收口
 

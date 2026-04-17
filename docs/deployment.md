@@ -86,6 +86,26 @@ docker compose --profile app up --build
   - 当 `AUBB_JUDGE_QUEUE_ENABLED=true` 时纳入 `judgeQueue`
 - Redis 当前没有真实业务落地，不纳入 readiness；即使远程环境配置了 `SPRING_DATA_REDIS_*`，也不应把 Redis 是否可达作为当前 V1 启动阻塞项
 
+### Prometheus 抓取
+
+- `GET /actuator/prometheus`
+  - 当前作为公开抓取入口
+  - 用于 Prometheus 周期采集运行时与业务指标，不替代活性或 readiness 检查
+- 当前最关键的业务指标包括：
+  - `aubb_judge_queue_depth`
+  - `aubb_judge_job_executions_total{result=...}`
+  - `aubb_judge_job_execution_seconds_*{result=...}`
+  - `aubb_grading_grade_publications_total{publish_type=...}`
+  - `aubb_grading_appeal_creations_total`
+  - `aubb_grading_appeal_reviews_total{result=...}`
+- 最小验证方式：
+
+```bash
+curl -fsS http://localhost:8080/actuator/prometheus | rg 'aubb_(judge|grading)_'
+```
+
+- 当前建议通过内网、反向代理白名单或集群内部 Service 抓取该端点；仓库本身还没有单独的 scrape token / Basic Auth 方案。
+
 ## 镜像构建与版本
 
 ### 本地构建
@@ -233,6 +253,7 @@ bash ./mvnw -B verify
 - 当前应用健康检查分两层：
   - `/actuator/health`：公开活性检查
   - `/actuator/health/readiness`：依赖就绪检查，固定包含数据库，并按开关条件纳入 `minioStorage`、`goJudge`、`judgeQueue`
+- 当前 `/actuator/prometheus` 同样保持公开，用于 Prometheus 抓取；它不是业务 API，也不应用作 readiness / liveness 的替代品。
 - Redis 当前仍无真实业务落地，部署时不应把它当成 readiness 阻塞项；是否彻底移除由后续 Step 6 收口。
 - 当前 deploy 不负责远程主机初始化，也不负责 PostgreSQL / RabbitMQ / Redis / MinIO / go-judge 的生产编排
 - 当前没有蓝绿、金丝雀或多副本滚动升级

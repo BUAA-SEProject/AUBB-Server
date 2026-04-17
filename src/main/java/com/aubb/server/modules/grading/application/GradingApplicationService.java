@@ -81,6 +81,7 @@ public class GradingApplicationService {
     private final TeachingClassMapper teachingClassMapper;
     private final PlatformTransactionManager transactionManager;
     private final NotificationDispatchService notificationDispatchService;
+    private final GradingMetricsRecorder gradingMetricsRecorder;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -350,6 +351,7 @@ public class GradingApplicationService {
                         "publishSequence", snapshotBatch.getPublishSequence(),
                         "snapshotCount", snapshotBatch.getSnapshotCount(),
                         "initialPublication", initialPublication));
+        gradingMetricsRecorder.recordGradePublication(initialPublication);
         return new AssignmentGradePublicationView(
                 assignment.getId(),
                 assignment.getGradePublishedByUserId(),

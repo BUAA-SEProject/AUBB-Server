@@ -41,6 +41,7 @@ import com.aubb.server.modules.submission.infrastructure.answer.SubmissionAnswer
 import com.aubb.server.modules.submission.infrastructure.answer.SubmissionAnswerMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -96,6 +97,7 @@ public class JudgeExecutionService {
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
+    private final JudgeMetricsRecorder judgeMetricsRecorder;
     private final NotificationDispatchService notificationDispatchService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -114,6 +116,7 @@ public class JudgeExecutionService {
             AuditLogApplicationService auditLogApplicationService,
             ObjectProvider<ObjectStorageService> objectStorageServiceProvider,
             JudgeArtifactStorageService judgeArtifactStorageService,
+            JudgeMetricsRecorder judgeMetricsRecorder,
             NotificationDispatchService notificationDispatchService,
             ObjectMapper objectMapper) {
         this.judgeJobMapper = judgeJobMapper;
@@ -128,6 +131,7 @@ public class JudgeExecutionService {
         this.auditLogApplicationService = auditLogApplicationService;
         this.objectStorageServiceProvider = objectStorageServiceProvider;
         this.judgeArtifactStorageService = judgeArtifactStorageService;
+        this.judgeMetricsRecorder = judgeMetricsRecorder;
         this.notificationDispatchService = notificationDispatchService;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -141,6 +145,7 @@ public class JudgeExecutionService {
             return;
         }
 
+        long startedAtNanos = System.nanoTime();
         JudgeFinalization outcome;
         try {
             outcome = runJudge(context);
@@ -152,6 +157,8 @@ public class JudgeExecutionService {
 
         JudgeFinalization finalOutcome = outcome;
         transactionTemplate.executeWithoutResult(status -> persistJobOutcome(context, finalOutcome));
+        judgeMetricsRecorder.recordExecution(
+                Duration.ofNanos(System.nanoTime() - startedAtNanos), finalOutcome.failed());
         try {
             transactionTemplate.executeWithoutResult(status -> finalizeJobSideEffects(judgeJobId, finalOutcome));
         } catch (RuntimeException exception) {

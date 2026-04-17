@@ -1,11 +1,14 @@
 package com.aubb.server.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aubb.server.modules.judge.application.JudgeMetricsRecorder;
 import com.jayway.jsonpath.JsonPath;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.AfterAll;
@@ -30,6 +33,9 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @AfterAll
     static void stopServer() {
@@ -88,6 +94,10 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     @Test
     void configuredJudgeAssignmentRunsThroughGoJudgeAndSupportsRequeue() throws Exception {
+        double successCounterBefore =
+                counterValue(JudgeMetricsRecorder.JUDGE_JOB_EXECUTIONS_METRIC, "result", "succeeded");
+        long successTimerCountBefore =
+                timerCount(JudgeMetricsRecorder.JUDGE_JOB_EXECUTION_DURATION_METRIC, "result", "succeeded");
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -134,6 +144,18 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
                 .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$[0].verdict").value("ACCEPTED"))
                 .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
+
+        assertThat(counterValue(JudgeMetricsRecorder.JUDGE_JOB_EXECUTIONS_METRIC, "result", "succeeded")
+                        - successCounterBefore)
+                .isEqualTo(2.0d);
+        assertThat(timerCount(JudgeMetricsRecorder.JUDGE_JOB_EXECUTION_DURATION_METRIC, "result", "succeeded")
+                        - successTimerCountBefore)
+                .isEqualTo(2L);
+        assertThat(meterRegistry
+                        .get(JudgeMetricsRecorder.JUDGE_QUEUE_DEPTH_METRIC)
+                        .gauge()
+                        .value())
+                .isGreaterThanOrEqualTo(0.0d);
     }
 
     @Test
@@ -518,5 +540,13 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     private String escapeJson(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+    }
+
+    private double counterValue(String name, String tagKey, String tagValue) {
+        return meterRegistry.get(name).tag(tagKey, tagValue).counter().count();
+    }
+
+    private long timerCount(String name, String tagKey, String tagValue) {
+        return meterRegistry.get(name).tag(tagKey, tagValue).timer().count();
     }
 }

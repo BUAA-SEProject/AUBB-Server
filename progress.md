@@ -1,5 +1,35 @@
 # 进度日志
 
+## Session: 2026-04-17 关键业务 metrics 基线
+
+### Phase 51：Step 5 M5 最小治理包第二段
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `pom.xml`、`application.yaml`、`SecurityConfig`、`JudgeExecutionService`、`GradingApplicationService`、`GradeAppealApplicationService` 与现有可靠性 / 部署 / 安全文档
+  - 结合项目级 `prometheus-configuration` 与 `springboot-patterns` skill，确认仓库已有 Micrometer + Prometheus 依赖与 actuator exposure，但没有任何业务指标采集点
+  - 新增 `JudgeMetricsRecorder`，基于 RabbitMQ 队列属性提供 queue depth gauge，并记录 judge 成功 / 失败执行次数与耗时 timer
+  - 在 `JudgeExecutionService` 中接入 judge 指标，确保主耗时统计不包含终态 side effects
+  - 新增 `GradingMetricsRecorder`，以事务 `afterCommit` 方式记录成绩发布次数、申诉创建数量和申诉处理结果
+  - 在 `GradingApplicationService`、`GradeAppealApplicationService` 中接入业务指标采集点
+  - 发现 `/actuator/prometheus` 在当前基线下不会自动出现，补充 `PrometheusMetricsConfiguration` 显式提供 `PrometheusMeterRegistry` 与 scrape controller
+  - 调整 `pom.xml` 中 `micrometer-registry-prometheus` 的依赖作用域，允许主代码显式引用 `PrometheusMeterRegistry`
+  - 调整 `SecurityConfig`，把 `/actuator/prometheus` 纳入公开运维面
+  - 新增 `JudgeMetricsRecorderTests`、`GradingMetricsRecorderTests`，扩展 `HarnessHealthSmokeTests`、`JudgeIntegrationTests`、`GradingIntegrationTests`，验证指标暴露、计数与 timer/gauge 读数
+  - 统一指标命名与 tag 口径：
+    - `publish_type=initial|republish`
+    - `aubb_grading_appeal_creations_total`
+    - `aubb_grading_appeal_reviews_total`
+    - `aubb_judge_queue_depth`
+  - 同步 README、`docs/reliability.md`、`docs/deployment.md`、`docs/security.md`、`docs/stable-api.md`
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest=JudgeMetricsRecorderTests,GradingMetricsRecorderTests,HarnessHealthSmokeTests,JudgeIntegrationTests,GradingIntegrationTests test`
+  - `git diff --check`
+  - 当前结果：`BUILD SUCCESS`，定向 `21` 个测试通过，Prometheus 抓取与业务指标 smoke 通过
+  - 额外结论：失败率通过 `aubb_judge_job_executions_total{result=\"failed\"} / total` 计算，不额外落一个预聚合 rate 指标
+
 ## Session: 2026-04-17 健康检查收口
 
 ### Phase 50：Step 4 M5 最小治理包第一段

@@ -10,7 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aubb.server.modules.grading.application.GradingMetricsRecorder;
 import com.jayway.jsonpath.JsonPath;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,6 +54,9 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
@@ -278,6 +283,10 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
 
     @Test
     void publishingGradesCreatesSnapshotBatchAndTeacherCanTraceDetails() throws Exception {
+        double initialPublicationCounterBefore =
+                counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "initial");
+        double republishCounterBefore =
+                counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "republish");
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -370,10 +379,21 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                         .value("关键点正确，但没有补充按秩合并。"))
                 .andExpect(jsonPath("$.snapshots[0].snapshot.answers[2].feedbackText")
                         .value("报告结构完整，实验现象分析还可更深入。"));
+
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "initial")
+                        - initialPublicationCounterBefore)
+                .isEqualTo(1.0d);
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "republish")
+                        - republishCounterBefore)
+                .isEqualTo(0.0d);
     }
 
     @Test
     void repeatedPublishingCreatesNewSnapshotBatchWithoutResettingInitialPublication() throws Exception {
+        double initialPublicationCounterBefore =
+                counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "initial");
+        double republishCounterBefore =
+                counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "republish");
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -472,6 +492,13 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                         .value(29))
                 .andExpect(jsonPath("$.snapshots[0].snapshot.answers[2].feedbackText")
                         .value("第二次发布前补充了实验分析。"));
+
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "initial")
+                        - initialPublicationCounterBefore)
+                .isEqualTo(1.0d);
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "republish")
+                        - republishCounterBefore)
+                .isEqualTo(1.0d);
     }
 
     @Test
@@ -734,6 +761,9 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
 
     @Test
     void studentCreatesAppealAndTeacherResolvesWithScoreRevision() throws Exception {
+        double createdAppealCounterBefore = counterValue(GradingMetricsRecorder.GRADE_APPEALS_CREATED_METRIC);
+        double acceptedAppealCounterBefore =
+                counterValue(GradingMetricsRecorder.GRADE_APPEALS_REVIEWED_METRIC, "result", "accepted");
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -855,10 +885,18 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                         WHERE nr.recipient_user_id = 6
                           AND n.type = 'GRADE_APPEAL_RESOLVED'
                         """)).isEqualTo(1);
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_CREATED_METRIC) - createdAppealCounterBefore)
+                .isEqualTo(1.0d);
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_REVIEWED_METRIC, "result", "accepted")
+                        - acceptedAppealCounterBefore)
+                .isEqualTo(1.0d);
     }
 
     @Test
     void duplicateAppealAndUnauthorizedTaReviewAreRejected() throws Exception {
+        double createdAppealCounterBefore = counterValue(GradingMetricsRecorder.GRADE_APPEALS_CREATED_METRIC);
+        double rejectedAppealCounterBefore =
+                counterValue(GradingMetricsRecorder.GRADE_APPEALS_REVIEWED_METRIC, "result", "rejected");
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -953,6 +991,12 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isForbidden());
+
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_CREATED_METRIC) - createdAppealCounterBefore)
+                .isEqualTo(1.0d);
+        assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_REVIEWED_METRIC, "result", "rejected")
+                        - rejectedAppealCounterBefore)
+                .isEqualTo(0.0d);
     }
 
     @Test
@@ -1282,5 +1326,13 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
 
     private int queryForCount(String sql) {
         return jdbcTemplate.queryForObject(sql, Integer.class);
+    }
+
+    private double counterValue(String name) {
+        return meterRegistry.get(name).counter().count();
+    }
+
+    private double counterValue(String name, String tagKey, String tagValue) {
+        return meterRegistry.get(name).tag(tagKey, tagValue).counter().count();
     }
 }
