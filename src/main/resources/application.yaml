@@ -18,6 +18,19 @@ management:
     health:
       probes:
         enabled: true
+      show-components: never
+      show-details: never
+      validate-group-membership: false
+      group:
+        readiness:
+          include:
+            - readinessState
+            - db
+            - minioStorage
+            - goJudge
+            - judgeQueue
+          show-components: always
+          show-details: always
 info:
   app:
     name: AUBB-Server

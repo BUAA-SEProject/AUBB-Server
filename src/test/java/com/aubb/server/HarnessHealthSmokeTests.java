@@ -25,4 +25,16 @@ class HarnessHealthSmokeTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
     }
+
+    @Test
+    void readinessEndpointIsPublicAndDoesNotRequireOptionalDependenciesByDefault() throws Exception {
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components.readinessState.status").value("UP"))
+                .andExpect(jsonPath("$.components.db.status").value("UP"))
+                .andExpect(jsonPath("$.components.redis").doesNotExist())
+                .andExpect(jsonPath("$.components.goJudge").doesNotExist())
+                .andExpect(jsonPath("$.components.judgeQueue").doesNotExist());
+    }
 }

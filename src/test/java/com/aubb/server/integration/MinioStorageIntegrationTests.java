@@ -114,4 +114,15 @@ class MinioStorageIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
     }
+
+    @Test
+    void readinessEndpointShowsMinioComponentWhenEnabled() throws Exception {
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components.minioStorage.status").value("UP"))
+                .andExpect(jsonPath("$.components.minioStorage.details.bucket").value(MINIO_BUCKET))
+                .andExpect(
+                        jsonPath("$.components.minioStorage.details.endpoint").exists());
+    }
 }

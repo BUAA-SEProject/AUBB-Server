@@ -1,5 +1,14 @@
 # 发现与决策
 
+## 2026-04-17 健康检查收口发现
+
+- 当前 `application.yaml` 里 `management.health.rabbit.enabled=false`、`management.health.redis.enabled=false`，会导致 `/actuator/health` 在 judge 队列启用时仍可能返回“应用已健康”，这是典型的 false positive。
+- MinIO 其实已经有条件化健康指示器 `minioStorage`，但当前健康面没有把它和 go-judge / RabbitMQ 的真实依赖语义统一起来；运维只能看到总状态，看不到“为什么不健康”。
+- go-judge 当前完全没有接入 actuator；如果 `aubb.judge.go-judge.enabled=true` 但 `/version` 不可达，应用 readiness 仍然会误判为可用。
+- RabbitMQ 不是全局硬依赖，但在 `aubb.judge.queue.enabled=true` 时属于条件化硬依赖。最小收口不应简单打开 Spring 内建 `rabbit` 健康检查，否则会把“队列未启用”的场景也误伤成 DOWN。
+- Redis 生产代码当前没有任何真实使用，依赖和 compose 仍然保留，但通知、认证、缓存、消息都没落到 Redis。Step 4 最稳策略是明确它暂时 optional，不纳入 readiness；Step 6 再决定保留还是移除。
+- readiness 应该成为运维探活和部署 smoke 的事实入口，而顶层 `/actuator/health` 继续保留为轻量活性检查。这样既能减少公共暴露面，又能让 `compose`、deploy 和排障统一用同一条更准确的探活路径。
+
 ## 2026-04-17 成绩发布快照 v1 发现
 
 - 当前 assignment 成绩发布链路已经能做“是否可发布”校验和学生可见性切换，但没有任何发布批次历史；一旦后续人工分被修改，就无法回答“第一次发布时学生到底看到了什么”。

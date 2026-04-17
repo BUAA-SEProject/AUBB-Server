@@ -2,11 +2,24 @@
 
 ## 当前目标
 
-基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2 与 Step 3 成绩发布快照 v1 已通过；若继续推进，下一步进入 Step 4：M5 最小治理包中的健康检查收口。
+基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2、Step 3 成绩发布快照 v1 与 Step 4 健康检查收口已通过；若继续推进，下一步进入 Step 5：M5 最小治理包中的关键业务 metrics。
 
 ## 当前阶段
 
-Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 50：健康检查收口
+
+- [x] 审计 `application.yaml`、`MinioStorageConfiguration`、`GoJudgeConfiguration`、`JudgeQueueConfiguration`、部署 / 可靠性文档与 compose 当前健康检查基线
+- [x] 确认 MinIO 已有条件化健康指示器，RabbitMQ 被显式关闭、go-judge 尚未进入 actuator、Redis 仍无真实业务使用
+- [x] 设计最小分级方案：`db` 全局必需；`minioStorage`、`goJudge`、`judgeQueue` 按开关条件进入 readiness；Redis 暂按 optional 保留且不纳入 readiness
+- [x] 新增 `GoJudgeHealthIndicator`、`JudgeQueueHealthIndicator`，并在配置层按 `aubb.judge.go-judge.enabled / aubb.judge.queue.enabled` 条件装配
+- [x] 收口 actuator readiness：固定包含 `db`，按条件纳入 `minioStorage / goJudge / judgeQueue`，并公开返回组件级故障提示
+- [x] 将本地 compose 与远程 deploy smoke 从 `/actuator/health` 切换到 `/actuator/health/readiness`
+- [x] 补齐默认健康 smoke、MinIO readiness 集成测试、真实 judge 依赖 readiness 集成测试，以及 go-judge / judgeQueue 健康指示器单元测试
+- [x] 同步更新 `docs/reliability.md`、`docs/deployment.md`、`docs/security.md`、`docs/stable-api.md` 与完成执行计划
+- [x] 执行 `bash ./mvnw spotless:apply`、`bash ./mvnw -q -DskipTests compile`、健康专项测试、`docker compose --profile app config`、`actionlint` 与 `git diff --check`
+- **Status:** completed
 
 ### Phase 49：成绩发布快照 v1
 

@@ -1,5 +1,30 @@
 # 进度日志
 
+## Session: 2026-04-17 健康检查收口
+
+### Phase 50：Step 4 M5 最小治理包第一段
+
+- **Status:** completed
+- **Started:** 2026-04-17
+- Actions taken:
+  - 读取 `application.yaml`、`MinioStorageConfiguration`、`GoJudgeConfiguration`、`JudgeQueueConfiguration`、`docs/reliability.md`、`docs/deployment.md`、`docs/security.md`、`compose.yaml`、`.github/workflows/deploy.yml`
+  - 确认当前基线：MinIO 已有 `minioStorage` 健康指示器；RabbitMQ 在配置里被显式关闭；go-judge 未接入 actuator；Redis 仅保留依赖和 compose，没有真实业务使用
+  - 通过子代理复核 Redis 使用面，确认当前通知 / 认证 / 缓存 / 消息都不依赖 Redis，因此 Step 4 先将 Redis 视为 optional，不纳入 readiness
+  - 新增 `GoJudgeHealthIndicator`，基于 go-judge `/version` 探测服务可达性、版本与平台信息
+  - 新增 `JudgeQueueHealthIndicator`，在 judge 队列启用时验证 RabbitMQ 可达和评测队列存在，并暴露 `messageCount / consumerCount`
+  - 调整 `application.yaml`，新增 readiness group，固定包含 `db`，按条件纳入 `minioStorage / goJudge / judgeQueue`
+  - 将根 `compose.yaml` 的 app healthcheck 与 `.github/workflows/deploy.yml` 的远程 smoke 从 `/actuator/health` 切到 `/actuator/health/readiness`
+  - 扩展 `HarnessHealthSmokeTests`、`MinioStorageIntegrationTests`，新增 `JudgeDependencyHealthIntegrationTests`、`GoJudgeHealthIndicatorTests`、`JudgeQueueHealthIndicatorTests`
+  - 同步 `docs/reliability.md`、`docs/deployment.md`、`docs/security.md`、`docs/stable-api.md`，补齐健康检查分级、就绪端点和 Redis 当前边界说明
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=HarnessHealthSmokeTests,MinioStorageIntegrationTests,JudgeDependencyHealthIntegrationTests,GoJudgeHealthIndicatorTests,JudgeQueueHealthIndicatorTests test`
+  - `docker compose --profile app config`
+  - `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7`
+  - `git diff --check`
+  - 当前结果：健康专项测试 `BUILD SUCCESS`，共 `11` 个测试通过
+
 ## Session: 2026-04-17 成绩发布快照 v1
 
 ### Phase 49：Step 3 成绩发布快照收口

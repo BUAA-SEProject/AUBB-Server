@@ -73,6 +73,19 @@ docker compose --profile app up --build
 - MinIO Console: `9001`
 - go-judge: `5050`
 
+### 健康检查与依赖分级
+
+- `GET /actuator/health`
+  - 轻量活性检查
+  - 适合外层负载均衡或 smoke 先判断应用是否启动
+- `GET /actuator/health/readiness`
+  - 依赖就绪检查
+  - 当前固定包含 `db`
+  - 当 `AUBB_MINIO_ENABLED=true` 时纳入 `minioStorage`
+  - 当 `AUBB_GO_JUDGE_ENABLED=true` 时纳入 `goJudge`
+  - 当 `AUBB_JUDGE_QUEUE_ENABLED=true` 时纳入 `judgeQueue`
+- Redis 当前没有真实业务落地，不纳入 readiness；即使远程环境配置了 `SPRING_DATA_REDIS_*`，也不应把 Redis 是否可达作为当前 V1 启动阻塞项
+
 ## 镜像构建与版本
 
 ### 本地构建
@@ -199,7 +212,7 @@ bash ./mvnw -B verify
    - `docker login ghcr.io`
    - `docker compose pull app`
    - `docker compose up -d`
-   - `docker compose exec -T app curl -fsS http://localhost:8080/actuator/health`
+   - `docker compose exec -T app curl -fsS http://localhost:8080/actuator/health/readiness`
 
 若部署失败，工作流会回收远程应用最近日志并上传为 artifact。
 
@@ -217,6 +230,10 @@ bash ./mvnw -B verify
 
 ## 当前实现边界
 
+- 当前应用健康检查分两层：
+  - `/actuator/health`：公开活性检查
+  - `/actuator/health/readiness`：依赖就绪检查，固定包含数据库，并按开关条件纳入 `minioStorage`、`goJudge`、`judgeQueue`
+- Redis 当前仍无真实业务落地，部署时不应把它当成 readiness 阻塞项；是否彻底移除由后续 Step 6 收口。
 - 当前 deploy 不负责远程主机初始化，也不负责 PostgreSQL / RabbitMQ / Redis / MinIO / go-judge 的生产编排
 - 当前没有蓝绿、金丝雀或多副本滚动升级
 - 当前没有自动数据库备份、自动回滚或 Helm / Kubernetes 资产

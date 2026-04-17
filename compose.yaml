@@ -135,7 +135,7 @@ services:
     ports:
       - '${AUBB_APP_PORT:-8080}:8080'
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null"]
       interval: 15s
       timeout: 5s
       retries: 10

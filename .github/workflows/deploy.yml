@@ -137,7 +137,7 @@ jobs:
             docker compose --env-file .env.production up -d
             docker compose --env-file .env.production ps
             for attempt in \$(seq 1 24); do
-              if docker compose --env-file .env.production exec -T app curl -fsS http://localhost:8080/actuator/health; then
+              if docker compose --env-file .env.production exec -T app curl -fsS http://localhost:8080/actuator/health/readiness; then
                 exit 0
               fi
               sleep 5
