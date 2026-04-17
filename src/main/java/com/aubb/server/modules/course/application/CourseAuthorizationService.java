@@ -19,7 +19,6 @@ import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -211,21 +210,20 @@ public class CourseAuthorizationService {
         if (secondaryCollegeUnitIds == null || secondaryCollegeUnitIds.isEmpty()) {
             return;
         }
-        Map<Long, OrgUnitEntity> orgUnitIndex = governanceAuthorizationService.loadOrgUnitIndex();
-        OrgUnitEntity primaryCollege = orgUnitIndex.get(primaryCollegeUnitId);
+        OrgUnitEntity primaryCollege = orgUnitMapper.selectById(primaryCollegeUnitId);
         if (primaryCollege == null || !OrgUnitType.COLLEGE.name().equals(primaryCollege.getType())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "COLLEGE_NOT_FOUND", "主学院不存在");
         }
-        Long primarySchoolId = rootSchoolId(primaryCollege.getId(), orgUnitIndex);
+        Long primarySchoolId = rootSchoolId(primaryCollege.getId());
         for (Long collegeUnitId : secondaryCollegeUnitIds) {
-            OrgUnitEntity secondaryCollege = orgUnitIndex.get(collegeUnitId);
+            OrgUnitEntity secondaryCollege = orgUnitMapper.selectById(collegeUnitId);
             if (secondaryCollege == null || !OrgUnitType.COLLEGE.name().equals(secondaryCollege.getType())) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "COLLEGE_NOT_FOUND", "共享学院不存在");
             }
             if (collegeUnitId.equals(primaryCollegeUnitId)) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "COLLEGE_LINK_DUPLICATED", "共享学院不能与主学院重复");
             }
-            Long secondarySchoolId = rootSchoolId(secondaryCollege.getId(), orgUnitIndex);
+            Long secondarySchoolId = rootSchoolId(secondaryCollege.getId());
             if (!Objects.equals(primarySchoolId, secondarySchoolId)) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "COLLEGE_LINK_CROSS_SCHOOL", "当前只支持同一学校内的跨学院共同管理");
             }
@@ -299,15 +297,12 @@ public class CourseAuthorizationService {
         }
     }
 
-    private Long rootSchoolId(Long orgUnitId, Map<Long, OrgUnitEntity> index) {
+    private Long rootSchoolId(Long orgUnitId) {
         Long cursor = orgUnitId;
         Long latest = cursor;
         while (cursor != null) {
             latest = cursor;
-            OrgUnitEntity current = index.get(cursor);
-            if (current == null) {
-                current = orgUnitMapper.selectById(cursor);
-            }
+            OrgUnitEntity current = orgUnitMapper.selectById(cursor);
             cursor = current == null ? null : current.getParentId();
         }
         return latest;

@@ -1,6 +1,9 @@
 package com.aubb.server.modules.identityaccess.application.iam;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
@@ -23,8 +26,9 @@ class GovernanceAuthorizationServiceTests {
     @Test
     void loadsManageableOrgUnitIdsForAllDescendantsOfVisibleScopes() {
         when(orgUnitMapper.selectList(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(
-                        List.of(orgUnit(1L, null), orgUnit(2L, 1L), orgUnit(3L, 1L), orgUnit(4L, 2L), orgUnit(5L, 4L)));
+                .thenReturn(List.of(orgUnit(4L, 2L)))
+                .thenReturn(List.of(orgUnit(5L, 4L)))
+                .thenReturn(List.of());
         GovernanceAuthorizationService service = new GovernanceAuthorizationService(orgUnitMapper);
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
                 10L,
@@ -38,6 +42,25 @@ class GovernanceAuthorizationServiceTests {
         Set<Long> manageableOrgUnitIds = service.loadManageableOrgUnitIds(principal);
 
         assertThat(manageableOrgUnitIds).containsExactlyInAnyOrder(2L, 4L, 5L);
+    }
+
+    @Test
+    void canManageUserAtTraversesAncestorChainInsteadOfLoadingWholeTree() {
+        when(orgUnitMapper.selectById(5L)).thenReturn(orgUnit(5L, 4L));
+        when(orgUnitMapper.selectById(4L)).thenReturn(orgUnit(4L, 2L));
+
+        GovernanceAuthorizationService service = new GovernanceAuthorizationService(orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "college-admin",
+                "College Admin",
+                2L,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(new ScopeIdentityView("COLLEGE_ADMIN", 2L, "COLLEGE", "Engineering")));
+
+        assertThat(service.canManageUserAt(principal, 5L)).isTrue();
+        verify(orgUnitMapper, never()).selectList(any());
     }
 
     private OrgUnitEntity orgUnit(Long id, Long parentId) {

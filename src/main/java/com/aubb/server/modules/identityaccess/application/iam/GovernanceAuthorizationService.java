@@ -7,11 +7,12 @@ import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRolePo
 import com.aubb.server.modules.organization.domain.OrgUnitType;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import java.util.ArrayDeque;
 import java.util.Collection;
-import java.util.LinkedHashMap;
+import java.util.Deque;
 import java.util.LinkedHashSet;
-import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -39,11 +40,10 @@ public class GovernanceAuthorizationService {
             }
             return;
         }
-        Map<Long, OrgUnitEntity> index = loadOrgUnitIndex();
         boolean allowed = principal.getIdentities().stream().anyMatch(identity -> {
             GovernanceRole role = GovernanceRole.from(identity.roleCode());
             return role.canManageDescendantCreation(childType)
-                    && isDescendantOrSelf(parent.getId(), identity.scopeOrgUnitId(), index);
+                    && isDescendantOrSelf(parent.getId(), identity.scopeOrgUnitId());
         });
         if (!allowed) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权在该组织下创建节点");
@@ -62,9 +62,8 @@ public class GovernanceAuthorizationService {
         if (orgUnitId == null) {
             return principal.hasAuthority(GovernanceRole.SCHOOL_ADMIN.name());
         }
-        Map<Long, OrgUnitEntity> index = loadOrgUnitIndex();
         return principal.getIdentities().stream()
-                .anyMatch(identity -> isDescendantOrSelf(orgUnitId, identity.scopeOrgUnitId(), index));
+                .anyMatch(identity -> isDescendantOrSelf(orgUnitId, identity.scopeOrgUnitId()));
     }
 
     @Transactional(readOnly = true)
@@ -73,12 +72,11 @@ public class GovernanceAuthorizationService {
         if (assignments == null || assignments.isEmpty()) {
             return;
         }
-        Map<Long, OrgUnitEntity> index = loadOrgUnitIndex();
         for (IdentityAssignmentCommand assignment : assignments) {
             boolean allowed = principal.getIdentities().stream().anyMatch(identity -> {
                 GovernanceRole actorRole = GovernanceRole.from(identity.roleCode());
                 return governanceRolePolicy.canGrant(actorRole, assignment.roleCode())
-                        && isDescendantOrSelf(assignment.scopeOrgUnitId(), identity.scopeOrgUnitId(), index);
+                        && isDescendantOrSelf(assignment.scopeOrgUnitId(), identity.scopeOrgUnitId());
             });
             if (!allowed) {
                 throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权分配该身份");
@@ -100,27 +98,32 @@ public class GovernanceAuthorizationService {
         if (visibleRoots.isEmpty()) {
             return Set.of();
         }
-        Map<Long, OrgUnitEntity> index = loadOrgUnitIndex();
-        return index.keySet().stream()
-                .filter(orgUnitId ->
-                        visibleRoots.stream().anyMatch(rootId -> isDescendantOrSelf(orgUnitId, rootId, index)))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<Long> manageableOrgUnitIds = new LinkedHashSet<>();
+        Deque<Long> queue = new ArrayDeque<>(visibleRoots);
+        while (!queue.isEmpty()) {
+            List<Long> frontier = queue.stream().toList();
+            queue.clear();
+            manageableOrgUnitIds.addAll(frontier);
+            orgUnitMapper
+                    .selectList(new QueryWrapper<OrgUnitEntity>()
+                            .select("id", "parent_id")
+                            .in("parent_id", frontier))
+                    .stream()
+                    .map(OrgUnitEntity::getId)
+                    .filter(Objects::nonNull)
+                    .filter(candidate -> !manageableOrgUnitIds.contains(candidate))
+                    .forEach(queue::addLast);
+        }
+        return manageableOrgUnitIds;
     }
 
-    @Transactional(readOnly = true)
-    public Map<Long, OrgUnitEntity> loadOrgUnitIndex() {
-        return orgUnitMapper.selectList(Wrappers.<OrgUnitEntity>lambdaQuery()).stream()
-                .collect(Collectors.toMap(
-                        OrgUnitEntity::getId, entity -> entity, (left, right) -> left, LinkedHashMap::new));
-    }
-
-    public boolean isDescendantOrSelf(Long orgUnitId, Long ancestorOrgUnitId, Map<Long, OrgUnitEntity> index) {
+    public boolean isDescendantOrSelf(Long orgUnitId, Long ancestorOrgUnitId) {
         Long cursor = orgUnitId;
         while (cursor != null) {
             if (cursor.equals(ancestorOrgUnitId)) {
                 return true;
             }
-            OrgUnitEntity current = index.get(cursor);
+            OrgUnitEntity current = orgUnitMapper.selectById(cursor);
             cursor = current == null ? null : current.getParentId();
         }
         return false;

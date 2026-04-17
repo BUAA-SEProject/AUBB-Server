@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -29,8 +31,16 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) {
+        RedisIntegrationTestSupport.registerRedisProperties(registry);
+        registry.add("aubb.redis.rate-limit.enabled", () -> "false");
+        registry.add("aubb.redis.cache.my-courses-ttl", () -> "PT5M");
+    }
+
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
@@ -293,6 +303,63 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void myCoursesSummaryCachesHitsAndEvictsAfterOfferingMutations() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        MvcResult firstResult = mockMvc.perform(
+                        get("/api/v1/me/courses").header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andReturn();
+        assertThat(JsonPath.<String>read(firstResult.getResponse().getContentAsString(), "$[0].offeringName"))
+                .isEqualTo("数据结构（2026春）");
+
+        jdbcTemplate.update(
+                "UPDATE course_offerings SET offering_name = ?, updated_at = now() WHERE id = ?",
+                "数据结构（缓存未驱逐前）",
+                offeringId);
+
+        MvcResult cachedResult = mockMvc.perform(
+                        get("/api/v1/me/courses").header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andReturn();
+        assertThat(JsonPath.<String>read(cachedResult.getResponse().getContentAsString(), "$[0].offeringName"))
+                .isEqualTo("数据结构（2026春）");
+
+        createOffering(engAdminToken, catalogId, termId, "CS101-2026SP-02", "数据结构（第二开课）");
+
+        MvcResult refreshedResult = mockMvc.perform(
+                        get("/api/v1/me/courses").header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andReturn();
+        assertThat(JsonPath.<java.util.List<String>>read(
+                        refreshedResult.getResponse().getContentAsString(),
+                        "$[?(@.offeringCode == 'CS101-2026SP-01')].offeringName"))
+                .containsExactly("数据结构（缓存未驱逐前）");
+        assertThat(JsonPath.<java.util.List<String>>read(
+                        refreshedResult.getResponse().getContentAsString(),
+                        "$[?(@.offeringCode == 'CS101-2026SP-02')].offeringName"))
+                .containsExactly("数据结构（第二开课）");
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(
+                        result -> assertThat(result.getResponse().getContentAsString())
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"myCoursesSummary\",operation=\"get\",result=\"hit\"}")
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"myCoursesSummary\",operation=\"evict\",result=\"success\"}"));
+    }
+
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
         jdbcTemplate.update(
                 """
@@ -362,6 +429,11 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     }
 
     private Long createOffering(String token, Long catalogId, Long termId) throws Exception {
+        return createOffering(token, catalogId, termId, "CS101-2026SP-01", "数据结构（2026春）");
+    }
+
+    private Long createOffering(String token, Long catalogId, Long termId, String offeringCode, String offeringName)
+            throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/course-offerings")
                         .header("Authorization", "Bearer " + token)
                         .contentType("application/json")
@@ -369,8 +441,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                                 {
                                   "catalogId":%s,
                                   "termId":%s,
-                                  "offeringCode":"CS101-2026SP-01",
-                                  "offeringName":"数据结构（2026春）",
+                                  "offeringCode":"%s",
+                                  "offeringName":"%s",
                                   "primaryCollegeUnitId":2,
                                   "secondaryCollegeUnitIds":[3],
                                   "deliveryMode":"HYBRID",
@@ -380,7 +452,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                                   "startAt":"2026-02-20T08:00:00+08:00",
                                   "endAt":"2026-07-10T23:59:59+08:00"
                                 }
-                                """.formatted(catalogId, termId)))
+                                """.formatted(catalogId, termId, offeringCode, offeringName)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();

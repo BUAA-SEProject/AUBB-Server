@@ -1,6 +1,7 @@
 package com.aubb.server.modules.course.application;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
@@ -72,6 +73,7 @@ public class CourseAdministrationApplicationService {
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final CacheService cacheService;
 
     @Transactional
     public AcademicTermView createTerm(
@@ -342,6 +344,9 @@ public class CourseAdministrationApplicationService {
                     MembershipSourceType.MANUAL,
                     member.getJoinedAt(),
                     null);
+            cacheService.evict(
+                    CourseTeachingApplicationService.MY_COURSES_CACHE_NAME,
+                    CourseTeachingApplicationService.myCoursesCacheKey(instructorUserId));
         }
     }
 

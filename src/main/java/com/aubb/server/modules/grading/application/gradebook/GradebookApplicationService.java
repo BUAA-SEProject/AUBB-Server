@@ -61,6 +61,7 @@ public class GradebookApplicationService {
     private final SubmissionMapper submissionMapper;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final GradebookQueryRepository gradebookQueryRepository;
 
     @Transactional(readOnly = true)
     public GradebookPageView getOfferingGradebook(
@@ -109,8 +110,7 @@ public class GradebookApplicationService {
         CourseOfferingEntity offering = requireOffering(offeringId);
         courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
-        return buildGradebookReport(
-                buildGradebookSnapshot(offering, teachingClass, studentUserId), teachingClass == null);
+        return buildGradebookReport(offering, teachingClass, studentUserId, teachingClass == null);
     }
 
     @Transactional(readOnly = true)
@@ -119,7 +119,7 @@ public class GradebookApplicationService {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
         courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
-        return buildGradebookReport(buildGradebookSnapshot(offering, teachingClass, studentUserId), false);
+        return buildGradebookReport(offering, teachingClass, studentUserId, false);
     }
 
     @Transactional(readOnly = true)
@@ -234,14 +234,14 @@ public class GradebookApplicationService {
             Long studentUserId,
             long page,
             long pageSize) {
-        GradebookSnapshot snapshot = buildGradebookSnapshot(offering, teachingClass, studentUserId);
-        List<GradebookPageView.StudentRowView> pagedRows = paginate(snapshot.rows(), page, pageSize);
+        GradebookQueryRepository.GradebookPageAggregate aggregate = gradebookQueryRepository.loadOfferingPage(
+                offering.getId(), teachingClass == null ? null : teachingClass.getId(), studentUserId, page, pageSize);
         return new GradebookPageView(
-                snapshot.scope(),
-                snapshot.summary(),
-                snapshot.assignmentColumns(),
-                pagedRows,
-                snapshot.rows().size(),
+                aggregate.scope(),
+                aggregate.summary(),
+                aggregate.assignmentColumns(),
+                aggregate.items(),
+                aggregate.total(),
                 page,
                 pageSize);
     }
@@ -310,12 +310,18 @@ public class GradebookApplicationService {
                 renderStudentCsv(gradebookView).getBytes(StandardCharsets.UTF_8));
     }
 
-    private GradebookReportView buildGradebookReport(GradebookSnapshot snapshot, boolean includeTeachingClasses) {
+    private GradebookReportView buildGradebookReport(
+            CourseOfferingEntity offering,
+            TeachingClassEntity teachingClass,
+            Long studentUserId,
+            boolean includeTeachingClasses) {
+        GradebookQueryRepository.GradebookReportAggregate aggregate = gradebookQueryRepository.loadOfferingReport(
+                offering.getId(),
+                teachingClass == null ? null : teachingClass.getId(),
+                studentUserId,
+                includeTeachingClasses);
         return new GradebookReportView(
-                snapshot.scope(),
-                buildOverview(snapshot),
-                buildAssignmentStats(snapshot),
-                includeTeachingClasses ? buildTeachingClassStats(snapshot) : List.of());
+                aggregate.scope(), aggregate.overview(), aggregate.assignments(), aggregate.teachingClasses());
     }
 
     private GradebookReportView.OverviewView buildOverview(GradebookSnapshot snapshot) {

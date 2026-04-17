@@ -1,7 +1,9 @@
 package com.aubb.server.modules.course.application;
 
 import com.aubb.server.common.api.PageResponse;
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
@@ -57,6 +59,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class CourseTeachingApplicationService {
 
+    static final String MY_COURSES_CACHE_NAME = "myCoursesSummary";
+
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseMemberMapper courseMemberMapper;
@@ -65,6 +69,8 @@ public class CourseTeachingApplicationService {
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
 
     @Transactional
     public TeachingClassView createTeachingClass(
@@ -337,6 +343,37 @@ public class CourseTeachingApplicationService {
 
     @Transactional(readOnly = true)
     public List<MyCourseView> listMyCourses(AuthenticatedUserPrincipal principal) {
+        return cacheService.getOrLoadList(
+                MY_COURSES_CACHE_NAME,
+                myCoursesCacheKey(principal.getUserId()),
+                redisEnhancementProperties.getCache().getMyCoursesTtl(),
+                MyCourseView.class,
+                () -> loadMyCourses(principal));
+    }
+
+    static String myCoursesCacheKey(Long userId) {
+        return "user:%d".formatted(userId);
+    }
+
+    void evictMyCoursesCache(Long userId) {
+        cacheService.evict(MY_COURSES_CACHE_NAME, myCoursesCacheKey(userId));
+    }
+
+    void evictMyCoursesCacheByOffering(Long offeringId) {
+        List<String> keySuffixes = courseMemberMapper
+                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name()))
+                .stream()
+                .map(CourseMemberEntity::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(CourseTeachingApplicationService::myCoursesCacheKey)
+                .toList();
+        cacheService.evictAll(MY_COURSES_CACHE_NAME, keySuffixes);
+    }
+
+    private List<MyCourseView> loadMyCourses(AuthenticatedUserPrincipal principal) {
         List<CourseMemberEntity> memberships = courseMemberMapper.selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                 .eq(CourseMemberEntity::getUserId, principal.getUserId())
                 .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
@@ -356,17 +393,18 @@ public class CourseTeachingApplicationService {
                                 offering -> offering,
                                 (left, right) -> left,
                                 LinkedHashMap::new));
-        Map<Long, TeachingClassEntity> classes = teachingClassMapper
-                .selectByIds(memberships.stream()
-                        .map(CourseMemberEntity::getTeachingClassId)
-                        .filter(Objects::nonNull)
-                        .toList())
-                .stream()
-                .collect(Collectors.toMap(
-                        TeachingClassEntity::getId,
-                        teachingClass -> teachingClass,
-                        (left, right) -> left,
-                        LinkedHashMap::new));
+        List<Long> teachingClassIds = memberships.stream()
+                .map(CourseMemberEntity::getTeachingClassId)
+                .filter(Objects::nonNull)
+                .toList();
+        Map<Long, TeachingClassEntity> classes = teachingClassIds.isEmpty()
+                ? Map.of()
+                : teachingClassMapper.selectByIds(teachingClassIds).stream()
+                        .collect(Collectors.toMap(
+                                TeachingClassEntity::getId,
+                                teachingClass -> teachingClass,
+                                (left, right) -> left,
+                                LinkedHashMap::new));
         Map<Long, OrgUnitSummaryView> colleges =
                 organizationApplicationService.loadSummaryMap(offerings.values().stream()
                         .map(CourseOfferingEntity::getPrimaryCollegeUnitId)
@@ -443,6 +481,7 @@ public class CourseTeachingApplicationService {
             offering.setSelectedCount(offering.getSelectedCount() + 1);
             courseOfferingMapper.updateById(offering);
         }
+        evictMyCoursesCache(userId);
     }
 
     private CourseMemberEntity findExistingMember(
