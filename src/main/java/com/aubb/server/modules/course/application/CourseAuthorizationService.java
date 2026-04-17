@@ -75,6 +75,49 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanManageAnnouncements(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertCanManageOffering(principal, offeringId);
+        if (teachingClassId != null) {
+            assertAnnouncementFeatureEnabled(offeringId, teachingClassId);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewAnnouncementsForClass(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertAnnouncementFeatureEnabled(offeringId, teachingClassId);
+        if (canManageOfferingAsAdmin(principal, offeringId)
+                || isInstructor(principal.getUserId(), offeringId)
+                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
+                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程公告");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanManageResources(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertCanManageOffering(principal, offeringId);
+        if (teachingClassId != null) {
+            assertResourceFeatureEnabled(offeringId, teachingClassId);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewResourcesForClass(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertResourceFeatureEnabled(offeringId, teachingClassId);
+        if (canManageOfferingAsAdmin(principal, offeringId)
+                || isInstructor(principal.getUserId(), offeringId)
+                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
+                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程资源");
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanManageLabs(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertCanManageOffering(principal, offeringId);
         assertLabFeatureEnabled(offeringId, teachingClassId);
@@ -294,6 +337,20 @@ public class CourseAuthorizationService {
         TeachingClassEntity teachingClass = requireTeachingClassInOffering(offeringId, teachingClassId);
         if (!Boolean.TRUE.equals(teachingClass.getLabEnabled())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "LAB_DISABLED", "当前教学班未启用实验功能");
+        }
+    }
+
+    private void assertAnnouncementFeatureEnabled(Long offeringId, Long teachingClassId) {
+        TeachingClassEntity teachingClass = requireTeachingClassInOffering(offeringId, teachingClassId);
+        if (!Boolean.TRUE.equals(teachingClass.getAnnouncementEnabled())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "ANNOUNCEMENT_DISABLED", "当前教学班未启用课程公告功能");
+        }
+    }
+
+    private void assertResourceFeatureEnabled(Long offeringId, Long teachingClassId) {
+        TeachingClassEntity teachingClass = requireTeachingClassInOffering(offeringId, teachingClassId);
+        if (!Boolean.TRUE.equals(teachingClass.getResourceEnabled())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "RESOURCE_DISABLED", "当前教学班未启用课程资源功能");
         }
     }
 

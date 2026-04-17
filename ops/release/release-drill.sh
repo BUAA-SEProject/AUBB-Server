@@ -15,10 +15,8 @@ echo "[STEP] 导出静态 OpenAPI 产物"
 AUBB_OPENAPI_URL="${TARGET_BASE_URL%/}/v3/api-docs" bash ops/openapi/export-static.sh
 
 if [[ -n "$SMOKE_USER" && -n "$SMOKE_PASSWORD" ]]; then
-  echo "[STEP] 执行登录 smoke"
-  curl -fsS "${TARGET_BASE_URL%/}/api/v1/auth/login" \
-    -H 'content-type: application/json' \
-    -d "{\"username\":\"${SMOKE_USER}\",\"password\":\"${SMOKE_PASSWORD}\"}" >/dev/null
+  echo "[STEP] 执行 API smoke"
+  bash ops/release/smoke-api.sh
 fi
 
 echo "[OK] 发布演练完成"

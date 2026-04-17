@@ -70,6 +70,15 @@
 - `POST /api/v1/teacher/course-offerings/{offeringId}/members/batch`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/members/import`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/members`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/announcements`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/announcements`
+- `GET /api/v1/me/course-classes/{teachingClassId}/announcements`
+- `GET /api/v1/me/announcements/{announcementId}`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/resources`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/resources`
+- `GET /api/v1/teacher/course-resources/{resourceId}/download`
+- `GET /api/v1/me/course-classes/{teachingClassId}/resources`
+- `GET /api/v1/me/course-resources/{resourceId}/download`
 
 ### 作业与题库
 

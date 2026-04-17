@@ -1,6 +1,8 @@
 package com.aubb.server.modules.notification.domain;
 
 public enum NotificationType {
+    COURSE_ANNOUNCEMENT_PUBLISHED,
+    COURSE_RESOURCE_PUBLISHED,
     ASSIGNMENT_PUBLISHED,
     JUDGE_COMPLETED,
     ASSIGNMENT_GRADES_PUBLISHED,

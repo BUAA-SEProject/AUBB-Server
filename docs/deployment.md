@@ -20,7 +20,7 @@
 - `deploy/.env.production.example`
   - 远程部署环境变量模板
 - `deploy/.env.staging.example`
-  - staging 环境模板
+  - staging 环境模板，默认关闭 API 文档与 Swagger
 - `deploy/.env.uat.example`
   - UAT 环境模板
 - `.github/workflows/ci.yml`
@@ -110,8 +110,8 @@ docker compose --profile app up --build
 ### Prometheus 抓取
 
 - `GET /actuator/prometheus`
-  - 当前作为公开抓取入口
   - 用于 Prometheus 周期采集运行时与业务指标，不替代活性或 readiness 检查
+  - staging / UAT / production 建议仅通过内网、反向代理白名单或集群内部 Service 暴露
 - 当前最关键的业务指标包括：
   - `aubb_cache_operations_total{cache,operation,result}`
   - `aubb_rate_limit_decisions_total{policy,result}`
@@ -130,6 +130,7 @@ curl -fsS http://localhost:8080/actuator/prometheus | rg 'aubb_(judge|grading)_'
 ```
 
 - 当前建议通过内网、反向代理白名单或集群内部 Service 抓取该端点；仓库本身还没有单独的 scrape token / Basic Auth 方案。
+- staging、UAT 与 production 环境模板默认关闭 `AUBB_API_DOCS_ENABLED` 与 `AUBB_SWAGGER_UI_ENABLED`，若确需临时打开，应通过环境变量显式覆盖。
 
 ## 镜像构建与版本
 

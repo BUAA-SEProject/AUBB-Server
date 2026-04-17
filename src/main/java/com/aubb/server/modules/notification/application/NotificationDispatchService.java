@@ -5,8 +5,10 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
+import com.aubb.server.modules.course.infrastructure.announcement.CourseAnnouncementEntity;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
+import com.aubb.server.modules.course.infrastructure.resource.CourseResourceEntity;
 import com.aubb.server.modules.grading.domain.appeal.GradeAppealStatus;
 import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
 import com.aubb.server.modules.judge.domain.JudgeJobStatus;
@@ -70,6 +72,42 @@ public class NotificationDispatchService {
                 assignment.getTeachingClassId(),
                 metadata,
                 loadActiveStudentRecipients(assignment.getOfferingId(), assignment.getTeachingClassId()));
+    }
+
+    @Transactional
+    public void notifyCourseAnnouncementPublished(CourseAnnouncementEntity announcement, Long actorUserId) {
+        if (announcement == null) {
+            return;
+        }
+        enqueueNotification(
+                NotificationType.COURSE_ANNOUNCEMENT_PUBLISHED,
+                "课程公告已发布：" + announcement.getTitle(),
+                "教师发布了新的课程公告，请及时查看。",
+                actorUserId,
+                "COURSE_ANNOUNCEMENT",
+                String.valueOf(announcement.getId()),
+                announcement.getOfferingId(),
+                announcement.getTeachingClassId(),
+                Map.of("announcementId", announcement.getId()),
+                loadActiveStudentRecipients(announcement.getOfferingId(), announcement.getTeachingClassId()));
+    }
+
+    @Transactional
+    public void notifyCourseResourcePublished(CourseResourceEntity resource, Long actorUserId) {
+        if (resource == null) {
+            return;
+        }
+        enqueueNotification(
+                NotificationType.COURSE_RESOURCE_PUBLISHED,
+                "课程资源已上传：" + resource.getTitle(),
+                "教师上传了新的课程资源，现在可以下载查看。",
+                actorUserId,
+                "COURSE_RESOURCE",
+                String.valueOf(resource.getId()),
+                resource.getOfferingId(),
+                resource.getTeachingClassId(),
+                Map.of("resourceId", resource.getId()),
+                loadActiveStudentRecipients(resource.getOfferingId(), resource.getTeachingClassId()));
     }
 
     @Transactional
