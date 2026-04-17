@@ -15,18 +15,29 @@ import org.springframework.stereotype.Service;
 public class LegacyGovernanceGrantResolver implements PermissionGrantResolver {
 
     private final ScopeIdentityService scopeIdentityService;
+    private final AuthzScopeResolutionService authzScopeResolutionService;
 
     @Override
     public List<PermissionGrantView> resolve(AuthenticatedUserPrincipal principal) {
         return scopeIdentityService.loadForPrincipal(principal).stream()
-                .flatMap(identity ->
-                        LegacyPermissionGrantMatrix.forGovernanceRole(GovernanceRole.from(identity.roleCode())).stream()
-                                .map(permission -> PermissionGrantView.allow(
-                                        permission,
-                                        new ScopeRef(mapScopeType(identity), identity.scopeOrgUnitId()),
-                                        "LEGACY_GOVERNANCE",
-                                        identity.roleCode())))
+                .flatMap(identity -> resolveScope(identity).stream()
+                        .flatMap(scope ->
+                                LegacyPermissionGrantMatrix.forGovernanceRole(GovernanceRole.from(identity.roleCode()))
+                                        .stream()
+                                        .map(permission -> PermissionGrantView.allow(
+                                                permission, scope, "LEGACY_GOVERNANCE", identity.roleCode()))))
                 .toList();
+    }
+
+    private java.util.Optional<ScopeRef> resolveScope(ScopeIdentityView identity) {
+        AuthorizationScopeType scopeType = mapScopeType(identity);
+        if (scopeType != AuthorizationScopeType.CLASS) {
+            return java.util.Optional.of(new ScopeRef(scopeType, identity.scopeOrgUnitId()));
+        }
+        Long teachingClassId =
+                authzScopeResolutionService.findTeachingClassIdByOrgClassUnitId(identity.scopeOrgUnitId());
+        return java.util.Optional.ofNullable(teachingClassId)
+                .map(scopeRefId -> new ScopeRef(AuthorizationScopeType.CLASS, scopeRefId));
     }
 
     private AuthorizationScopeType mapScopeType(ScopeIdentityView identity) {

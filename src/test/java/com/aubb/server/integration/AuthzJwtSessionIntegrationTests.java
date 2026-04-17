@@ -40,8 +40,21 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         RedisIntegrationTestSupport.flushAll();
-        jdbcTemplate.execute(
-                "TRUNCATE TABLE audit_logs, auth_sessions, user_scope_roles, platform_configs, users, org_units RESTART IDENTITY CASCADE");
+        jdbcTemplate.execute("""
+                TRUNCATE TABLE
+                    audit_logs,
+                    auth_sessions,
+                    teaching_classes,
+                    course_offering_college_maps,
+                    course_offerings,
+                    academic_terms,
+                    course_catalogs,
+                    user_scope_roles,
+                    platform_configs,
+                    users,
+                    org_units
+                RESTART IDENTITY CASCADE
+                """);
 
         jdbcTemplate.update("""
                 INSERT INTO org_units (code, name, type, level, sort_order, status)
@@ -64,6 +77,52 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
         insertUser(4L, "teacher", "Teacher", "teacher@example.com");
 
         jdbcTemplate.update("""
+                INSERT INTO academic_terms (
+                    term_code,
+                    term_name,
+                    school_year,
+                    semester,
+                    start_date,
+                    end_date
+                ) VALUES ('2026-SPRING', '2026 春季学期', '2025-2026', 'SPRING', '2026-02-20', '2026-07-10')
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO course_catalogs (
+                    course_code,
+                    course_name,
+                    course_type,
+                    credit,
+                    total_hours,
+                    department_unit_id,
+                    description
+                ) VALUES ('SE101', '软件工程', 'REQUIRED', 3.0, 48, 2, '核心课程')
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO course_offerings (
+                    catalog_id,
+                    term_id,
+                    offering_code,
+                    offering_name,
+                    primary_college_unit_id,
+                    org_course_unit_id,
+                    delivery_mode,
+                    language,
+                    capacity,
+                    created_by_user_id
+                ) VALUES (1, 1, 'SE101-2026SP-01', '软件工程（2026春）', 2, 3, 'HYBRID', 'ZH', 120, 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO teaching_classes (
+                    offering_id,
+                    class_code,
+                    class_name,
+                    entry_year,
+                    org_class_unit_id,
+                    capacity
+                ) VALUES (1, 'CLS-2026-01', 'SE Class 1', 2026, 4, 60)
+                """);
+
+        jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 1L, "SCHOOL_ADMIN", "school-admin");
@@ -84,6 +143,10 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
 
         assertThat(bindings).extracting(binding -> binding.get("templateCode")).contains("class-admin");
         assertThat(bindings).extracting(binding -> binding.get("scopeType")).contains("CLASS");
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.get("templateCode")).isEqualTo("class-admin");
+            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(1L);
+        });
         assertThat(jwt.getClaimAsStringList("permissionCodes"))
                 .contains("class.manage", "user.manage", "member.manage");
         Number permissionVersion = (Number) jwt.getClaim("permissionVersion");

@@ -4,6 +4,7 @@ import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
+import com.aubb.server.modules.identityaccess.application.authz.AuthzScopeResolutionService;
 import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.application.authz.PermissionGrantResolver;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityService;
@@ -12,6 +13,7 @@ import com.aubb.server.modules.identityaccess.application.user.view.AcademicProf
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
 import com.aubb.server.modules.identityaccess.domain.profile.AcademicProfileStatus;
+import com.aubb.server.modules.identityaccess.infrastructure.authz.AuthzGroupQueryMapper;
 import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicProfileEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.profile.AcademicProfileMapper;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
@@ -33,6 +35,8 @@ public class AuthenticatedPrincipalLoader {
     private final AcademicProfileMapper academicProfileMapper;
     private final CourseMemberMapper courseMemberMapper;
     private final ScopeIdentityService scopeIdentityService;
+    private final AuthzGroupQueryMapper authzGroupQueryMapper;
+    private final AuthzScopeResolutionService authzScopeResolutionService;
     private final List<PermissionGrantResolver> permissionGrantResolvers;
 
     @Transactional(readOnly = true)
@@ -103,11 +107,7 @@ public class AuthenticatedPrincipalLoader {
 
     private List<GroupBindingView> loadGroupBindings(Long userId, List<ScopeIdentityView> identities) {
         List<GroupBindingView> governanceBindings = identities.stream()
-                .map(identity -> new GroupBindingView(
-                        "LEGACY_GOVERNANCE",
-                        identity.roleCode().toLowerCase().replace('_', '-'),
-                        identity.scopeOrgType(),
-                        identity.scopeOrgUnitId()))
+                .flatMap(identity -> toGovernanceBinding(identity).stream())
                 .toList();
         List<GroupBindingView> courseMemberBindings = courseMemberMapper
                 .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
@@ -116,9 +116,27 @@ public class AuthenticatedPrincipalLoader {
                 .stream()
                 .map(this::toCourseMemberBinding)
                 .toList();
-        return java.util.stream.Stream.concat(governanceBindings.stream(), courseMemberBindings.stream())
+        List<GroupBindingView> persistedBindings = authzGroupQueryMapper.selectActiveBindingsByUserId(userId).stream()
+                .map(binding -> new GroupBindingView(
+                        "AUTHZ_GROUP", binding.getTemplateCode(), binding.getScopeType(), binding.getScopeRefId()))
+                .toList();
+        return java.util.stream.Stream.of(governanceBindings, courseMemberBindings, persistedBindings)
+                .flatMap(List::stream)
                 .distinct()
                 .toList();
+    }
+
+    private java.util.Optional<GroupBindingView> toGovernanceBinding(ScopeIdentityView identity) {
+        String scopeType = identity.scopeOrgType();
+        Long scopeRefId = identity.scopeOrgUnitId();
+        if ("CLASS".equals(scopeType)) {
+            scopeRefId = authzScopeResolutionService.findTeachingClassIdByOrgClassUnitId(identity.scopeOrgUnitId());
+            if (scopeRefId == null) {
+                return java.util.Optional.empty();
+            }
+        }
+        return java.util.Optional.of(new GroupBindingView(
+                "LEGACY_GOVERNANCE", identity.roleCode().toLowerCase().replace('_', '-'), scopeType, scopeRefId));
     }
 
     private GroupBindingView toCourseMemberBinding(CourseMemberEntity member) {
