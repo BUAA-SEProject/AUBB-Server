@@ -10,8 +10,6 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.application.view.CourseResourceView;
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.resource.CourseResourceEntity;
 import com.aubb.server.modules.course.infrastructure.resource.CourseResourceMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
@@ -23,9 +21,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -45,7 +41,6 @@ public class CourseResourceApplicationService {
 
     private final CourseResourceMapper courseResourceMapper;
     private final TeachingClassMapper teachingClassMapper;
-    private final CourseMemberMapper courseMemberMapper;
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
@@ -58,11 +53,7 @@ public class CourseResourceApplicationService {
             String title,
             MultipartFile file,
             AuthenticatedUserPrincipal principal) {
-        if (teachingClassId != null) {
-            courseAuthorizationService.assertCanManageResources(principal, offeringId, teachingClassId);
-        } else {
-            courseAuthorizationService.assertCanManageOffering(principal, offeringId);
-        }
+        courseAuthorizationService.assertCanManageResources(principal, offeringId, teachingClassId);
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
@@ -111,7 +102,7 @@ public class CourseResourceApplicationService {
     @Transactional(readOnly = true)
     public PageResponse<CourseResourceView> listTeacherResources(
             Long offeringId, Long teachingClassId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageOffering(principal, offeringId);
+        courseAuthorizationService.assertCanManageResources(principal, offeringId, teachingClassId);
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
@@ -138,7 +129,7 @@ public class CourseResourceApplicationService {
     @Transactional(readOnly = true)
     public CourseResourceDownload downloadTeacherResource(Long resourceId, AuthenticatedUserPrincipal principal) {
         CourseResourceEntity entity = requireResource(resourceId);
-        courseAuthorizationService.assertCanManageOffering(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageResources(principal, entity.getOfferingId(), entity.getTeachingClassId());
         return readResource(entity);
     }
 
@@ -155,31 +146,7 @@ public class CourseResourceApplicationService {
     }
 
     private void assertCanViewOfferingWideResource(AuthenticatedUserPrincipal principal, Long offeringId) {
-        if (courseAuthorizationService.canManageOfferingAsAdmin(principal, offeringId)
-                || courseAuthorizationService.isInstructor(principal.getUserId(), offeringId)) {
-            return;
-        }
-        if (!courseAuthorizationService.isActiveCourseMember(principal.getUserId(), offeringId)) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程资源");
-        }
-        Set<Long> activeClassIds = courseMemberMapper
-                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
-                        .eq(CourseMemberEntity::getUserId, principal.getUserId())
-                        .eq(CourseMemberEntity::getOfferingId, offeringId)
-                        .isNotNull(CourseMemberEntity::getTeachingClassId)
-                        .eq(CourseMemberEntity::getMemberStatus, "ACTIVE")
-                        .select(CourseMemberEntity::getTeachingClassId))
-                .stream()
-                .map(CourseMemberEntity::getTeachingClassId)
-                .collect(Collectors.toSet());
-        if (activeClassIds.isEmpty()) {
-            return;
-        }
-        boolean enabled = teachingClassMapper.selectBatchIds(activeClassIds).stream()
-                .anyMatch(teachingClass -> Boolean.TRUE.equals(teachingClass.getResourceEnabled()));
-        if (!enabled) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "RESOURCE_DISABLED", "当前教学班未启用课程资源功能");
-        }
+        courseAuthorizationService.assertCanViewOfferingWideResources(principal, offeringId);
     }
 
     private CourseResourceDownload readResource(CourseResourceEntity entity) {

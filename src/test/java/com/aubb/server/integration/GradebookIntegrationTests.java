@@ -31,6 +31,9 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    role_bindings,
+                    class_members,
+                    offering_members,
                     programming_sample_runs,
                     judge_jobs,
                     programming_workspaces,

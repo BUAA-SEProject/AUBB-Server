@@ -100,6 +100,17 @@ class AuthzSchemaIntegrationTests extends AbstractIntegrationTest {
                 .containsExactlyInAnyOrder("offering.read", "class.read", "assignment.read");
     }
 
+    @Test
+    void modernTeachingRolesShouldSeedDiscussionAndLabCompatibilityPermissions() {
+        assertThat(loadRolePermissions("offering_teacher"))
+                .contains("discussion.manage", "lab.read", "lab.manage", "lab.report.review");
+        assertThat(loadRolePermissions("offering_ta"))
+                .contains("announcement.read", "resource.read", "discussion.participate", "lab.read", "lab.report.review");
+        assertThat(loadRolePermissions("class_ta"))
+                .contains("announcement.read", "resource.read", "discussion.participate", "lab.read", "lab.report.review");
+        assertThat(loadRolePermissions("student")).contains("discussion.participate", "lab.read");
+    }
+
     private Set<String> loadTemplatePermissions(String templateCode) {
         return Set.copyOf(jdbcTemplate.queryForList("""
                 SELECT permission_code
@@ -107,6 +118,16 @@ class AuthzSchemaIntegrationTests extends AbstractIntegrationTest {
                 JOIN auth_group_templates t ON t.id = tp.template_id
                 WHERE t.code = ?
                 """, String.class, templateCode));
+    }
+
+    private Set<String> loadRolePermissions(String roleCode) {
+        return Set.copyOf(jdbcTemplate.queryForList("""
+                SELECT p.code
+                FROM role_permissions rp
+                JOIN roles r ON r.id = rp.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE r.code = ?
+                """, String.class, roleCode));
     }
 
     private int countTable(String tableName) {

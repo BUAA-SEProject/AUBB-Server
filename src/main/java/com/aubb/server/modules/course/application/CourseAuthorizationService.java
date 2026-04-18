@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -202,7 +203,8 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageQuestionBank(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(principal, PermissionCode.QUESTION_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理题库");
+        assertPermission(
+                principal, PermissionCode.QUESTION_BANK_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理题库");
     }
 
     @Transactional(readOnly = true)
@@ -220,66 +222,96 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanManageAnnouncements(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertCanManageOffering(principal, offeringId);
-        if (teachingClassId != null) {
-            assertAnnouncementFeatureEnabled(offeringId, teachingClassId);
-        }
+        assertTeachingFeatureManagePermission(
+                principal,
+                "announcement.publish",
+                offeringId,
+                teachingClassId,
+                "当前用户无权管理该课程公告",
+                teachingClassId == null ? null : this::assertAnnouncementFeatureEnabled);
     }
 
     @Transactional(readOnly = true)
     public void assertCanViewAnnouncementsForClass(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertAnnouncementFeatureEnabled(offeringId, teachingClassId);
-        if (canManageOfferingAsAdmin(principal, offeringId)
-                || isInstructor(principal.getUserId(), offeringId)
-                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
-                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
-            return;
-        }
-        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程公告");
+        assertTeachingClassReadPermission(
+                principal, "announcement.read", offeringId, teachingClassId, "当前用户无权查看该课程公告");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewOfferingWideAnnouncements(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertOfferingWideTeachingReadPermission(
+                principal,
+                offeringId,
+                "announcement.read",
+                teachingClass -> Boolean.TRUE.equals(teachingClass.getAnnouncementEnabled()),
+                "ANNOUNCEMENT_DISABLED",
+                "当前教学班未启用课程公告功能",
+                "当前用户无权查看该课程公告");
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageResources(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertCanManageOffering(principal, offeringId);
-        if (teachingClassId != null) {
-            assertResourceFeatureEnabled(offeringId, teachingClassId);
-        }
+        assertTeachingFeatureManagePermission(
+                principal,
+                "resource.manage",
+                offeringId,
+                teachingClassId,
+                "当前用户无权管理该课程资源",
+                teachingClassId == null ? null : this::assertResourceFeatureEnabled);
     }
 
     @Transactional(readOnly = true)
     public void assertCanViewResourcesForClass(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertResourceFeatureEnabled(offeringId, teachingClassId);
-        if (canManageOfferingAsAdmin(principal, offeringId)
-                || isInstructor(principal.getUserId(), offeringId)
-                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
-                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
-            return;
-        }
-        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程资源");
+        assertTeachingClassReadPermission(
+                principal, "resource.read", offeringId, teachingClassId, "当前用户无权查看该课程资源");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewOfferingWideResources(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertOfferingWideTeachingReadPermission(
+                principal,
+                offeringId,
+                "resource.read",
+                teachingClass -> Boolean.TRUE.equals(teachingClass.getResourceEnabled()),
+                "RESOURCE_DISABLED",
+                "当前教学班未启用课程资源功能",
+                "当前用户无权查看该课程资源");
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageDiscussions(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertCanManageOffering(principal, offeringId);
-        if (teachingClassId != null) {
-            assertDiscussionFeatureEnabled(offeringId, teachingClassId);
-        }
+        assertTeachingFeatureManagePermission(
+                principal,
+                "discussion.manage",
+                offeringId,
+                teachingClassId,
+                "当前用户无权管理该课程讨论",
+                teachingClassId == null ? null : this::assertDiscussionFeatureEnabled);
     }
 
     @Transactional(readOnly = true)
     public void assertCanParticipateDiscussionsForClass(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertDiscussionFeatureEnabled(offeringId, teachingClassId);
-        if (canManageOfferingAsAdmin(principal, offeringId)
-                || isInstructor(principal.getUserId(), offeringId)
-                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
-                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId)) {
-            return;
-        }
-        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权参与该课程讨论");
+        assertTeachingClassReadPermission(
+                principal, "discussion.participate", offeringId, teachingClassId, "当前用户无权参与该课程讨论");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanAccessOfferingWideDiscussions(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertOfferingWideTeachingReadPermission(
+                principal,
+                offeringId,
+                "discussion.participate",
+                teachingClass -> Boolean.TRUE.equals(teachingClass.getDiscussionEnabled()),
+                "DISCUSSION_DISABLED",
+                "当前教学班未启用课程讨论功能",
+                "当前用户无权查看该课程讨论");
     }
 
     @Transactional(readOnly = true)
@@ -686,6 +718,133 @@ public class CourseAuthorizationService {
         }
     }
 
+    private void assertTeachingFeatureManagePermission(
+            AuthenticatedUserPrincipal principal,
+            String permissionCode,
+            Long offeringId,
+            Long teachingClassId,
+            String message,
+            TeachingClassFeatureAssertion featureAssertion) {
+        if (featureAssertion != null) {
+            featureAssertion.assertEnabled(offeringId, teachingClassId);
+        }
+        AuthorizationResult result = permissionAuthorizationService.authorize(
+                principal, permissionCode, teachingResource(offeringId, teachingClassId), currentContext());
+        if (result.allowed()) {
+            return;
+        }
+        if ("DENY_NO_ROLE_BINDING".equals(result.reasonCode())
+                && canFallbackToLegacyAuthorization(principal)
+                && canManageTeachingFeatureLegacy(principal, offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+    }
+
+    private void assertTeachingClassReadPermission(
+            AuthenticatedUserPrincipal principal,
+            String permissionCode,
+            Long offeringId,
+            Long teachingClassId,
+            String message) {
+        AuthorizationResult result =
+                permissionAuthorizationService.authorize(principal, permissionCode, classResource(teachingClassId), currentContext());
+        if (result.allowed()) {
+            return;
+        }
+        if ("DENY_NO_ROLE_BINDING".equals(result.reasonCode())
+                && canFallbackToLegacyAuthorization(principal)
+                && canAccessTeachingClassLegacy(principal, offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+    }
+
+    private void assertOfferingWideTeachingReadPermission(
+            AuthenticatedUserPrincipal principal,
+            Long offeringId,
+            String permissionCode,
+            Predicate<TeachingClassEntity> featureEnabled,
+            String disabledCode,
+            String disabledMessage,
+            String forbiddenMessage) {
+        if (hasScopedPermission(principal, permissionCode, offeringResource(offeringId))) {
+            return;
+        }
+
+        List<TeachingClassEntity> activeClasses =
+                loadActiveTeachingClasses(principal == null ? null : principal.getUserId(), offeringId);
+        boolean anyEnabledClass = activeClasses.stream().anyMatch(featureEnabled);
+        boolean anyAuthorizedEnabledClass = activeClasses.stream()
+                .filter(featureEnabled)
+                .map(TeachingClassEntity::getId)
+                .anyMatch(classId -> hasScopedPermission(principal, permissionCode, classResource(classId)));
+        if (anyAuthorizedEnabledClass) {
+            return;
+        }
+
+        if (canFallbackToLegacyAuthorization(principal)) {
+            if (canManageOfferingAsAdmin(principal, offeringId) || isInstructor(principal.getUserId(), offeringId)) {
+                return;
+            }
+            if (!isActiveCourseMember(principal.getUserId(), offeringId)) {
+                throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", forbiddenMessage);
+            }
+            if (activeClasses.isEmpty() || anyEnabledClass) {
+                return;
+            }
+            throw new BusinessException(HttpStatus.FORBIDDEN, disabledCode, disabledMessage);
+        }
+
+        if (!activeClasses.isEmpty() && !anyEnabledClass) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, disabledCode, disabledMessage);
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", forbiddenMessage);
+    }
+
+    private boolean hasScopedPermission(
+            AuthenticatedUserPrincipal principal, String permissionCode, AuthorizationResourceRef resourceRef) {
+        return permissionAuthorizationService.authorize(principal, permissionCode, resourceRef, currentContext())
+                .allowed();
+    }
+
+    private List<TeachingClassEntity> loadActiveTeachingClasses(Long userId, Long offeringId) {
+        if (userId == null || offeringId == null) {
+            return List.of();
+        }
+        Set<Long> activeClassIds = courseMemberMapper
+                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getUserId, userId)
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .isNotNull(CourseMemberEntity::getTeachingClassId)
+                        .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
+                        .select(CourseMemberEntity::getTeachingClassId))
+                .stream()
+                .map(CourseMemberEntity::getTeachingClassId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (activeClassIds.isEmpty()) {
+            return List.of();
+        }
+        return teachingClassMapper.selectBatchIds(activeClassIds);
+    }
+
+    private boolean canManageTeachingFeatureLegacy(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        if (teachingClassId == null) {
+            return hasPermission(principal, PermissionCode.OFFERING_MANAGE, resolveOfferingScope(offeringId));
+        }
+        return hasPermission(principal, PermissionCode.CLASS_MANAGE, resolveTeachingClassScope(offeringId, teachingClassId))
+                || hasPermission(principal, PermissionCode.OFFERING_MANAGE, resolveOfferingScope(offeringId));
+    }
+
+    private boolean canAccessTeachingClassLegacy(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        return canManageOfferingAsAdmin(principal, offeringId)
+                || isInstructor(principal.getUserId(), offeringId)
+                || isTeachingAssistantForClass(principal.getUserId(), offeringId, teachingClassId)
+                || isActiveClassMember(principal.getUserId(), offeringId, teachingClassId);
+    }
+
     private void assertPermission(
             AuthenticatedUserPrincipal principal, PermissionCode permission, ScopeRef scope, String message) {
         if (!hasPermission(principal, permission, scope)) {
@@ -785,7 +944,7 @@ public class CourseAuthorizationService {
             case ASSIGNMENT_UPDATE -> "task.edit";
             case ASSIGNMENT_PUBLISH -> "task.publish";
             case ASSIGNMENT_CLOSE -> "task.close";
-            case QUESTION_MANAGE -> "question_bank.manage";
+            case QUESTION_BANK_MANAGE, QUESTION_MANAGE -> "question_bank.manage";
             case SUBMISSION_READ_CLASS, SUBMISSION_READ_OFFERING -> "submission.read";
             case SUBMISSION_CODE_READ_SENSITIVE -> "submission.read_source";
             case SUBMISSION_GRADE -> "submission.grade";
@@ -795,6 +954,9 @@ public class CourseAuthorizationService {
             case APPEAL_READ_OWN, APPEAL_READ_CLASS -> "appeal.read";
             case APPEAL_REVIEW -> "appeal.review";
             case JUDGE_PROFILE_MANAGE -> "judge.config";
+            case LAB_READ -> "lab.read";
+            case LAB_MANAGE -> "lab.manage";
+            case LAB_REPORT_REVIEW -> "lab.report.review";
             default -> null;
         };
     }
@@ -833,6 +995,11 @@ public class CourseAuthorizationService {
         }
         sensitiveOperationAuditService.recordDenied(
                 principal, deniedAuditAction, permissionCode, resourceRef, result, Map.of());
+    }
+
+    @FunctionalInterface
+    private interface TeachingClassFeatureAssertion {
+        void assertEnabled(Long offeringId, Long teachingClassId);
     }
 
     private ScopeRef resolveAssignmentScope(Long offeringId, Long teachingClassId) {

@@ -9,8 +9,6 @@ import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.application.view.CourseAnnouncementView;
 import com.aubb.server.modules.course.infrastructure.announcement.CourseAnnouncementEntity;
 import com.aubb.server.modules.course.infrastructure.announcement.CourseAnnouncementMapper;
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
@@ -20,8 +18,6 @@ import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,7 +32,6 @@ public class CourseAnnouncementApplicationService {
     private static final int MAX_BODY_LENGTH = 5_000;
 
     private final CourseAnnouncementMapper courseAnnouncementMapper;
-    private final CourseMemberMapper courseMemberMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
@@ -73,7 +68,7 @@ public class CourseAnnouncementApplicationService {
     @Transactional(readOnly = true)
     public PageResponse<CourseAnnouncementView> listTeacherAnnouncements(
             Long offeringId, Long teachingClassId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageOffering(principal, offeringId);
+        courseAuthorizationService.assertCanManageAnnouncements(principal, offeringId, teachingClassId);
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
@@ -110,31 +105,7 @@ public class CourseAnnouncementApplicationService {
     }
 
     private void assertCanViewOfferingWideAnnouncement(AuthenticatedUserPrincipal principal, Long offeringId) {
-        if (courseAuthorizationService.canManageOfferingAsAdmin(principal, offeringId)
-                || courseAuthorizationService.isInstructor(principal.getUserId(), offeringId)) {
-            return;
-        }
-        if (!courseAuthorizationService.isActiveCourseMember(principal.getUserId(), offeringId)) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程公告");
-        }
-        Set<Long> activeClassIds = courseMemberMapper
-                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
-                        .eq(CourseMemberEntity::getUserId, principal.getUserId())
-                        .eq(CourseMemberEntity::getOfferingId, offeringId)
-                        .isNotNull(CourseMemberEntity::getTeachingClassId)
-                        .eq(CourseMemberEntity::getMemberStatus, "ACTIVE")
-                        .select(CourseMemberEntity::getTeachingClassId))
-                .stream()
-                .map(CourseMemberEntity::getTeachingClassId)
-                .collect(Collectors.toSet());
-        if (activeClassIds.isEmpty()) {
-            return;
-        }
-        boolean enabled = teachingClassMapper.selectBatchIds(activeClassIds).stream()
-                .anyMatch(teachingClass -> Boolean.TRUE.equals(teachingClass.getAnnouncementEnabled()));
-        if (!enabled) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "ANNOUNCEMENT_DISABLED", "当前教学班未启用课程公告功能");
-        }
+        courseAuthorizationService.assertCanViewOfferingWideAnnouncements(principal, offeringId);
     }
 
     private TeachingClassEntity requireTeachingClass(Long teachingClassId) {

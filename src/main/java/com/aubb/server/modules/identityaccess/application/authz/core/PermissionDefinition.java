@@ -21,6 +21,7 @@ public record PermissionDefinition(
             "upload",
             "save",
             "submit",
+            "participate",
             "review",
             "config");
 

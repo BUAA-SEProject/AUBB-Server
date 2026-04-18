@@ -26,7 +26,7 @@ public class DefaultRolePermissionConstraintResolver {
 
     private RoleBindingConstraints studentDefaults(String permissionCode) {
         return switch (permissionCode) {
-            case "task.read", "announcement.read", "resource.read" ->
+            case "task.read", "announcement.read", "resource.read", "discussion.participate", "lab.read" ->
                 new RoleBindingConstraints(false, true, false, false, true);
             case "submission.read", "appeal.read" -> new RoleBindingConstraints(true, false, false, false, true);
             case "grade.read" -> new RoleBindingConstraints(true, true, false, false, true);
@@ -43,6 +43,8 @@ public class DefaultRolePermissionConstraintResolver {
                 || permissionCode.startsWith("appeal.")
                 || permissionCode.startsWith("announcement.")
                 || permissionCode.startsWith("resource.")
+                || permissionCode.startsWith("discussion.")
+                || permissionCode.startsWith("lab.")
                 || permissionCode.startsWith("ide.");
     }
 }

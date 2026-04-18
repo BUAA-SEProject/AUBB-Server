@@ -24,6 +24,11 @@ public enum PermissionCode {
     ASSIGNMENT_PUBLISH("assignment.publish"),
     ASSIGNMENT_CLOSE("assignment.close"),
     QUESTION_READ("question.read"),
+    QUESTION_BANK_MANAGE("question_bank.manage"),
+    /**
+     * @deprecated 旧授权组数据里仍可能持久化为 {@code question.manage}，仅保留解析兼容，不再用于新逻辑。
+     */
+    @Deprecated(forRemoval = false)
     QUESTION_MANAGE("question.manage"),
     JUDGE_PROFILE_MANAGE("judge.profile.manage"),
     JUDGE_HIDDEN_READ("judge.hidden.read"),
@@ -76,6 +81,7 @@ public enum PermissionCode {
                     ASSIGNMENT_UPDATE,
                     ASSIGNMENT_PUBLISH,
                     ASSIGNMENT_CLOSE,
+                    QUESTION_BANK_MANAGE,
                     QUESTION_MANAGE,
                     JUDGE_PROFILE_MANAGE,
                     JUDGE_HIDDEN_MANAGE,
@@ -92,6 +98,9 @@ public enum PermissionCode {
     }
 
     public static PermissionCode fromCode(String code) {
+        if ("question.manage".equalsIgnoreCase(code) || "question_bank.manage".equalsIgnoreCase(code)) {
+            return QUESTION_BANK_MANAGE;
+        }
         return Arrays.stream(values())
                 .filter(permissionCode -> permissionCode.code.equalsIgnoreCase(code))
                 .findFirst()

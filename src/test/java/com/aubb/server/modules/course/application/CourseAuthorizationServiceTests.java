@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.aubb.server.common.exception.BusinessException;
@@ -239,7 +238,7 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
-    void assertCanViewLabShouldRemainOnLegacyAuthorizationUntilModernPermissionExists() {
+    void assertCanViewLabShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,
                 permissionAuthorizationService,
@@ -264,12 +263,81 @@ class CourseAuthorizationServiceTests {
                 null,
                 true);
         when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
-        when(authorizationService.decide(any())).thenReturn(AuthorizationDecision.allow(List.of()));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("lab.read"), any(), any()))
+                .thenReturn(AuthorizationResult.allow("ALLOW_BY_SCOPE_ROLE", List.of("student"), List.of(), true));
 
         service.assertCanViewLab(principal, 12L, 34L);
 
-        verifyNoInteractions(permissionAuthorizationService);
-        verify(authorizationService).decide(any());
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanManageAnnouncementsShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                true);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true, true, true, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("announcement.publish"), any(), any()))
+                .thenReturn(
+                        AuthorizationResult.allow("ALLOW_BY_SCOPE_ROLE", List.of("offering_teacher"), List.of(), true));
+
+        service.assertCanManageAnnouncements(principal, 12L, 34L);
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanParticipateDiscussionsForClassShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                true);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true, true, true, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("discussion.participate"), any(), any()))
+                .thenReturn(AuthorizationResult.allow("ALLOW_BY_SCOPE_ROLE", List.of("student"), List.of(), true));
+
+        service.assertCanParticipateDiscussionsForClass(principal, 12L, 34L);
+
+        verify(authorizationService, never()).decide(any());
     }
 
     private CourseOfferingEntity offering(Long id, Long primaryCollegeUnitId, Long orgCourseUnitId) {
@@ -297,9 +365,22 @@ class CourseAuthorizationServiceTests {
     }
 
     private TeachingClassEntity teachingClass(Long id, Long offeringId, boolean labEnabled) {
+        return teachingClass(id, offeringId, true, true, true, labEnabled);
+    }
+
+    private TeachingClassEntity teachingClass(
+            Long id,
+            Long offeringId,
+            boolean announcementEnabled,
+            boolean resourceEnabled,
+            boolean discussionEnabled,
+            boolean labEnabled) {
         TeachingClassEntity entity = new TeachingClassEntity();
         entity.setId(id);
         entity.setOfferingId(offeringId);
+        entity.setAnnouncementEnabled(announcementEnabled);
+        entity.setResourceEnabled(resourceEnabled);
+        entity.setDiscussionEnabled(discussionEnabled);
         entity.setLabEnabled(labEnabled);
         return entity;
     }

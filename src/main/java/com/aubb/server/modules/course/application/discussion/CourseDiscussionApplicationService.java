@@ -14,8 +14,6 @@ import com.aubb.server.modules.course.infrastructure.discussion.CourseDiscussion
 import com.aubb.server.modules.course.infrastructure.discussion.CourseDiscussionMapper;
 import com.aubb.server.modules.course.infrastructure.discussion.CourseDiscussionPostEntity;
 import com.aubb.server.modules.course.infrastructure.discussion.CourseDiscussionPostMapper;
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
@@ -46,7 +44,6 @@ public class CourseDiscussionApplicationService {
 
     private final CourseDiscussionMapper courseDiscussionMapper;
     private final CourseDiscussionPostMapper courseDiscussionPostMapper;
-    private final CourseMemberMapper courseMemberMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final UserMapper userMapper;
     private final CourseAuthorizationService courseAuthorizationService;
@@ -56,11 +53,9 @@ public class CourseDiscussionApplicationService {
     @Transactional
     public CourseDiscussionSummaryView createTeacherDiscussion(
             Long offeringId, Long teachingClassId, String title, String body, AuthenticatedUserPrincipal principal) {
+        courseAuthorizationService.assertCanManageDiscussions(principal, offeringId, teachingClassId);
         if (teachingClassId != null) {
-            courseAuthorizationService.assertCanManageDiscussions(principal, offeringId, teachingClassId);
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
-        } else {
-            courseAuthorizationService.assertCanManageOffering(principal, offeringId);
         }
         CourseDiscussionEntity discussion =
                 createDiscussion(offeringId, teachingClassId, principal.getUserId(), title, body, true);
@@ -81,7 +76,7 @@ public class CourseDiscussionApplicationService {
     @Transactional(readOnly = true)
     public PageResponse<CourseDiscussionSummaryView> listTeacherDiscussions(
             Long offeringId, Long teachingClassId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageOffering(principal, offeringId);
+        courseAuthorizationService.assertCanManageDiscussions(principal, offeringId, teachingClassId);
         if (teachingClassId != null) {
             courseAuthorizationService.requireTeachingClassInOffering(offeringId, teachingClassId);
         }
@@ -108,7 +103,8 @@ public class CourseDiscussionApplicationService {
     @Transactional(readOnly = true)
     public CourseDiscussionDetailView getTeacherDiscussion(Long discussionId, AuthenticatedUserPrincipal principal) {
         CourseDiscussionEntity discussion = requireDiscussion(discussionId);
-        courseAuthorizationService.assertCanManageOffering(principal, discussion.getOfferingId());
+        courseAuthorizationService.assertCanManageDiscussions(
+                principal, discussion.getOfferingId(), discussion.getTeachingClassId());
         return toDetail(discussion);
     }
 
@@ -123,7 +119,8 @@ public class CourseDiscussionApplicationService {
     public CourseDiscussionPostView replyAsTeacher(
             Long discussionId, Long replyToPostId, String body, AuthenticatedUserPrincipal principal) {
         CourseDiscussionEntity discussion = requireDiscussion(discussionId);
-        courseAuthorizationService.assertCanManageOffering(principal, discussion.getOfferingId());
+        courseAuthorizationService.assertCanManageDiscussions(
+                principal, discussion.getOfferingId(), discussion.getTeachingClassId());
         return createReply(discussion, replyToPostId, body, principal.getUserId(), true);
     }
 
@@ -142,7 +139,8 @@ public class CourseDiscussionApplicationService {
     public CourseDiscussionSummaryView updateTeacherLockState(
             Long discussionId, boolean locked, AuthenticatedUserPrincipal principal) {
         CourseDiscussionEntity discussion = requireDiscussion(discussionId);
-        courseAuthorizationService.assertCanManageOffering(principal, discussion.getOfferingId());
+        courseAuthorizationService.assertCanManageDiscussions(
+                principal, discussion.getOfferingId(), discussion.getTeachingClassId());
         discussion.setLocked(locked);
         courseDiscussionMapper.updateById(discussion);
         auditLogApplicationService.record(
@@ -236,28 +234,7 @@ public class CourseDiscussionApplicationService {
     }
 
     private void assertCanAccessOfferingWideDiscussion(AuthenticatedUserPrincipal principal, Long offeringId) {
-        if (courseAuthorizationService.canManageOfferingAsAdmin(principal, offeringId)
-                || courseAuthorizationService.isInstructor(principal.getUserId(), offeringId)) {
-            return;
-        }
-        if (!courseAuthorizationService.isActiveCourseMember(principal.getUserId(), offeringId)) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该课程讨论");
-        }
-        Set<Long> activeClassIds = courseMemberMapper
-                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
-                        .eq(CourseMemberEntity::getUserId, principal.getUserId())
-                        .eq(CourseMemberEntity::getOfferingId, offeringId)
-                        .isNotNull(CourseMemberEntity::getTeachingClassId)
-                        .eq(CourseMemberEntity::getMemberStatus, "ACTIVE")
-                        .select(CourseMemberEntity::getTeachingClassId))
-                .stream()
-                .map(CourseMemberEntity::getTeachingClassId)
-                .collect(Collectors.toSet());
-        if (!activeClassIds.isEmpty()
-                && teachingClassMapper.selectBatchIds(activeClassIds).stream()
-                        .noneMatch(teachingClass -> Boolean.TRUE.equals(teachingClass.getDiscussionEnabled()))) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "DISCUSSION_DISABLED", "当前教学班未启用课程讨论功能");
-        }
+        courseAuthorizationService.assertCanAccessOfferingWideDiscussions(principal, offeringId);
     }
 
     private CourseDiscussionEntity requireDiscussion(Long discussionId) {

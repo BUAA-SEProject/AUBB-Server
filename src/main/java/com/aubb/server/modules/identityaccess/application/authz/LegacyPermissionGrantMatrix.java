@@ -76,7 +76,7 @@ final class LegacyPermissionGrantMatrix {
             PermissionCode.ASSIGNMENT_PUBLISH,
             PermissionCode.ASSIGNMENT_CLOSE,
             PermissionCode.QUESTION_READ,
-            PermissionCode.QUESTION_MANAGE,
+            PermissionCode.QUESTION_BANK_MANAGE,
             PermissionCode.JUDGE_PROFILE_MANAGE,
             PermissionCode.SUBMISSION_READ_OFFERING,
             PermissionCode.SUBMISSION_CODE_READ_SENSITIVE,
