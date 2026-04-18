@@ -1,6 +1,13 @@
 spring:
   application:
     name: AUBB-Server
+  datasource:
+    hikari:
+      maximum-pool-size: ${AUBB_DB_MAX_POOL_SIZE:48}
+      minimum-idle: ${AUBB_DB_MIN_IDLE:12}
+      connection-timeout: ${AUBB_DB_CONNECTION_TIMEOUT_MS:500}
+      idle-timeout: ${AUBB_DB_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${AUBB_DB_MAX_LIFETIME_MS:1800000}
   mvc:
     problemdetails:
       enabled: true
@@ -12,6 +19,14 @@ logging:
   include-application-name: false
   pattern:
     correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
+server:
+  tomcat:
+    threads:
+      max: ${AUBB_SERVER_MAX_THREADS:320}
+      min-spare: ${AUBB_SERVER_MIN_SPARE_THREADS:20}
+    accept-count: ${AUBB_SERVER_ACCEPT_COUNT:1000}
+    connection-timeout: ${AUBB_SERVER_CONNECTION_TIMEOUT:PT3S}
+    keep-alive-timeout: ${AUBB_SERVER_KEEP_ALIVE_TIMEOUT:PT20S}
 management:
   tracing:
     enabled: ${AUBB_TRACING_ENABLED:false}
@@ -127,6 +142,8 @@ aubb:
     connect-timeout: ${AUBB_REDIS_CONNECT_TIMEOUT:PT2S}
     command-timeout: ${AUBB_REDIS_COMMAND_TIMEOUT:PT2S}
     cache:
+      auth-session-active-ttl: ${AUBB_REDIS_CACHE_AUTH_SESSION_ACTIVE_TTL:PT30S}
+      judge-job-report-ttl: ${AUBB_REDIS_CACHE_JUDGE_JOB_REPORT_TTL:PT2M}
       notification-unread-ttl: ${AUBB_REDIS_CACHE_NOTIFICATION_UNREAD_TTL:PT1M}
       my-courses-ttl: ${AUBB_REDIS_CACHE_MY_COURSES_TTL:PT2M}
       question-bank-dictionary-ttl: ${AUBB_REDIS_CACHE_QUESTION_BANK_DICTIONARY_TTL:PT20M}

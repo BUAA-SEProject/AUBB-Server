@@ -19,6 +19,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -37,6 +39,11 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
     @Autowired
     private MeterRegistry meterRegistry;
 
+    @DynamicPropertySource
+    static void redisProperties(DynamicPropertyRegistry registry) {
+        RedisIntegrationTestSupport.registerRedisProperties(registry);
+    }
+
     @AfterAll
     static void stopServer() {
         // 真实 go-judge 由 Testcontainers 生命周期管理，这里保留钩子便于后续扩展。
@@ -44,6 +51,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
@@ -290,6 +298,46 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
                 .andExpect(jsonPath("$.executionMetadata.mode").value("LEGACY_ASSIGNMENT"))
                 .andExpect(jsonPath("$.caseReports[0].expectedStdout").value("cba\n"))
                 .andExpect(jsonPath("$.caseReports[0].runCommand[0]").value("/usr/bin/python3"));
+    }
+
+    @Test
+    void judgeJobReportUsesCacheAfterFirstSuccessfulRead() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-CACHE", "缓存班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+
+        Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "缓存报告实验");
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentToken, assignmentId, "print(input()[::-1])");
+        waitForLatestJudgeJobTerminal(submissionId);
+
+        MvcResult listResult = mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long judgeJobId = readLong(listResult, "$[0].id");
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.caseReports.length()").value(2));
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.caseReports.length()").value(2));
+
+        mockMvc.perform(get("/actuator/prometheus")).andExpect(status().isOk()).andExpect(result -> assertThat(
+                        result.getResponse().getContentAsString())
+                .contains("aubb_cache_operations_total{cache=\"judgeJobReport\",operation=\"get\",result=\"hit\"}"));
     }
 
     private void waitForLatestJudgeJobTerminal(Long submissionId) throws Exception {

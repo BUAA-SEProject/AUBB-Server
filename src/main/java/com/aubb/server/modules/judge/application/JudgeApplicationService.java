@@ -1,6 +1,8 @@
 package com.aubb.server.modules.judge.application;
 
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionSnapshot;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
@@ -45,6 +47,7 @@ import tools.jackson.databind.ObjectMapper;
 public class JudgeApplicationService {
 
     private static final String ENGINE_CODE = "GO_JUDGE";
+    static final String JUDGE_JOB_REPORT_CACHE_NAME = "judgeJobReport";
 
     private final JudgeJobMapper judgeJobMapper;
     private final SubmissionMapper submissionMapper;
@@ -57,6 +60,8 @@ public class JudgeApplicationService {
     private final ApplicationEventPublisher applicationEventPublisher;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
     private final ObjectMapper objectMapper;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
 
     @Transactional
     public void enqueueAutoJudge(SubmissionEntity submission, AssignmentEntity assignment) {
@@ -143,7 +148,7 @@ public class JudgeApplicationService {
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
         }
-        return toReportView(judgeJob, false);
+        return toMaybeCachedReportView(judgeJob, false);
     }
 
     @Transactional(readOnly = true)
@@ -166,11 +171,8 @@ public class JudgeApplicationService {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanReadSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        courseAuthorizationService.assertCanReadSensitiveSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        return toReportView(judgeJob, true);
+        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        return toMaybeCachedReportView(judgeJob, true);
     }
 
     @Transactional(readOnly = true)
@@ -178,10 +180,7 @@ public class JudgeApplicationService {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanReadSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        courseAuthorizationService.assertCanReadSensitiveSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
         return toReportDownload(judgeJob, true);
     }
 
@@ -189,8 +188,7 @@ public class JudgeApplicationService {
     public JudgeJobView requeueJudge(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanRejudgeSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
         if (isJudgeConfigured(assignment.getId())) {
             return createJudgeJob(submission, assignment, null, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
         }
@@ -213,8 +211,7 @@ public class JudgeApplicationService {
         SubmissionAnswerEntity answer = requireAnswer(answerId);
         SubmissionEntity submission = requireSubmission(answer.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanRejudgeSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
         requireProgrammingQuestion(assignment.getId(), answer.getAssignmentQuestionId());
         return createJudgeJob(submission, assignment, answer, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
     }
@@ -389,7 +386,19 @@ public class JudgeApplicationService {
         }
     }
 
-    private JudgeJobReportView toReportView(JudgeJobEntity entity, boolean revealSensitiveFields) {
+    private JudgeJobReportView toMaybeCachedReportView(JudgeJobEntity entity, boolean revealSensitiveFields) {
+        if (!isCacheableReport(entity)) {
+            return buildReportView(entity, revealSensitiveFields);
+        }
+        return cacheService.getOrLoad(
+                JUDGE_JOB_REPORT_CACHE_NAME,
+                judgeReportCacheKey(entity.getId(), revealSensitiveFields),
+                redisEnhancementProperties.getCache().getJudgeJobReportTtl(),
+                JudgeJobReportView.class,
+                () -> buildReportView(entity, revealSensitiveFields));
+    }
+
+    private JudgeJobReportView buildReportView(JudgeJobEntity entity, boolean revealSensitiveFields) {
         if (!judgeArtifactStorageService.hasJudgeJobDetailReport(entity)) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "JUDGE_JOB_REPORT_NOT_READY", "当前评测任务尚未生成详细报告");
         }
@@ -441,7 +450,7 @@ public class JudgeApplicationService {
     }
 
     private JudgeJobReportDownload toReportDownload(JudgeJobEntity entity, boolean revealSensitiveFields) {
-        JudgeJobReportView reportView = toReportView(entity, revealSensitiveFields);
+        JudgeJobReportView reportView = toMaybeCachedReportView(entity, revealSensitiveFields);
         try {
             return new JudgeJobReportDownload(
                     "judge-job-%s-report.json".formatted(entity.getId()),
@@ -491,5 +500,17 @@ public class JudgeApplicationService {
         metadata.put("assignmentQuestionId", answer == null ? null : answer.getAssignmentQuestionId());
         metadata.put("triggerType", triggerType.name());
         return metadata;
+    }
+
+    private boolean isCacheableReport(JudgeJobEntity entity) {
+        return entity != null
+                && entity.getFinishedAt() != null
+                && judgeArtifactStorageService.hasJudgeJobDetailReport(entity)
+                && (JudgeJobStatus.SUCCEEDED.name().equals(entity.getStatus())
+                        || JudgeJobStatus.FAILED.name().equals(entity.getStatus()));
+    }
+
+    private String judgeReportCacheKey(Long judgeJobId, boolean revealSensitiveFields) {
+        return "judgeJob:%d:sensitive:%s".formatted(judgeJobId, revealSensitiveFields);
     }
 }

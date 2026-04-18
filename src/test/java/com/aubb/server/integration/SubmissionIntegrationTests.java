@@ -10,12 +10,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
+import com.aubb.server.modules.submission.application.SubmissionApplicationService;
 import com.jayway.jsonpath.JsonPath;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +66,9 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private SubmissionApplicationService submissionApplicationService;
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
@@ -579,6 +592,70 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].submitterUserId").value(4))
                 .andExpect(jsonPath("$.items[0].attemptNo").value(2))
                 .andExpect(jsonPath("$.items[0].contentText").value("学生A第二次"));
+    }
+
+    @Test
+    void concurrentSubmissionsForSameUserAllocateUniqueAttempts() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "并发提交作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                64);
+        publishAssignment(teacherToken, assignmentId);
+
+        AuthenticatedUserPrincipal principal =
+                new AuthenticatedUserPrincipal(4L, "student-a", "Student A", 2L, AccountStatus.ACTIVE, null, List.of());
+        int concurrentRequests = 24;
+        ExecutorService executorService = Executors.newFixedThreadPool(concurrentRequests);
+        CountDownLatch readyLatch = new CountDownLatch(concurrentRequests);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        List<Future<Integer>> futures = new ArrayList<>(concurrentRequests);
+        try {
+            for (int index = 0; index < concurrentRequests; index++) {
+                final int submissionIndex = index;
+                futures.add(executorService.submit(() -> {
+                    readyLatch.countDown();
+                    if (!startLatch.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("并发提交流水未在预期时间内开始");
+                    }
+                    return submissionApplicationService
+                            .createSubmission(
+                                    assignmentId, "并发提交-%d".formatted(submissionIndex), List.of(), null, principal)
+                            .attemptNo();
+                }));
+            }
+            assertThat(readyLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            startLatch.countDown();
+
+            List<Integer> attempts = new ArrayList<>(concurrentRequests);
+            for (Future<Integer> future : futures) {
+                attempts.add(future.get(10, TimeUnit.SECONDS));
+            }
+
+            assertThat(attempts).hasSize(concurrentRequests);
+            assertThat(attempts).doesNotHaveDuplicates();
+            assertThat(attempts)
+                    .containsExactlyInAnyOrderElementsOf(java.util.stream.IntStream.rangeClosed(1, concurrentRequests)
+                            .boxed()
+                            .toList());
+            assertThat(queryForCount("SELECT COUNT(*) FROM submissions WHERE assignment_id = " + assignmentId))
+                    .isEqualTo(concurrentRequests);
+        } finally {
+            executorService.shutdownNow();
+        }
     }
 
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {

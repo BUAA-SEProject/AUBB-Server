@@ -1,6 +1,8 @@
 package com.aubb.server.modules.identityaccess.application.auth;
 
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
@@ -20,11 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AuthSessionApplicationService {
 
+    static final String AUTH_SESSION_ACTIVE_CACHE_NAME = "authSessionActive";
+
     private final AuthSessionMapper authSessionMapper;
     private final OpaqueRefreshTokenCodec opaqueRefreshTokenCodec;
     private final ObjectProvider<JwtTokenService> jwtTokenServiceProvider;
     private final AuthenticatedPrincipalLoader authenticatedPrincipalLoader;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
 
     @Transactional
     public LoginResultView createSession(AuthenticatedUserPrincipal principal) {
@@ -116,6 +122,10 @@ public class AuthSessionApplicationService {
 
     @Transactional
     public int invalidateAllSessionsForUser(Long userId, Long actorUserId, String reason) {
+        java.util.List<AuthSessionEntity> activeSessions =
+                authSessionMapper.selectList(Wrappers.<AuthSessionEntity>lambdaQuery()
+                        .eq(AuthSessionEntity::getUserId, userId)
+                        .isNull(AuthSessionEntity::getRevokedAt));
         OffsetDateTime now = OffsetDateTime.now();
         int affected = authSessionMapper.update(
                 null,
@@ -125,6 +135,7 @@ public class AuthSessionApplicationService {
                         .set(AuthSessionEntity::getRevokedAt, now)
                         .set(AuthSessionEntity::getRevokedReason, reason)
                         .set(AuthSessionEntity::getRevokedByUserId, actorUserId));
+        activeSessions.forEach(session -> evictSessionActiveCache(session.getSessionId(), session.getUserId()));
         if (affected > 0 && actorUserId != null) {
             auditLogApplicationService.record(
                     actorUserId,
@@ -139,11 +150,12 @@ public class AuthSessionApplicationService {
 
     @Transactional(readOnly = true)
     public boolean isAccessTokenActive(Long userId, String sessionId) {
-        AuthSessionEntity session = findBySessionId(sessionId);
-        if (session == null || session.getRevokedAt() != null || !userId.equals(session.getUserId())) {
-            return false;
-        }
-        return authenticatedPrincipalLoader.isUserAllowedToAuthenticate(userId);
+        return cacheService.getOrLoad(
+                AUTH_SESSION_ACTIVE_CACHE_NAME,
+                authSessionActiveCacheKey(userId, sessionId),
+                redisEnhancementProperties.getCache().getAuthSessionActiveTtl(),
+                Boolean.class,
+                () -> loadAccessTokenActive(userId, sessionId));
     }
 
     private AuthSessionEntity requireActiveSession(String refreshToken) {
@@ -185,6 +197,7 @@ public class AuthSessionApplicationService {
         session.setRevokedReason(reason);
         session.setRevokedByUserId(revokedByUserId);
         authSessionMapper.updateById(session);
+        evictSessionActiveCache(session.getSessionId(), session.getUserId());
     }
 
     private JwtTokenService jwtTokenService() {
@@ -197,5 +210,24 @@ public class AuthSessionApplicationService {
                 ? null
                 : session.getLastAccessIssuedAt().toInstant().toEpochMilli();
         return jwtTokenService().issueToken(principal, session.getSessionId(), refreshToken, permissionVersion);
+    }
+
+    private boolean loadAccessTokenActive(Long userId, String sessionId) {
+        AuthSessionEntity session = findBySessionId(sessionId);
+        if (session == null || session.getRevokedAt() != null || !userId.equals(session.getUserId())) {
+            return false;
+        }
+        return authenticatedPrincipalLoader.isUserAllowedToAuthenticate(userId);
+    }
+
+    private void evictSessionActiveCache(String sessionId, Long userId) {
+        if (sessionId == null || sessionId.isBlank() || userId == null) {
+            return;
+        }
+        cacheService.evict(AUTH_SESSION_ACTIVE_CACHE_NAME, authSessionActiveCacheKey(userId, sessionId));
+    }
+
+    private String authSessionActiveCacheKey(Long userId, String sessionId) {
+        return "session:%s:user:%d".formatted(sessionId, userId);
     }
 }

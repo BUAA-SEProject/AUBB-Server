@@ -144,6 +144,7 @@ public class SubmissionApplicationService {
             artifacts = loadAttachableArtifacts(assignmentId, principal.getUserId(), normalizedArtifactIds);
         }
 
+        submissionMapper.acquireSubmissionAttemptLock(assignmentId, principal.getUserId());
         int nextAttempt = countAttempts(assignmentId, principal.getUserId()) + 1;
         if (nextAttempt > assignment.getMaxSubmissions()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_LIMIT_REACHED", "已达到当前作业最大提交次数");
@@ -267,7 +268,6 @@ public class SubmissionApplicationService {
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         courseAuthorizationService.assertCanReadSensitiveSubmission(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        List<SubmissionEntity> matched;
         if (!latestOnly) {
             long safePage = Math.max(page, 1);
             long safePageSize = Math.max(pageSize, 1);
@@ -293,15 +293,17 @@ public class SubmissionApplicationService {
                     true,
                     assignment.getGradePublishedAt() != null);
         }
-        matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
-                .eq(SubmissionEntity::getAssignmentId, assignmentId)
-                .eq(submitterUserId != null, SubmissionEntity::getSubmitterUserId, submitterUserId)
-                .orderByDesc(SubmissionEntity::getSubmittedAt)
-                .orderByDesc(SubmissionEntity::getId));
-        if (latestOnly) {
-            matched = loadLatestSubmissions(matched);
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        long total = submissionMapper.countLatestSubmissionsPage(assignmentId, submitterUserId);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
         }
-        return toPage(matched, assignment, page, pageSize, true, assignment.getGradePublishedAt() != null);
+        List<SubmissionEntity> pageItems =
+                submissionMapper.selectLatestSubmissionsPage(assignmentId, submitterUserId, offset, safePageSize);
+        return toCurrentSlicePage(
+                pageItems, assignment, total, safePage, safePageSize, true, assignment.getGradePublishedAt() != null);
     }
 
     @Transactional(readOnly = true)
@@ -332,31 +334,6 @@ public class SubmissionApplicationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "SUBMISSION_ARTIFACT_NOT_FOUND", "提交附件不存在");
         }
         return loadStoredArtifact(artifact);
-    }
-
-    private PageResponse<SubmissionView> toPage(
-            List<SubmissionEntity> entities,
-            AssignmentEntity assignment,
-            long page,
-            long pageSize,
-            boolean revealNonObjectiveScores,
-            boolean gradePublished) {
-        long safePage = Math.max(page, 1);
-        long safePageSize = Math.max(pageSize, 1);
-        long offset = (safePage - 1) * safePageSize;
-        List<SubmissionEntity> pageItems =
-                entities.stream().skip(offset).limit(safePageSize).toList();
-        Map<Long, List<SubmissionArtifactView>> artifactsBySubmissionId = loadArtifactViewsBySubmissionIds(
-                pageItems.stream().map(SubmissionEntity::getId).toList());
-        List<SubmissionView> items = pageItems.stream()
-                .map(entity -> toView(
-                        entity,
-                        assignment,
-                        artifactsBySubmissionId.getOrDefault(entity.getId(), List.of()),
-                        revealNonObjectiveScores,
-                        gradePublished))
-                .toList();
-        return new PageResponse<>(items, entities.size(), safePage, safePageSize);
     }
 
     private PageResponse<SubmissionView> toCurrentSlicePage(
@@ -442,14 +419,6 @@ public class SubmissionApplicationService {
                         .computeIfAbsent(artifact.getSubmissionId(), ignored -> new java.util.ArrayList<>())
                         .add(toArtifactView(artifact)));
         return artifactsBySubmissionId;
-    }
-
-    private List<SubmissionEntity> loadLatestSubmissions(List<SubmissionEntity> entities) {
-        return new LinkedHashMap<Long, SubmissionEntity>() {
-            {
-                entities.forEach(entity -> putIfAbsent(entity.getSubmitterUserId(), entity));
-            }
-        }.values().stream().toList();
     }
 
     private AssignmentEntity requireAssignment(Long assignmentId) {

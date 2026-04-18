@@ -321,6 +321,7 @@
 - `ix_course_members_user_id`
 - `ix_course_members_member_role_status`
 - `idx_course_members_user_offering_status_class`
+- `idx_course_members_offering_class_role_status_user`
 - `ux_course_members_instructor_unique`
 - `ux_course_members_student_unique`
 - `ux_course_members_ta_unique`
@@ -663,6 +664,8 @@
 - `ix_submissions_assignment_id_submitted_at`
 - `ix_submissions_submitter_user_id_submitted_at`
 - `ix_submissions_offering_id_submitted_at`
+- `idx_submissions_assignment_submitter_submitted_id`
+- `idx_submissions_assignment_submitted_id`
 
 ### `submission_artifacts`
 

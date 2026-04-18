@@ -270,6 +270,33 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void authMeUsesSessionActiveCacheAndEvictsAfterLogout() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/prometheus")).andExpect(status().isOk()).andExpect(result -> assertThat(
+                        result.getResponse().getContentAsString())
+                .contains("aubb_cache_operations_total{cache=\"authSessionActive\",operation=\"get\",result=\"hit\"}"));
+
+        mockMvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(
+                        result -> assertThat(result.getResponse().getContentAsString())
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"authSessionActive\",operation=\"evict\",result=\"success\"}"));
+    }
+
+    @Test
     void revokeEndpointInvalidatesSessionBoundTokens() throws Exception {
         AuthTokens tokens = login("school-admin", "Password123");
 

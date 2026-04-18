@@ -64,6 +64,10 @@ public class RedisEnhancementProperties {
     @Setter
     public static class Cache {
 
+        private Duration authSessionActiveTtl = Duration.ofSeconds(30);
+
+        private Duration judgeJobReportTtl = Duration.ofMinutes(2);
+
         private Duration notificationUnreadTtl = Duration.ofMinutes(1);
 
         private Duration myCoursesTtl = Duration.ofMinutes(2);

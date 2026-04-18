@@ -22,6 +22,7 @@ import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.domain.offering.CourseOfferingStatus;
 import com.aubb.server.modules.course.domain.teaching.TeachingClassStatus;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
+import com.aubb.server.modules.course.infrastructure.member.CourseMemberListRow;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
@@ -30,9 +31,12 @@ import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMappe
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.user.UserDirectoryApplicationService;
 import com.aubb.server.modules.identityaccess.application.user.UserOrgMembershipApplicationService;
+import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
 import com.aubb.server.modules.identityaccess.application.user.view.UserDirectoryEntryView;
 import com.aubb.server.modules.identityaccess.domain.membership.MembershipSourceType;
 import com.aubb.server.modules.identityaccess.domain.membership.MembershipStatus;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicIdentityType;
+import com.aubb.server.modules.identityaccess.domain.profile.AcademicProfileStatus;
 import com.aubb.server.modules.organization.application.OrgUnitSummaryView;
 import com.aubb.server.modules.organization.application.OrganizationApplicationService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -296,49 +300,41 @@ public class CourseTeachingApplicationService {
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         courseAuthorizationService.assertCanViewMembers(principal, offeringId, teachingClassId);
-        String normalizedKeyword = keyword == null ? null : keyword.trim().toLowerCase(Locale.ROOT);
+        String normalizedKeyword =
+                keyword == null || keyword.isBlank() ? null : keyword.trim().toLowerCase(Locale.ROOT);
         String memberRoleCode = memberRole == null ? null : memberRole.name();
         String memberStatusCode = memberStatus == null ? null : memberStatus.name();
-        List<CourseMemberEntity> matched = courseMemberMapper
-                .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
-                        .eq(CourseMemberEntity::getOfferingId, offeringId)
-                        .eq(teachingClassId != null, CourseMemberEntity::getTeachingClassId, teachingClassId)
-                        .eq(memberRoleCode != null, CourseMemberEntity::getMemberRole, memberRoleCode)
-                        .eq(memberStatusCode != null, CourseMemberEntity::getMemberStatus, memberStatusCode)
-                        .orderByAsc(CourseMemberEntity::getMemberRole)
-                        .orderByAsc(CourseMemberEntity::getId))
-                .stream()
-                .filter(member -> {
-                    if (courseAuthorizationService.isTeachingAssistantForClass(
-                            principal.getUserId(), offeringId, teachingClassId)) {
-                        return Objects.equals(member.getTeachingClassId(), teachingClassId);
-                    }
-                    return true;
-                })
-                .toList();
-        Map<Long, UserDirectoryEntryView> users = userDirectoryApplicationService.loadByIds(
-                matched.stream().map(CourseMemberEntity::getUserId).toList());
-        Map<Long, TeachingClassEntity> classes = teachingClassMapper
-                .selectByIds(matched.stream()
-                        .map(CourseMemberEntity::getTeachingClassId)
-                        .filter(Objects::nonNull)
-                        .toList())
-                .stream()
-                .collect(Collectors.toMap(
-                        TeachingClassEntity::getId,
-                        teachingClass -> teachingClass,
-                        (left, right) -> left,
-                        LinkedHashMap::new));
-        List<CourseMemberView> views = matched.stream()
-                .map(member -> toCourseMemberView(
-                        member, users.get(member.getUserId()), classes.get(member.getTeachingClassId())))
-                .filter(view -> matchesMemberKeyword(view, normalizedKeyword))
-                .toList();
         long safePage = Math.max(page, 1);
         long safePageSize = Math.max(pageSize, 1);
         long offset = (safePage - 1) * safePageSize;
-        return new PageResponse<>(
-                views.stream().skip(offset).limit(safePageSize).toList(), views.size(), safePage, safePageSize);
+        // 保持现有 TA 可见范围语义：如果以 TA 身份访问且未指定班级，则只返回 teachingClassId 为 null 的成员。
+        boolean restrictToNullTeachingClass = courseAuthorizationService.isTeachingAssistantForClass(
+                        principal.getUserId(), offeringId, teachingClassId)
+                && teachingClassId == null;
+        long total = courseMemberMapper.countMemberPage(
+                offeringId,
+                teachingClassId,
+                memberRoleCode,
+                memberStatusCode,
+                normalizedKeyword,
+                restrictToNullTeachingClass);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<CourseMemberView> items = courseMemberMapper
+                .selectMemberPage(
+                        offeringId,
+                        teachingClassId,
+                        memberRoleCode,
+                        memberStatusCode,
+                        normalizedKeyword,
+                        restrictToNullTeachingClass,
+                        offset,
+                        safePageSize)
+                .stream()
+                .map(this::toCourseMemberView)
+                .toList();
+        return new PageResponse<>(items, total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
@@ -538,22 +534,6 @@ public class CourseTeachingApplicationService {
         }
     }
 
-    private boolean matchesMemberKeyword(CourseMemberView view, String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return true;
-        }
-        return containsIgnoreCase(view.user().username(), keyword)
-                || containsIgnoreCase(view.user().displayName(), keyword)
-                || (view.user().academicProfile() != null
-                        && containsIgnoreCase(view.user().academicProfile().academicId(), keyword))
-                || (view.user().academicProfile() != null
-                        && containsIgnoreCase(view.user().academicProfile().realName(), keyword));
-    }
-
-    private boolean containsIgnoreCase(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
-    }
-
     private String normalizeCode(String code) {
         if (code == null || code.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "CODE_REQUIRED", "编码不能为空");
@@ -606,21 +586,37 @@ public class CourseTeachingApplicationService {
                 entity.getUpdatedAt());
     }
 
-    private CourseMemberView toCourseMemberView(
-            CourseMemberEntity entity, UserDirectoryEntryView user, TeachingClassEntity teachingClass) {
+    private CourseMemberView toCourseMemberView(CourseMemberListRow row) {
+        AcademicProfileView academicProfile = row.getAcademicProfileId() == null
+                ? null
+                : new AcademicProfileView(
+                        row.getAcademicProfileId(),
+                        row.getUserId(),
+                        row.getAcademicId(),
+                        row.getAcademicRealName(),
+                        AcademicIdentityType.valueOf(row.getAcademicIdentityType()),
+                        AcademicProfileStatus.valueOf(row.getAcademicProfileStatus()),
+                        row.getAcademicPhone());
+        UserDirectoryEntryView user = new UserDirectoryEntryView(
+                row.getUserId(),
+                row.getUsername(),
+                row.getDisplayName(),
+                row.getEmail(),
+                row.getUserPhone(),
+                academicProfile);
         return new CourseMemberView(
-                entity.getId(),
-                entity.getOfferingId(),
-                entity.getTeachingClassId(),
-                teachingClass == null ? null : teachingClass.getClassCode(),
-                teachingClass == null ? null : teachingClass.getClassName(),
+                row.getId(),
+                row.getOfferingId(),
+                row.getTeachingClassId(),
+                row.getClassCode(),
+                row.getClassName(),
                 user,
-                CourseMemberRole.valueOf(entity.getMemberRole()),
-                CourseMemberStatus.valueOf(entity.getMemberStatus()),
-                CourseMemberSourceType.valueOf(entity.getSourceType()),
-                entity.getRemark(),
-                entity.getJoinedAt(),
-                entity.getLeftAt());
+                CourseMemberRole.valueOf(row.getMemberRole()),
+                CourseMemberStatus.valueOf(row.getMemberStatus()),
+                CourseMemberSourceType.valueOf(row.getSourceType()),
+                row.getRemark(),
+                row.getJoinedAt(),
+                row.getLeftAt());
     }
 
     private MyCourseView toMyCourseView(

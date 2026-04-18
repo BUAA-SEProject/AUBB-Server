@@ -335,6 +335,61 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void memberListingAppliesKeywordPaginationAndTaVisibility() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String taToken = login("ta-mixed", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+        Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":6,"memberRole":"STUDENT","teachingClassId":%s,"remark":"24级学生"},
+                                    {"userId":7,"memberRole":"STUDENT","teachingClassId":%s,"remark":"25级学生"},
+                                    {"userId":8,"memberRole":"STUDENT","teachingClassId":%s,"remark":"导入学生"},
+                                    {"userId":5,"memberRole":"TA","teachingClassId":%s,"remark":"25级助教"}
+                                  ]
+                                }
+                                """.formatted(class2024Id, class2025Id, class2025Id, class2025Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(4));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .param("memberRole", "STUDENT")
+                        .param("keyword", "student")
+                        .param("page", "2")
+                        .param("pageSize", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.pageSize").value(2))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].user.username").value("student-import"))
+                .andExpect(jsonPath("$.items[0].classCode").value("CLS-2025"));
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
+                        .header("Authorization", "Bearer " + taToken)
+                        .param("teachingClassId", String.valueOf(class2025Id))
+                        .param("memberRole", "STUDENT")
+                        .param("keyword", "student"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[*].user.username", containsInAnyOrder("student-25", "student-import")))
+                .andExpect(jsonPath("$.items[*].classCode", containsInAnyOrder("CLS-2025", "CLS-2025")));
+    }
+
+    @Test
     void myCoursesSummaryCachesHitsAndEvictsAfterOfferingMutations() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

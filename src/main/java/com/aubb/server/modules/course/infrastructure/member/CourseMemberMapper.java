@@ -1,7 +1,114 @@
 package com.aubb.server.modules.course.infrastructure.member;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 @Mapper
-public interface CourseMemberMapper extends BaseMapper<CourseMemberEntity> {}
+public interface CourseMemberMapper extends BaseMapper<CourseMemberEntity> {
+
+    @Select({
+        "<script>",
+        "SELECT COUNT(*)",
+        "FROM course_members cm",
+        "  <if test='keyword != null'>",
+        "    LEFT JOIN users u ON u.id = cm.user_id",
+        "    LEFT JOIN academic_profiles ap ON ap.user_id = u.id",
+        "  </if>",
+        "WHERE cm.offering_id = #{offeringId}",
+        "  <if test='teachingClassId != null'>",
+        "    AND cm.teaching_class_id = #{teachingClassId}",
+        "  </if>",
+        "  <if test='restrictToNullTeachingClass'>",
+        "    AND cm.teaching_class_id IS NULL",
+        "  </if>",
+        "  <if test='memberRole != null'>",
+        "    AND cm.member_role = #{memberRole}",
+        "  </if>",
+        "  <if test='memberStatus != null'>",
+        "    AND cm.member_status = #{memberStatus}",
+        "  </if>",
+        "  <if test='keyword != null'>",
+        "    AND (",
+        "      LOWER(u.username) LIKE CONCAT('%', #{keyword}, '%')",
+        "      OR LOWER(u.display_name) LIKE CONCAT('%', #{keyword}, '%')",
+        "      OR LOWER(ap.academic_id) LIKE CONCAT('%', #{keyword}, '%')",
+        "      OR LOWER(ap.real_name) LIKE CONCAT('%', #{keyword}, '%')",
+        "    )",
+        "  </if>",
+        "</script>"
+    })
+    long countMemberPage(
+            @Param("offeringId") Long offeringId,
+            @Param("teachingClassId") Long teachingClassId,
+            @Param("memberRole") String memberRole,
+            @Param("memberStatus") String memberStatus,
+            @Param("keyword") String keyword,
+            @Param("restrictToNullTeachingClass") boolean restrictToNullTeachingClass);
+
+    @Select({
+        "<script>",
+        "SELECT",
+        "  cm.id,",
+        "  cm.offering_id AS offeringId,",
+        "  cm.teaching_class_id AS teachingClassId,",
+        "  tc.class_code AS classCode,",
+        "  tc.class_name AS className,",
+        "  u.id AS userId,",
+        "  u.username,",
+        "  u.display_name AS displayName,",
+        "  u.email,",
+        "  u.phone AS userPhone,",
+        "  ap.id AS academicProfileId,",
+        "  ap.academic_id AS academicId,",
+        "  ap.real_name AS academicRealName,",
+        "  ap.identity_type AS academicIdentityType,",
+        "  ap.profile_status AS academicProfileStatus,",
+        "  ap.phone AS academicPhone,",
+        "  cm.member_role AS memberRole,",
+        "  cm.member_status AS memberStatus,",
+        "  cm.source_type AS sourceType,",
+        "  cm.remark,",
+        "  cm.joined_at AS joinedAt,",
+        "  cm.left_at AS leftAt",
+        "FROM course_members cm",
+        "LEFT JOIN teaching_classes tc ON tc.id = cm.teaching_class_id",
+        "LEFT JOIN users u ON u.id = cm.user_id",
+        "LEFT JOIN academic_profiles ap ON ap.user_id = u.id",
+        "WHERE cm.offering_id = #{offeringId}",
+        "  <if test='teachingClassId != null'>",
+        "    AND cm.teaching_class_id = #{teachingClassId}",
+        "  </if>",
+        "  <if test='restrictToNullTeachingClass'>",
+        "    AND cm.teaching_class_id IS NULL",
+        "  </if>",
+        "  <if test='memberRole != null'>",
+        "    AND cm.member_role = #{memberRole}",
+        "  </if>",
+        "  <if test='memberStatus != null'>",
+        "    AND cm.member_status = #{memberStatus}",
+        "  </if>",
+        "  <if test='keyword != null'>",
+        "    AND (",
+        "      LOWER(u.username) LIKE CONCAT('%', #{keyword}, '%')",
+        "      OR LOWER(u.display_name) LIKE CONCAT('%', #{keyword}, '%')",
+        "      OR LOWER(ap.academic_id) LIKE CONCAT('%', #{keyword}, '%')",
+        "      OR LOWER(ap.real_name) LIKE CONCAT('%', #{keyword}, '%')",
+        "    )",
+        "  </if>",
+        "ORDER BY cm.member_role ASC, cm.id ASC",
+        "LIMIT #{limit} OFFSET #{offset}",
+        "</script>"
+    })
+    List<CourseMemberListRow> selectMemberPage(
+            @Param("offeringId") Long offeringId,
+            @Param("teachingClassId") Long teachingClassId,
+            @Param("memberRole") String memberRole,
+            @Param("memberStatus") String memberStatus,
+            @Param("keyword") String keyword,
+            @Param("restrictToNullTeachingClass") boolean restrictToNullTeachingClass,
+            @Param("offset") long offset,
+            @Param("limit") long limit);
+}
