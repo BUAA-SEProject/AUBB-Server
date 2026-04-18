@@ -396,12 +396,46 @@ class CourseAuthorizationServiceTests {
                 java.util.Set.of(),
                 null,
                 true);
-        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, false));
         when(permissionAuthorizationService.authorize(eq(principal), eq("appeal.read"), any(), any()))
                 .thenReturn(
                         AuthorizationResult.allow("ALLOW_BY_SCOPE_ROLE", List.of("offering_teacher"), List.of(), true));
 
         service.assertCanReadAppeals(principal, 12L, 34L);
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanReadAppealsShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("appeal.read"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanReadAppeals(principal, 12L, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权查看成绩申诉");
 
         verify(authorizationService, never()).decide(any());
     }

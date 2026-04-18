@@ -482,11 +482,12 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanReadAppeals(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithoutFallback(
                 principal,
-                PermissionCode.APPEAL_READ_CLASS,
-                resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权查看成绩申诉");
+                "appeal.read",
+                teachingResource(offeringId, teachingClassId),
+                "当前用户无权查看成绩申诉",
+                null);
     }
 
     @Transactional(readOnly = true)

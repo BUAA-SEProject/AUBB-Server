@@ -285,8 +285,7 @@ public class AssignmentApplicationService {
             if (scope.hasAnyAccess()) {
                 throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
             }
-            courseAuthorizationService.assertCanReadAssignment(
-                    principal, entity.getOfferingId(), entity.getTeachingClassId());
+            readPathAuthorizationService.assertCanReadAssignment(principal, "task.read", entity, "当前用户无权查看该任务");
         }
         return toView(entity, principal);
     }
