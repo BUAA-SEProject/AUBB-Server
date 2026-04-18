@@ -169,6 +169,41 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
     }
 
     @Test
+    void classScopedStudentCanReadJudgeJobsForOfferingWideAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-OFFERING", "公共判题班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createJudgeAssignment(teacherToken, offeringId, null, "公共判题任务");
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentToken, assignmentId, "print(input()[::-1])");
+        waitForLatestJudgeJobTerminal(submissionId);
+
+        MvcResult listResult = mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andReturn();
+        Long judgeJobId = readLong(listResult, "$[0].id");
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.executionMetadata.mode").value("LEGACY_ASSIGNMENT"))
+                .andExpect(jsonPath("$.caseReports.length()").value(2));
+    }
+
+    @Test
     void offeringTaCannotRequeueJudgeWithoutExplicitRejudgeGrantAndDeniedAuditShouldBeRecorded() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

@@ -108,11 +108,7 @@ public class CourseAuthorizationService {
     public boolean canManageMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
         AuthorizationResult result = permissionAuthorizationService.authorize(
                 principal, "member.manage", offeringResource(offeringId), currentContext());
-        if (result.allowed()) {
-            return true;
-        }
-        return "DENY_NO_ROLE_BINDING".equals(result.reasonCode())
-                && hasPermission(principal, PermissionCode.MEMBER_MANAGE, resolveOfferingScope(offeringId));
+        return result.allowed();
     }
 
     @Transactional(readOnly = true)

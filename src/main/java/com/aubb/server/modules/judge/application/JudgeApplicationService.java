@@ -13,7 +13,6 @@ import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
@@ -61,7 +60,6 @@ public class JudgeApplicationService {
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final AssignmentJudgeProfileMapper assignmentJudgeProfileMapper;
     private final CourseAuthorizationService courseAuthorizationService;
-    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final SensitiveOperationAuditService sensitiveOperationAuditService;
@@ -583,13 +581,7 @@ public class JudgeApplicationService {
     }
 
     private boolean canReadOwnSubmissionHistory(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
-        return readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
-                || (courseMemberAccessPolicyService.hasActiveStudentMembership(
-                                principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId())
-                        && readPathAuthorizationService.hasScopedAccess(
-                                principal, "task.read", assignment.getOfferingId(), assignment.getTeachingClassId()))
-                || courseMemberAccessPolicyService.hasHistoricalReadableStudentMembership(
-                        principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId());
+        return readPathAuthorizationService.canReadMyAssignmentHistory(principal, assignment);
     }
 
     private boolean canReadTeacherSubmission(AuthenticatedUserPrincipal principal, SubmissionEntity submission) {

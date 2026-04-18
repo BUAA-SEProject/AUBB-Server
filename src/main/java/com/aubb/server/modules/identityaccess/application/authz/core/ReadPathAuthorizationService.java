@@ -39,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReadPathAuthorizationService {
 
     private static final String ACTIVE = "ACTIVE";
+    private static final Set<String> HISTORY_READABLE_STUDENT_STATUSES =
+            Set.of("DROPPED", "TRANSFERRED", "COMPLETED");
+    private static final Set<String> WRITE_PERMISSION_CODES = Set.of("ide.save", "ide.submit");
     private static final Set<String> TEACHING_READ_EXCLUDED_ROLES = Set.of("student");
 
     private final PermissionAuthorizationService permissionAuthorizationService;
@@ -152,13 +155,49 @@ public class ReadPathAuthorizationService {
     @Transactional(readOnly = true)
     public boolean canAccessAssignmentResource(
             AuthenticatedUserPrincipal principal, String permissionCode, AssignmentEntity assignment) {
-        return permissionAuthorizationService
-                .authorize(
-                        principal,
-                        permissionCode,
-                        new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignment.getId()),
-                        currentContext())
+        return authorizeAssignmentResource(principal, permissionCode, assignment, currentContext())
                 .allowed();
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canAccessMyAssignmentCapability(
+            AuthenticatedUserPrincipal principal, String permissionCode, AssignmentEntity assignment) {
+        AuthorizationContext context = currentContext();
+        AuthorizationResult result = authorizeAssignmentResource(principal, permissionCode, assignment, context);
+        if (result.allowed()) {
+            return true;
+        }
+        if (!"DENY_SCOPE_MISMATCH".equals(result.reasonCode())) {
+            return false;
+        }
+        return canAccessSharedOfferingAssignmentByActiveMembership(principal, permissionCode, assignment, context);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canReadMyAssignmentHistory(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
+        return canAccessMyAssignmentCapability(principal, "task.read", assignment)
+                || hasHistoricalReadableStudentMembership(
+                        principal == null ? null : principal.getUserId(),
+                        assignment == null ? null : assignment.getOfferingId(),
+                        assignment == null ? null : assignment.getTeachingClassId());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canReadMySubmissionHistory(
+            AuthenticatedUserPrincipal principal, SubmissionEntity submission, AssignmentEntity assignment) {
+        return canAccessSubmissionResource(principal, "submission.read", submission)
+                || hasHistoricalReadableStudentMembership(
+                        principal == null ? null : principal.getUserId(),
+                        assignment == null ? null : assignment.getOfferingId(),
+                        submission == null ? null : submission.getTeachingClassId());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canReadMyAppealHistory(
+            AuthenticatedUserPrincipal principal, Long offeringId) {
+        return hasScopedAccess(principal, "appeal.read", offeringId, null)
+                || hasHistoricalReadableStudentMembership(
+                        principal == null ? null : principal.getUserId(), offeringId, null);
     }
 
     @Transactional(readOnly = true)
@@ -288,8 +327,13 @@ public class ReadPathAuthorizationService {
 
     private List<AuthorizationScopeFilterClause> loadClauses(
             AuthenticatedUserPrincipal principal, String permissionCode) {
+        return loadClauses(principal, permissionCode, currentContext());
+    }
+
+    private List<AuthorizationScopeFilterClause> loadClauses(
+            AuthenticatedUserPrincipal principal, String permissionCode, AuthorizationContext context) {
         return permissionAuthorizationService
-                .buildScopeFilter(principal, permissionCode, currentContext())
+                .buildScopeFilter(principal, permissionCode, context)
                 .clauses();
     }
 
@@ -327,6 +371,128 @@ public class ReadPathAuthorizationService {
                         .in(CourseMemberEntity::getTeachingClassId, classIds)
                         .last("LIMIT 1"))
                 > 0;
+    }
+
+    private AuthorizationResult authorizeAssignmentResource(
+            AuthenticatedUserPrincipal principal,
+            String permissionCode,
+            AssignmentEntity assignment,
+            AuthorizationContext context) {
+        return permissionAuthorizationService.authorize(
+                principal,
+                permissionCode,
+                new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignment.getId()),
+                context);
+    }
+
+    private boolean canAccessSharedOfferingAssignmentByActiveMembership(
+            AuthenticatedUserPrincipal principal,
+            String permissionCode,
+            AssignmentEntity assignment,
+            AuthorizationContext context) {
+        if (principal == null
+                || assignment == null
+                || assignment.getOfferingId() == null
+                || assignment.getTeachingClassId() != null) {
+            return false;
+        }
+        Set<Long> activeClassIds = loadActiveStudentClassIds(principal.getUserId(), assignment.getOfferingId());
+        if (activeClassIds.isEmpty()) {
+            return false;
+        }
+        CourseOfferingEntity offering = courseOfferingMapper.selectById(assignment.getOfferingId());
+        if (offering == null) {
+            return false;
+        }
+        return loadClauses(principal, permissionCode, context).stream()
+                .anyMatch(clause -> clauseAllowsSharedOfferingAssignment(clause, assignment.getOfferingId(), activeClassIds)
+                        && satisfiesAssignmentFallbackConstraints(
+                                clause.constraints(), permissionCode, assignment, offering, context.requestTime()));
+    }
+
+    private boolean clauseAllowsSharedOfferingAssignment(
+            AuthorizationScopeFilterClause clause, Long offeringId, Set<Long> activeClassIds) {
+        ScopeRef offeringScope = authzScopeResolutionService.resolveScope(AuthorizationScopeType.OFFERING, offeringId);
+        if (isCoveredBy(offeringScope, clause.scope())) {
+            return true;
+        }
+        return activeClassIds.stream()
+                .map(classId -> authzScopeResolutionService.resolveScope(AuthorizationScopeType.CLASS, classId))
+                .anyMatch(classScope -> isCoveredBy(classScope, clause.scope()));
+    }
+
+    private boolean satisfiesAssignmentFallbackConstraints(
+            RoleBindingConstraints constraints,
+            String permissionCode,
+            AssignmentEntity assignment,
+            CourseOfferingEntity offering,
+            OffsetDateTime requestTime) {
+        if (constraints.ownerOnly()) {
+            return false;
+        }
+        if (constraints.publishedOnly() && !isAssignmentPublished(assignment)) {
+            return false;
+        }
+        if (constraints.archivedReadOnly()
+                && isAssignmentArchived(assignment, offering)
+                && WRITE_PERMISSION_CODES.contains(permissionCode)) {
+            return false;
+        }
+        if (constraints.timeWindowOnly() && !isWithinAssignmentWindow(assignment, requestTime)) {
+            return false;
+        }
+        return true;
+    }
+
+    private Set<Long> loadActiveStudentClassIds(Long userId, Long offeringId) {
+        if (userId == null || offeringId == null) {
+            return Set.of();
+        }
+        return courseMemberMapper.selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .select(CourseMemberEntity::getTeachingClassId)
+                        .eq(CourseMemberEntity::getUserId, userId)
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getMemberRole, "STUDENT")
+                        .eq(CourseMemberEntity::getMemberStatus, ACTIVE)
+                        .isNotNull(CourseMemberEntity::getTeachingClassId))
+                .stream()
+                .map(CourseMemberEntity::getTeachingClassId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private boolean hasHistoricalReadableStudentMembership(Long userId, Long offeringId, Long teachingClassId) {
+        if (userId == null || offeringId == null) {
+            return false;
+        }
+        return courseMemberMapper.selectCount(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getUserId, userId)
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getMemberRole, "STUDENT")
+                        .eq(teachingClassId != null, CourseMemberEntity::getTeachingClassId, teachingClassId)
+                        .in(CourseMemberEntity::getMemberStatus, HISTORY_READABLE_STUDENT_STATUSES)
+                        .last("LIMIT 1"))
+                > 0;
+    }
+
+    private boolean isAssignmentPublished(AssignmentEntity assignment) {
+        return assignment != null
+                && (assignment.getPublishedAt() != null || !"DRAFT".equalsIgnoreCase(assignment.getStatus()));
+    }
+
+    private boolean isAssignmentArchived(AssignmentEntity assignment, CourseOfferingEntity offering) {
+        return (assignment != null && "ARCHIVED".equalsIgnoreCase(assignment.getStatus()))
+                || (offering != null && offering.getArchivedAt() != null);
+    }
+
+    private boolean isWithinAssignmentWindow(AssignmentEntity assignment, OffsetDateTime requestTime) {
+        if (assignment == null || requestTime == null) {
+            return false;
+        }
+        if (assignment.getOpenAt() != null && requestTime.isBefore(assignment.getOpenAt())) {
+            return false;
+        }
+        return assignment.getDueAt() == null || !requestTime.isAfter(assignment.getDueAt());
     }
 
     private ExpandedOrgScopes expandOrgScopes(List<AuthorizationScopeFilterClause> clauses) {

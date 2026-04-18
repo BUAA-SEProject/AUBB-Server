@@ -14,7 +14,6 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.judge.application.JudgeArtifactStorageService;
@@ -69,7 +68,6 @@ public class ProgrammingSampleRunApplicationService {
     private final ProgrammingWorkspaceMapper programmingWorkspaceMapper;
     private final ProgrammingWorkspaceRevisionMapper programmingWorkspaceRevisionMapper;
     private final ReadPathAuthorizationService readPathAuthorizationService;
-    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final JudgeExecutionService judgeExecutionService;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
@@ -299,17 +297,8 @@ public class ProgrammingSampleRunApplicationService {
         if (assignment == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
-        boolean activeStudentMembership = courseMemberAccessPolicyService.hasActiveStudentMembership(
-                principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId());
-        boolean hasScopedTaskRead = readPathAuthorizationService.hasScopedAccess(
-                principal, "task.read", assignment.getOfferingId(), assignment.getTeachingClassId());
-        boolean hasScopedIdeAccess = readPathAuthorizationService.hasScopedAccess(
-                principal, permissionCode, assignment.getOfferingId(), assignment.getTeachingClassId());
-        if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || (!readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
-                        && !(activeStudentMembership && hasScopedTaskRead))
-                || (!readPathAuthorizationService.canAccessAssignmentResource(principal, permissionCode, assignment)
-                        && !(activeStudentMembership && hasScopedIdeAccess))) {
+        if (!readPathAuthorizationService.canAccessMyAssignmentCapability(principal, "task.read", assignment)
+                || !readPathAuthorizationService.canAccessMyAssignmentCapability(principal, permissionCode, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题试运行");
         }
         AssignmentQuestionSnapshot question =

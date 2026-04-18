@@ -190,6 +190,51 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void classScopedStudentCanReadOwnSubmissionHistoryForOfferingWideAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-OFFERING", "公共任务班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                null,
+                "开课公共提交读取作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "公共任务首次提交");
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("开课公共提交读取作业"));
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(submissionId))
+                .andExpect(jsonPath("$.items[0].contentText").value("公共任务首次提交"));
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(submissionId))
+                .andExpect(jsonPath("$.contentText").value("公共任务首次提交"));
+    }
+
+    @Test
     void studentCannotAccessTeacherSubmissionReadRoutes() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

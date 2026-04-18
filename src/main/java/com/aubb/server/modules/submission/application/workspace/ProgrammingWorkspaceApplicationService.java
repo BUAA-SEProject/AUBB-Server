@@ -513,9 +513,8 @@ public class ProgrammingWorkspaceApplicationService {
         if (assignment == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
-        if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || !readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
-                || !readPathAuthorizationService.canAccessAssignmentResource(principal, permissionCode, assignment)) {
+        if (!readPathAuthorizationService.canAccessMyAssignmentCapability(principal, "task.read", assignment)
+                || !readPathAuthorizationService.canAccessMyAssignmentCapability(principal, permissionCode, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题工作区");
         }
         AssignmentQuestionSnapshot question =

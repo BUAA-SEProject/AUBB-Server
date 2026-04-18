@@ -169,6 +169,38 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
+    void canManageMembersShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("member.manage"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThat(service.canManageMembers(principal, 12L)).isFalse();
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
     void assertCanManageQuestionBankShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,

@@ -242,6 +242,75 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     }
 
     @Test
+    void classScopedStudentCanAccessOfferingWideProgrammingWorkspaceAndSampleRun() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-OFFERING", "公共 IDE 班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, null);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"a, b = map(int, input().split())\\nprint(a + b)"}],
+                                  "programmingLanguage":"PYTHON3"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$.entryFilePath").value("main.py"));
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId));
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"a, b = map(int, input().split())\\nprint(a + b)"}],
+                                  "programmingLanguage":"PYTHON3"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"));
+    }
+
+    @Test
     void activeStudentWithoutRoleBindingsCannotAccessWorkspaceOrSampleRun() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

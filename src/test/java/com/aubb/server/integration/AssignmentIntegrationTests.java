@@ -188,10 +188,20 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("A班专属任务"));
 
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", offeringAssignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("课程公共任务"));
+
         mockMvc.perform(get("/api/v1/me/assignments").header("Authorization", "Bearer " + studentBToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].title").value("课程公共任务"));
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", offeringAssignmentId)
+                        .header("Authorization", "Bearer " + studentBToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("课程公共任务"));
 
         mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", classAssignmentId)
                         .header("Authorization", "Bearer " + studentBToken))

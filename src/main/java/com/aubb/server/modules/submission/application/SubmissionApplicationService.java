@@ -429,9 +429,7 @@ public class SubmissionApplicationService {
     }
 
     private boolean canReadOwnSubmissionHistory(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
-        return readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
-                || courseMemberAccessPolicyService.hasHistoricalReadableStudentMembership(
-                        principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId());
+        return readPathAuthorizationService.canReadMyAssignmentHistory(principal, assignment);
     }
 
     private ReadPathAuthorizationService.TeachingReadScope resolveTeacherSubmissionReadScope(
