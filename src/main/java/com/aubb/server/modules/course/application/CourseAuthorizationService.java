@@ -299,21 +299,23 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanManageLabs(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertLabFeatureEnabled(offeringId, teachingClassId);
-        assertPermission(
+        assertPermissionWithoutFallback(
                 principal,
-                PermissionCode.LAB_MANAGE,
-                resolveTeachingClassScope(offeringId, teachingClassId),
-                "当前用户无权管理该实验");
+                "lab.manage",
+                teachingResource(offeringId, teachingClassId),
+                "当前用户无权管理该实验",
+                null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanReviewLabReports(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertLabFeatureEnabled(offeringId, teachingClassId);
-        assertPermission(
+        assertPermissionWithoutFallback(
                 principal,
-                PermissionCode.LAB_REPORT_REVIEW,
-                resolveTeachingClassScope(offeringId, teachingClassId),
-                "当前用户无权评阅该实验报告");
+                "lab.report.review",
+                teachingResource(offeringId, teachingClassId),
+                "当前用户无权评阅该实验报告",
+                null);
     }
 
     @Transactional(readOnly = true)
@@ -477,11 +479,12 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanReviewAppeal(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithoutFallback(
                 principal,
-                PermissionCode.APPEAL_REVIEW,
-                resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权处理成绩申诉");
+                "appeal.review",
+                teachingResource(offeringId, teachingClassId),
+                "当前用户无权处理成绩申诉",
+                null);
     }
 
     @Transactional(readOnly = true)
@@ -703,11 +706,6 @@ public class CourseAuthorizationService {
         if (result.allowed()) {
             return;
         }
-        if ("DENY_NO_ROLE_BINDING".equals(result.reasonCode())
-                && canFallbackToLegacyAuthorization(principal)
-                && canManageTeachingFeatureLegacy(principal, offeringId, teachingClassId)) {
-            return;
-        }
         throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
     }
 
@@ -796,15 +794,6 @@ public class CourseAuthorizationService {
             return List.of();
         }
         return teachingClassMapper.selectBatchIds(activeClassIds);
-    }
-
-    private boolean canManageTeachingFeatureLegacy(
-            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        if (teachingClassId == null) {
-            return hasPermission(principal, PermissionCode.OFFERING_MANAGE, resolveOfferingScope(offeringId));
-        }
-        return hasPermission(principal, PermissionCode.CLASS_MANAGE, resolveTeachingClassScope(offeringId, teachingClassId))
-                || hasPermission(principal, PermissionCode.OFFERING_MANAGE, resolveOfferingScope(offeringId));
     }
 
     private boolean canAccessTeachingClassLegacy(

@@ -444,6 +444,110 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
+    void assertCanManageAnnouncementsShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true, true, true, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("announcement.publish"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanManageAnnouncements(principal, 12L, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理该课程公告");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanManageLabsShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("lab.manage"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanManageLabs(principal, 12L, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理该实验");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanReviewAppealShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("appeal.review"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanReviewAppeal(principal, 12L, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权处理成绩申诉");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
     void assertCanParticipateDiscussionsForClassShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,
