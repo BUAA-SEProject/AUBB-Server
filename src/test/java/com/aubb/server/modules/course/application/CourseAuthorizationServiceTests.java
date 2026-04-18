@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.aubb.server.common.exception.BusinessException;
@@ -18,6 +19,7 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingColl
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingCollegeMapMapper;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
+import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.AuthorizationDecision;
@@ -167,6 +169,109 @@ class CourseAuthorizationServiceTests {
         assertThat(offeringIds).containsExactlyInAnyOrder(7L, 8L, 9L, 11L);
     }
 
+    @Test
+    void assertCanReadAppealsShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                true);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, false));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("appeal.read"), any(), any()))
+                .thenReturn(
+                        AuthorizationResult.allow("ALLOW_BY_SCOPE_ROLE", List.of("offering_teacher"), List.of(), true));
+
+        service.assertCanReadAppeals(principal, 12L, 34L);
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void canViewOfferingGradebookShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                true);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("grade.export"), any(), any()))
+                .thenReturn(
+                        AuthorizationResult.allow("ALLOW_BY_SCOPE_ROLE", List.of("offering_teacher"), List.of(), true));
+
+        assertThat(service.canViewOfferingGradebook(principal, 12L)).isTrue();
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanViewLabShouldRemainOnLegacyAuthorizationUntilModernPermissionExists() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                true);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
+        when(authorizationService.decide(any())).thenReturn(AuthorizationDecision.allow(List.of()));
+
+        service.assertCanViewLab(principal, 12L, 34L);
+
+        verifyNoInteractions(permissionAuthorizationService);
+        verify(authorizationService).decide(any());
+    }
+
     private CourseOfferingEntity offering(Long id, Long primaryCollegeUnitId, Long orgCourseUnitId) {
         CourseOfferingEntity entity = new CourseOfferingEntity();
         entity.setId(id);
@@ -188,6 +293,14 @@ class CourseAuthorizationServiceTests {
         entity.setUserId(userId);
         entity.setMemberRole(role.name());
         entity.setMemberStatus(CourseMemberStatus.ACTIVE.name());
+        return entity;
+    }
+
+    private TeachingClassEntity teachingClass(Long id, Long offeringId, boolean labEnabled) {
+        TeachingClassEntity entity = new TeachingClassEntity();
+        entity.setId(id);
+        entity.setOfferingId(offeringId);
+        entity.setLabEnabled(labEnabled);
         return entity;
     }
 }

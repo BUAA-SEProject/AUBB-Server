@@ -169,6 +169,7 @@
 2. 调用统一权限核心判定
 3. 若命中敏感能力或拒绝决策，则写审计
 4. `CourseAuthorizationService` 的旧权限矩阵兜底仅在当前会话没有 `role_bindings` 快照时启用，避免新旧授权链混用
+5. `CourseAuthorizationService.hasPermission(...)` 已对成员、任务、题库、提交、成绩、申诉等高风险旧权限码做桥接，优先走新权限核心；当前新模型尚未落表的能力（如 `lab.read` / `lab.report.review`）继续保留旧逻辑兼容
 
 ## 7. 已实现的关键 ABAC 与字段级规则
 

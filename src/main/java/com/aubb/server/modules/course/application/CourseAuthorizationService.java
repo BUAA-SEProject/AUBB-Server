@@ -727,6 +727,16 @@ public class CourseAuthorizationService {
     }
 
     private boolean hasPermission(AuthenticatedUserPrincipal principal, PermissionCode permission, ScopeRef scope) {
+        AuthorizationResult modernResult = authorizeMappedPermission(principal, permission, scope);
+        if (modernResult != null) {
+            if (modernResult.allowed()) {
+                return true;
+            }
+            if (!"DENY_NO_ROLE_BINDING".equals(modernResult.reasonCode())
+                    || !canFallbackToLegacyAuthorization(principal)) {
+                return false;
+            }
+        }
         return authorizationService
                 .decide(AuthorizationRequest.forPermission(principal, permission, scope))
                 .allowed();
@@ -745,8 +755,48 @@ public class CourseAuthorizationService {
         return principal != null && !principal.isRoleBindingSnapshot();
     }
 
+    private AuthorizationResult authorizeMappedPermission(
+            AuthenticatedUserPrincipal principal, PermissionCode permission, ScopeRef scope) {
+        if (principal == null || permission == null || scope == null) {
+            return null;
+        }
+        String modernPermissionCode = modernPermissionCode(permission);
+        AuthorizationResourceRef resourceRef = resourceForScope(scope);
+        if (modernPermissionCode == null || resourceRef == null) {
+            return null;
+        }
+        return permissionAuthorizationService.authorize(principal, modernPermissionCode, resourceRef, currentContext());
+    }
+
     private AuthorizationContext currentContext() {
         return AuthorizationContext.of(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    private String modernPermissionCode(PermissionCode permission) {
+        return switch (permission) {
+            case OFFERING_READ -> "offering.read";
+            case OFFERING_MANAGE -> "offering.manage";
+            case CLASS_READ -> "class.read";
+            case CLASS_MANAGE -> "class.manage";
+            case MEMBER_READ -> "member.read";
+            case MEMBER_MANAGE -> "member.manage";
+            case ASSIGNMENT_READ -> "task.read";
+            case ASSIGNMENT_CREATE -> "task.create";
+            case ASSIGNMENT_UPDATE -> "task.edit";
+            case ASSIGNMENT_PUBLISH -> "task.publish";
+            case ASSIGNMENT_CLOSE -> "task.close";
+            case QUESTION_MANAGE -> "question_bank.manage";
+            case SUBMISSION_READ_CLASS, SUBMISSION_READ_OFFERING -> "submission.read";
+            case SUBMISSION_CODE_READ_SENSITIVE -> "submission.read_source";
+            case SUBMISSION_GRADE -> "submission.grade";
+            case GRADE_EXPORT_CLASS, GRADE_EXPORT_OFFERING -> "grade.export";
+            case GRADE_OVERRIDE -> "grade.override";
+            case GRADE_PUBLISH -> "grade.publish";
+            case APPEAL_READ_OWN, APPEAL_READ_CLASS -> "appeal.read";
+            case APPEAL_REVIEW -> "appeal.review";
+            case JUDGE_PROFILE_MANAGE -> "judge.config";
+            default -> null;
+        };
     }
 
     private AuthorizationResourceRef offeringResource(Long offeringId) {
@@ -759,6 +809,17 @@ public class CourseAuthorizationService {
 
     private AuthorizationResourceRef teachingResource(Long offeringId, Long teachingClassId) {
         return teachingClassId == null ? offeringResource(offeringId) : classResource(teachingClassId);
+    }
+
+    private AuthorizationResourceRef resourceForScope(ScopeRef scope) {
+        return switch (scope.type()) {
+            case PLATFORM -> new AuthorizationResourceRef(AuthorizationResourceType.PLATFORM, scope.refId());
+            case SCHOOL -> new AuthorizationResourceRef(AuthorizationResourceType.SCHOOL, scope.refId());
+            case COLLEGE -> new AuthorizationResourceRef(AuthorizationResourceType.COLLEGE, scope.refId());
+            case COURSE -> new AuthorizationResourceRef(AuthorizationResourceType.COURSE, scope.refId());
+            case OFFERING -> new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, scope.refId());
+            case CLASS -> new AuthorizationResourceRef(AuthorizationResourceType.CLASS, scope.refId());
+        };
     }
 
     private void recordDeniedAudit(
