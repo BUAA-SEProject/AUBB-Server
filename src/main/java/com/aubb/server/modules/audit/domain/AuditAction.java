@@ -3,6 +3,7 @@ package com.aubb.server.modules.audit.domain;
 public enum AuditAction {
     LOGIN_SUCCESS,
     LOGIN_FAILED,
+    AUTHZ_DENIED,
     LOGOUT,
     TOKEN_REFRESHED,
     TOKEN_REVOKED,

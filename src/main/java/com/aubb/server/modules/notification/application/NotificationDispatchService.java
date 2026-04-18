@@ -395,10 +395,16 @@ public class NotificationDispatchService {
     }
 
     private List<Long> loadTeachingRecipients(Long offeringId, Long teachingClassId) {
+        List<String> offeringScopedRoles = teachingClassId == null
+                ? List.of(
+                        CourseMemberRole.INSTRUCTOR.name(),
+                        CourseMemberRole.CLASS_INSTRUCTOR.name(),
+                        CourseMemberRole.OFFERING_TA.name())
+                : List.of(CourseMemberRole.INSTRUCTOR.name(), CourseMemberRole.OFFERING_TA.name());
         Set<Long> recipients = new LinkedHashSet<>(courseMemberMapper
                 .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                         .eq(CourseMemberEntity::getOfferingId, offeringId)
-                        .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.INSTRUCTOR.name())
+                        .in(CourseMemberEntity::getMemberRole, offeringScopedRoles)
                         .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
                         .select(CourseMemberEntity::getUserId))
                 .stream()
@@ -409,7 +415,9 @@ public class NotificationDispatchService {
                     .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                             .eq(CourseMemberEntity::getOfferingId, offeringId)
                             .eq(CourseMemberEntity::getTeachingClassId, teachingClassId)
-                            .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.TA.name())
+                            .in(
+                                    CourseMemberEntity::getMemberRole,
+                                    List.of(CourseMemberRole.CLASS_INSTRUCTOR.name(), CourseMemberRole.TA.name()))
                             .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
                             .select(CourseMemberEntity::getUserId))
                     .stream()

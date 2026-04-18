@@ -1,8 +1,8 @@
 package com.aubb.server.modules.course.api;
 
 import com.aubb.server.common.api.PageResponse;
-import com.aubb.server.modules.course.application.CourseResourceApplicationService;
-import com.aubb.server.modules.course.application.CourseResourceDownload;
+import com.aubb.server.modules.course.application.resource.CourseResourceApplicationService;
+import com.aubb.server.modules.course.application.resource.CourseResourceDownload;
 import com.aubb.server.modules.course.application.view.CourseResourceView;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import java.nio.charset.StandardCharsets;

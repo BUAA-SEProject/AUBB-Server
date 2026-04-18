@@ -97,7 +97,10 @@ public class JudgeApplicationService {
     public List<JudgeJobView> listTeacherJudgeJobs(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return listJobs(submissionId);
     }
 
@@ -121,7 +124,10 @@ public class JudgeApplicationService {
         SubmissionAnswerEntity answer = requireAnswer(answerId);
         SubmissionEntity submission = requireSubmission(answer.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return listAnswerJobs(answerId);
     }
 
@@ -160,7 +166,10 @@ public class JudgeApplicationService {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return toReportView(judgeJob, true);
     }
 
@@ -169,7 +178,10 @@ public class JudgeApplicationService {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return toReportDownload(judgeJob, true);
     }
 
@@ -177,7 +189,8 @@ public class JudgeApplicationService {
     public JudgeJobView requeueJudge(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanRejudgeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         if (isJudgeConfigured(assignment.getId())) {
             return createJudgeJob(submission, assignment, null, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
         }
@@ -200,7 +213,8 @@ public class JudgeApplicationService {
         SubmissionAnswerEntity answer = requireAnswer(answerId);
         SubmissionEntity submission = requireSubmission(answer.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanRejudgeSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         requireProgrammingQuestion(assignment.getId(), answer.getAssignmentQuestionId());
         return createJudgeJob(submission, assignment, answer, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
     }

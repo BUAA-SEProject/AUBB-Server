@@ -1,10 +1,11 @@
-package com.aubb.server.modules.course.application;
+package com.aubb.server.modules.course.application.announcement;
 
 import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.application.view.CourseAnnouncementView;
 import com.aubb.server.modules.course.infrastructure.announcement.CourseAnnouncementEntity;
 import com.aubb.server.modules.course.infrastructure.announcement.CourseAnnouncementMapper;

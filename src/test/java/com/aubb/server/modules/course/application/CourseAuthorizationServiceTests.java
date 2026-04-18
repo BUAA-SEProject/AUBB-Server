@@ -14,6 +14,7 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
@@ -27,6 +28,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class CourseAuthorizationServiceTests {
+
+    @Mock
+    private AuthorizationService authorizationService;
 
     @Mock
     private GovernanceAuthorizationService governanceAuthorizationService;
@@ -47,13 +51,17 @@ class CourseAuthorizationServiceTests {
     private OrgUnitMapper orgUnitMapper;
 
     @Test
-    void loadsFullAssignmentAccessOfferingIdsFromAdminAndInstructorScopes() {
+    void loadsFullAssignmentAccessOfferingIdsFromAdminInstructorAndOfferingTaScopes() {
         when(governanceAuthorizationService.loadManageableOrgUnitIds(any())).thenReturn(Set.of(20L, 30L));
         when(courseOfferingMapper.selectList(any())).thenReturn(List.of(offering(7L, 20L, 99L)));
         when(courseOfferingCollegeMapMapper.selectList(any())).thenReturn(List.of(collegeMap(8L, 30L)));
-        when(courseMemberMapper.selectList(any())).thenReturn(List.of(instructorMember(9L, 10L)));
+        when(courseMemberMapper.selectList(any()))
+                .thenReturn(List.of(
+                        courseMember(9L, 10L, CourseMemberRole.INSTRUCTOR),
+                        courseMember(11L, 10L, CourseMemberRole.OFFERING_TA)));
 
         CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
                 governanceAuthorizationService,
                 courseOfferingMapper,
                 courseOfferingCollegeMapMapper,
@@ -71,7 +79,7 @@ class CourseAuthorizationServiceTests {
 
         Set<Long> offeringIds = service.loadFullAssignmentAccessOfferingIds(principal, null);
 
-        assertThat(offeringIds).containsExactlyInAnyOrder(7L, 8L, 9L);
+        assertThat(offeringIds).containsExactlyInAnyOrder(7L, 8L, 9L, 11L);
     }
 
     private CourseOfferingEntity offering(Long id, Long primaryCollegeUnitId, Long orgCourseUnitId) {
@@ -89,11 +97,11 @@ class CourseAuthorizationServiceTests {
         return entity;
     }
 
-    private CourseMemberEntity instructorMember(Long offeringId, Long userId) {
+    private CourseMemberEntity courseMember(Long offeringId, Long userId, CourseMemberRole role) {
         CourseMemberEntity entity = new CourseMemberEntity();
         entity.setOfferingId(offeringId);
         entity.setUserId(userId);
-        entity.setMemberRole(CourseMemberRole.INSTRUCTOR.name());
+        entity.setMemberRole(role.name());
         entity.setMemberStatus(CourseMemberStatus.ACTIVE.name());
         return entity;
     }

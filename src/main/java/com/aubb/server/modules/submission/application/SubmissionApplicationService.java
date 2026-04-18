@@ -263,7 +263,9 @@ public class SubmissionApplicationService {
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         List<SubmissionEntity> matched;
         if (!latestOnly) {
@@ -306,7 +308,9 @@ public class SubmissionApplicationService {
     public SubmissionView getTeacherSubmission(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return toView(
                 submission,
@@ -320,7 +324,9 @@ public class SubmissionApplicationService {
     public SubmissionArtifactDownload downloadTeacherArtifact(Long artifactId, AuthenticatedUserPrincipal principal) {
         SubmissionArtifactEntity artifact = requireArtifact(artifactId);
         AssignmentEntity assignment = requireAssignment(artifact.getAssignmentId());
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReadSubmission(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        courseAuthorizationService.assertCanReadSensitiveSubmission(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         if (artifact.getSubmissionId() == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "SUBMISSION_ARTIFACT_NOT_FOUND", "提交附件不存在");

@@ -72,7 +72,7 @@ public class GradebookApplicationService {
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanViewOfferingGradebook(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
         return buildGradebook(offering, teachingClass, studentUserId, page, pageSize);
     }
@@ -82,7 +82,7 @@ public class GradebookApplicationService {
             Long teachingClassId, Long studentUserId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
-        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        courseAuthorizationService.assertCanViewTeachingClassGradebook(principal, offering.getId(), teachingClassId);
         return buildGradebook(offering, teachingClass, studentUserId, page, pageSize);
     }
 
@@ -90,7 +90,7 @@ public class GradebookApplicationService {
     public GradebookExportContent exportOfferingGradebook(
             Long offeringId, Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanViewOfferingGradebook(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
         return toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
     }
@@ -100,7 +100,7 @@ public class GradebookApplicationService {
             Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
-        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        courseAuthorizationService.assertCanViewTeachingClassGradebook(principal, offering.getId(), teachingClassId);
         return toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
     }
 
@@ -108,7 +108,7 @@ public class GradebookApplicationService {
     public GradebookReportView getOfferingGradebookReport(
             Long offeringId, Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanViewOfferingGradebook(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
         return buildGradebookReport(offering, teachingClass, studentUserId, teachingClass == null);
     }
@@ -118,7 +118,7 @@ public class GradebookApplicationService {
             Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
-        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        courseAuthorizationService.assertCanViewTeachingClassGradebook(principal, offering.getId(), teachingClassId);
         return buildGradebookReport(offering, teachingClass, studentUserId, false);
     }
 
@@ -126,7 +126,7 @@ public class GradebookApplicationService {
     public StudentGradebookView getStudentGradebook(
             Long offeringId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanViewOfferingGradebook(principal, offeringId);
         return buildStudentGradebook(offering, studentUserId, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中", true);
     }
 

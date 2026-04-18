@@ -107,7 +107,7 @@ public class GradeAppealApplicationService {
     public List<GradeAppealView> listAssignmentAppeals(
             Long assignmentId, String status, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReadAppeals(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         GradeAppealStatus statusFilter = parseStatus(status);
         return gradeAppealMapper
@@ -156,7 +156,7 @@ public class GradeAppealApplicationService {
         GradeAppealEntity appeal = requireAppeal(appealId);
         AssignmentEntity assignment = requireAssignment(appeal.getAssignmentId());
         SubmissionEntity submission = requireSubmission(appeal.getSubmissionId());
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReviewAppeal(
                 principal, assignment.getOfferingId(), submission.getTeachingClassId());
         GradeAppealStatus currentStatus = GradeAppealStatus.valueOf(appeal.getStatus());
         if (GradeAppealStatus.ACCEPTED.equals(currentStatus) || GradeAppealStatus.REJECTED.equals(currentStatus)) {
@@ -187,7 +187,7 @@ public class GradeAppealApplicationService {
             }
             String feedbackForGrade =
                     StringUtils.hasText(revisedFeedbackText) ? revisedFeedbackText.trim() : answer.getFeedbackText();
-            ManualGradeResultView gradeResult = gradingApplicationService.gradeAnswer(
+            ManualGradeResultView gradeResult = gradingApplicationService.overrideAnswerGrade(
                     submission.getId(), answer.getId(), revisedScore, feedbackForGrade, principal);
             answerView = gradeResult.answer();
             appeal.setResolvedScore(answerView.finalScore());

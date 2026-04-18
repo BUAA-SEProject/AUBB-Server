@@ -1,7 +1,7 @@
 package com.aubb.server.modules.course.api;
 
 import com.aubb.server.common.api.PageResponse;
-import com.aubb.server.modules.course.application.CourseDiscussionApplicationService;
+import com.aubb.server.modules.course.application.discussion.CourseDiscussionApplicationService;
 import com.aubb.server.modules.course.application.view.CourseDiscussionDetailView;
 import com.aubb.server.modules.course.application.view.CourseDiscussionPostView;
 import com.aubb.server.modules.course.application.view.CourseDiscussionSummaryView;

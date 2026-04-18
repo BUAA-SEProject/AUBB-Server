@@ -1,7 +1,7 @@
 package com.aubb.server.modules.course.api;
 
 import com.aubb.server.common.api.PageResponse;
-import com.aubb.server.modules.course.application.CourseAnnouncementApplicationService;
+import com.aubb.server.modules.course.application.announcement.CourseAnnouncementApplicationService;
 import com.aubb.server.modules.course.application.view.CourseAnnouncementView;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import lombok.RequiredArgsConstructor;

@@ -40,7 +40,7 @@ public class AuthSessionApplicationService {
         entity.setLastAccessIssuedAt(now);
         authSessionMapper.insert(entity);
 
-        return jwtTokenService().issueToken(principal, sessionId, refreshToken);
+        return issueToken(principal, entity, refreshToken);
     }
 
     @Transactional
@@ -74,7 +74,7 @@ public class AuthSessionApplicationService {
                 session.getSessionId(),
                 AuditResult.SUCCESS,
                 Map.of("sessionId", session.getSessionId()));
-        return jwtTokenService().issueToken(principal, session.getSessionId(), rotatedRefreshToken);
+        return issueToken(principal, session, rotatedRefreshToken);
     }
 
     @Transactional
@@ -189,5 +189,13 @@ public class AuthSessionApplicationService {
 
     private JwtTokenService jwtTokenService() {
         return jwtTokenServiceProvider.getObject();
+    }
+
+    private LoginResultView issueToken(
+            AuthenticatedUserPrincipal principal, AuthSessionEntity session, String refreshToken) {
+        Long permissionVersion = session.getLastAccessIssuedAt() == null
+                ? null
+                : session.getLastAccessIssuedAt().toInstant().toEpochMilli();
+        return jwtTokenService().issueToken(principal, session.getSessionId(), refreshToken, permissionVersion);
     }
 }

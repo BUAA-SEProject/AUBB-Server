@@ -25,6 +25,11 @@ public class JwtTokenService {
     }
 
     public LoginResultView issueToken(AuthenticatedUserPrincipal principal, String sessionId, String refreshToken) {
+        return issueToken(principal, sessionId, refreshToken, null);
+    }
+
+    public LoginResultView issueToken(
+            AuthenticatedUserPrincipal principal, String sessionId, String refreshToken, Long permissionVersion) {
         Instant issuedAt = Instant.now();
         Duration ttl = jwtSecurityProperties.getTtl();
         Instant expiresAt = issuedAt.plus(ttl);
@@ -42,6 +47,18 @@ public class JwtTokenService {
                 .claim("accountStatus", principal.getAccountStatus().name())
                 .claim("authorities", principal.roleCodes())
                 .claim(
+                        "permissionCodes",
+                        principal.getPermissionCodes().stream().sorted().toList())
+                .claim(
+                        "groupBindings",
+                        principal.getGroupBindings().stream()
+                                .map(binding -> Map.<String, Object>of(
+                                        "source", binding.source(),
+                                        "templateCode", binding.templateCode(),
+                                        "scopeType", binding.scopeType(),
+                                        "scopeRefId", binding.scopeRefId()))
+                                .toList())
+                .claim(
                         "identities",
                         principal.getIdentities().stream()
                                 .map(identity -> Map.<String, Object>of(
@@ -50,6 +67,9 @@ public class JwtTokenService {
                                         "scopeOrgType", identity.scopeOrgType(),
                                         "scopeOrgName", identity.scopeOrgName()))
                                 .toList());
+        if (permissionVersion != null) {
+            claimsBuilder.claim("permissionVersion", permissionVersion);
+        }
         Map<String, Object> academicProfileClaim = academicProfileClaim(principal);
         if (academicProfileClaim != null) {
             claimsBuilder.claim("academicProfile", academicProfileClaim);
