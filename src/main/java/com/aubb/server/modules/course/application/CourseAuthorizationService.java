@@ -187,8 +187,12 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageQuestionBank(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(
-                principal, PermissionCode.QUESTION_BANK_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理题库");
+        assertPermissionWithoutFallback(
+                principal,
+                "question_bank.manage",
+                offeringResource(offeringId),
+                "当前用户无权管理题库",
+                null);
     }
 
     @Transactional(readOnly = true)

@@ -235,6 +235,35 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void initialInstructorRoleBindingShouldExposeQuestionBankManageGrant() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        Integer grantCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM role_bindings rb
+                JOIN roles r ON r.id = rb.role_id
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE rb.user_id = 4
+                  AND rb.scope_type = 'offering'
+                  AND rb.scope_id = ?
+                  AND rb.status = 'ACTIVE'
+                  AND r.code = 'offering_teacher'
+                  AND p.code = 'question_bank.manage'
+                """,
+                Integer.class,
+                offeringId);
+
+        assertThat(grantCount).isEqualTo(1);
+    }
+
+    @Test
     void initialInstructorShouldBeAuthorizedToManageMembersByPermissionCore() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -259,6 +288,37 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         AuthorizationResult result = permissionAuthorizationService.authorize(
                 principal,
                 "member.manage",
+                new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId),
+                AuthorizationContext.of(OffsetDateTime.now()));
+
+        assertThat(result.allowed()).withFailMessage(result.reasonCode()).isTrue();
+    }
+
+    @Test
+    void initialInstructorShouldBeAuthorizedToManageQuestionBankByPermissionCore() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                4L,
+                "teacher-main",
+                "Teacher Main",
+                2L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        AuthorizationResult result = permissionAuthorizationService.authorize(
+                principal,
+                "question_bank.manage",
                 new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId),
                 AuthorizationContext.of(OffsetDateTime.now()));
 

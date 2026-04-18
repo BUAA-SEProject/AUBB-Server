@@ -102,6 +102,8 @@ class AuthzSchemaIntegrationTests extends AbstractIntegrationTest {
 
     @Test
     void modernTeachingRolesShouldSeedDiscussionAndLabCompatibilityPermissions() {
+        assertThat(loadRolePermissions("offering_coordinator")).contains("question_bank.manage");
+        assertThat(loadRolePermissions("offering_teacher")).contains("question_bank.manage");
         assertThat(loadRolePermissions("offering_teacher"))
                 .contains("discussion.manage", "lab.read", "lab.manage", "lab.report.review");
         assertThat(loadRolePermissions("offering_ta"))
