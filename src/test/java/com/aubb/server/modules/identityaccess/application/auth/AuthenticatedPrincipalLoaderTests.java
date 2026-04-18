@@ -101,6 +101,7 @@ class AuthenticatedPrincipalLoaderTests {
                 .contains("class.manage", "grade.override", "submission.read", "submission.read_source");
         assertThat(principal.hasAuthority("CLASS_ADMIN")).isTrue();
         assertThat(principal.hasAuthority("SCHOOL_ADMIN")).isFalse();
+        assertThat(principal.isRoleBindingSnapshot()).isTrue();
         verifyNoInteractions(legacyPermissionGrantResolver);
     }
 
@@ -127,6 +128,7 @@ class AuthenticatedPrincipalLoaderTests {
                 .containsExactly(new GroupBindingView("LEGACY_GOVERNANCE", "school-admin", "SCHOOL", 1L));
         assertThat(principal.getPermissionCodes()).contains("auth.group.manage");
         assertThat(principal.hasAuthority("SCHOOL_ADMIN")).isTrue();
+        assertThat(principal.isRoleBindingSnapshot()).isFalse();
     }
 
     private UserEntity activeUser(Long userId, String username, String displayName) {

@@ -137,8 +137,9 @@
 1. 加载用户基本信息与身份信息
 2. 优先从 `role_bindings` 读取活动绑定
 3. 生成登录态中的 `groupBindings` 和 `permissionCodes`
-4. 若没有新绑定，则 fallback 到旧治理身份、课程成员和旧 auth group
-5. authority 优先来自 `groupBindings`，旧 `identities` 仅作兜底
+4. 额外标记本次会话是否已由 `role_bindings` 构建快照，JWT 中同步写入 `roleBindingSnapshot`
+5. 若没有新绑定，则 fallback 到旧治理身份、课程成员和旧 auth group
+6. authority 优先来自 `groupBindings`，旧 `identities` 仅作兜底
 
 ### 6.2 读路径授权
 
@@ -167,6 +168,7 @@
 1. 将业务资源映射为 `AuthorizationResourceRef`
 2. 调用统一权限核心判定
 3. 若命中敏感能力或拒绝决策，则写审计
+4. `CourseAuthorizationService` 的旧权限矩阵兜底仅在当前会话没有 `role_bindings` 快照时启用，避免新旧授权链混用
 
 ## 7. 已实现的关键 ABAC 与字段级规则
 
@@ -202,6 +204,7 @@
 
 - 旧表暂不删除，继续作为兼容来源
 - 登录态优先使用 `role_bindings`，旧逻辑仅在新绑定缺失时兜底
+- 已有 `role_bindings` 快照的会话，不再允许写路径从 `AuthorizationService` 重新回落到旧治理/成员解析器
 - 若短期内无法彻底移除旧授权入口，代码中已通过 `@Deprecated` 标出旧服务
 
 ## 9. 审计说明

@@ -66,7 +66,8 @@ public class JwtTokenService {
                                         "scopeOrgUnitId", identity.scopeOrgUnitId(),
                                         "scopeOrgType", identity.scopeOrgType(),
                                         "scopeOrgName", identity.scopeOrgName()))
-                                .toList());
+                                .toList())
+                .claim("roleBindingSnapshot", principal.isRoleBindingSnapshot());
         if (permissionVersion != null) {
             claimsBuilder.claim("permissionVersion", permissionVersion);
         }

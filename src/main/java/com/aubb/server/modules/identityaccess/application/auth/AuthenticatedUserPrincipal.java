@@ -33,6 +33,7 @@ public class AuthenticatedUserPrincipal implements Serializable {
     private final List<GroupBindingView> groupBindings;
     private final Set<String> permissionCodes;
     private final Long permissionVersion;
+    private final boolean roleBindingSnapshot;
     private final Set<String> authorityCodes;
 
     public AuthenticatedUserPrincipal(
@@ -54,7 +55,8 @@ public class AuthenticatedUserPrincipal implements Serializable {
                 identities,
                 List.of(),
                 Set.of(),
-                null);
+                null,
+                false);
     }
 
     public AuthenticatedUserPrincipal(
@@ -77,7 +79,8 @@ public class AuthenticatedUserPrincipal implements Serializable {
                 identities,
                 List.of(),
                 Set.of(),
-                null);
+                null,
+                false);
     }
 
     public AuthenticatedUserPrincipal(
@@ -92,6 +95,34 @@ public class AuthenticatedUserPrincipal implements Serializable {
             List<GroupBindingView> groupBindings,
             Set<String> permissionCodes,
             Long permissionVersion) {
+        this(
+                userId,
+                username,
+                displayName,
+                primaryOrgUnitId,
+                sessionId,
+                accountStatus,
+                academicProfile,
+                identities,
+                groupBindings,
+                permissionCodes,
+                permissionVersion,
+                false);
+    }
+
+    public AuthenticatedUserPrincipal(
+            Long userId,
+            String username,
+            String displayName,
+            Long primaryOrgUnitId,
+            String sessionId,
+            AccountStatus accountStatus,
+            AcademicProfileView academicProfile,
+            List<ScopeIdentityView> identities,
+            List<GroupBindingView> groupBindings,
+            Set<String> permissionCodes,
+            Long permissionVersion,
+            boolean roleBindingSnapshot) {
         this.userId = userId;
         this.username = username;
         this.displayName = displayName;
@@ -103,6 +134,7 @@ public class AuthenticatedUserPrincipal implements Serializable {
         this.groupBindings = List.copyOf(groupBindings == null ? List.of() : groupBindings);
         this.permissionCodes = Set.copyOf(permissionCodes == null ? Set.of() : permissionCodes);
         this.permissionVersion = permissionVersion;
+        this.roleBindingSnapshot = roleBindingSnapshot;
         LinkedHashSet<String> bindingAuthorities = this.groupBindings.stream()
                 .map(AuthenticatedUserPrincipal::authorityForBinding)
                 .filter(java.util.Optional::isPresent)

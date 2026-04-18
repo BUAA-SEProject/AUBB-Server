@@ -710,7 +710,9 @@ public class CourseAuthorizationService {
             recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
         }
-        if (legacyPermission != null && hasPermission(principal, legacyPermission, legacyScope)) {
+        if (canFallbackToLegacyAuthorization(principal)
+                && legacyPermission != null
+                && hasPermission(principal, legacyPermission, legacyScope)) {
             return;
         }
         recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
@@ -733,6 +735,14 @@ public class CourseAuthorizationService {
     private boolean hasAnyPermission(
             AuthenticatedUserPrincipal principal, List<PermissionCode> permissions, ScopeRef scope) {
         return permissions.stream().anyMatch(permission -> hasPermission(principal, permission, scope));
+    }
+
+    /**
+     * 仅当当前会话尚未基于 role_bindings 构建权限快照时才允许旧矩阵兜底。
+     * 否则会把已经迁移到新权限核心的用户重新混回旧治理/成员解析链，造成新旧权限混用。
+     */
+    private boolean canFallbackToLegacyAuthorization(AuthenticatedUserPrincipal principal) {
+        return principal != null && !principal.isRoleBindingSnapshot();
     }
 
     private AuthorizationContext currentContext() {

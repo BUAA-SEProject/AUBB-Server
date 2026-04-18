@@ -123,6 +123,88 @@ def sql_exec(statement: str) -> str:
     return result.stdout.strip()
 
 
+def sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def sql_long(statement: str) -> int | None:
+    output = sql_exec(statement)
+    if not output:
+        return None
+    first = output.splitlines()[0].strip()
+    return int(first) if first else None
+
+
+def sql_exists(statement: str) -> bool:
+    output = sql_exec(statement)
+    return output.strip().lower() == "t"
+
+
+def lookup_org_unit_id(code: str) -> int | None:
+    return sql_long(f"SELECT id FROM org_units WHERE code = {sql_literal(code)} ORDER BY id ASC LIMIT 1;")
+
+
+def lookup_user_id(username: str) -> int | None:
+    return sql_long(
+        "SELECT users.id "
+        "FROM users "
+        "LEFT JOIN academic_profiles ON academic_profiles.user_id = users.id "
+        f"WHERE lower(users.username) = lower({sql_literal(username)}) "
+        f"   OR lower(academic_profiles.academic_id) = lower({sql_literal(username)}) "
+        "ORDER BY users.id ASC LIMIT 1;"
+    )
+
+
+def lookup_term_id(term_code: str) -> int | None:
+    return sql_long(
+        f"SELECT id FROM academic_terms WHERE lower(term_code) = lower({sql_literal(term_code)}) ORDER BY id ASC LIMIT 1;"
+    )
+
+
+def lookup_course_catalog_id(course_code: str) -> int | None:
+    return sql_long(
+        f"SELECT id FROM course_catalogs WHERE lower(course_code) = lower({sql_literal(course_code)}) ORDER BY id ASC LIMIT 1;"
+    )
+
+
+def lookup_offering_id(offering_code: str) -> int | None:
+    return sql_long(
+        f"SELECT id FROM course_offerings WHERE lower(offering_code) = lower({sql_literal(offering_code)}) ORDER BY id ASC LIMIT 1;"
+    )
+
+
+def lookup_teaching_class_id(offering_id: int, class_code: str) -> int | None:
+    return sql_long(
+        "SELECT id FROM teaching_classes "
+        f"WHERE offering_id = {offering_id} AND lower(class_code) = lower({sql_literal(class_code)}) "
+        "ORDER BY id ASC LIMIT 1;"
+    )
+
+
+def lookup_question_id(offering_id: int, title: str) -> int | None:
+    return sql_long(
+        "SELECT id FROM question_bank_questions "
+        f"WHERE offering_id = {offering_id} AND title = {sql_literal(title)} "
+        "ORDER BY id ASC LIMIT 1;"
+    )
+
+
+def lookup_assignment_id(offering_id: int, title: str) -> int | None:
+    return sql_long(
+        "SELECT id FROM assignments "
+        f"WHERE offering_id = {offering_id} AND title = {sql_literal(title)} "
+        "ORDER BY id ASC LIMIT 1;"
+    )
+
+
+def lookup_submission_id(assignment_id: int, submitter_user_id: int) -> int | None:
+    return sql_long(
+        "SELECT id FROM submissions "
+        f"WHERE assignment_id = {assignment_id} AND submitter_user_id = {submitter_user_id} "
+        "ORDER BY id ASC LIMIT 1;"
+    )
+
+
 def login(api: ApiClient, username: str, password: str = DEFAULT_PASSWORD) -> dict[str, Any]:
     response = api.post_json(
         "/api/v1/auth/login",
@@ -359,6 +441,22 @@ def publish_assignment_grades(api: ApiClient, teacher_token: str, assignment_id:
     )
 
 
+def teacher_assignment_detail(api: ApiClient, teacher_token: str, assignment_id: int) -> dict[str, Any]:
+    return api.get_json(
+        f"/api/v1/teacher/assignments/{assignment_id}",
+        token=teacher_token,
+        expected_status=200,
+    )
+
+
+def teacher_submission_detail(api: ApiClient, teacher_token: str, submission_id: int) -> dict[str, Any]:
+    return api.get_json(
+        f"/api/v1/teacher/submissions/{submission_id}",
+        token=teacher_token,
+        expected_status=200,
+    )
+
+
 def list_assignment_submissions_count(api: ApiClient, teacher_token: str, assignment_id: int) -> int:
     payload = api.get_json(
         f"/api/v1/teacher/assignments/{assignment_id}/submissions?page=1&pageSize=50",
@@ -377,7 +475,9 @@ class FixtureContext:
     views: dict[str, dict[str, Any]] = field(default_factory=dict)
     tokens: dict[str, str] = field(default_factory=dict)
     login_results: dict[str, dict[str, Any]] = field(default_factory=dict)
-    creations: dict[str, list[str]] = field(default_factory=lambda: {"bootstrap": [], "api": [], "sql": []})
+    creations: dict[str, list[str]] = field(
+        default_factory=lambda: {"bootstrap": [], "api": [], "sql": [], "reused": [], "reset": []}
+    )
 
 
 def refresh_login(context: FixtureContext, login_key: str, username: str) -> str:
@@ -385,6 +485,355 @@ def refresh_login(context: FixtureContext, login_key: str, username: str) -> str
     context.login_results[login_key] = login_result
     context.tokens[login_key] = get_access_token(login_result)
     return context.tokens[login_key]
+
+
+def record_fixture(context: FixtureContext, channel: str, label: str) -> None:
+    items = context.creations[channel]
+    if label not in items:
+        items.append(label)
+
+
+def ensure_org_unit(
+    context: FixtureContext,
+    *,
+    code: str,
+    name: str,
+    unit_type: str,
+    parent_id: int,
+    sort_order: int,
+) -> int:
+    existing_id = lookup_org_unit_id(code)
+    if existing_id is not None:
+        record_fixture(context, "reused", code)
+        return existing_id
+    created = context.api.post_json(
+        "/api/v1/admin/org-units",
+        {"name": name, "code": code, "type": unit_type, "parentId": parent_id, "sortOrder": sort_order},
+        token=context.admin_token,
+        expected_status=201,
+    )
+    record_fixture(context, "api", code)
+    return int(created["id"])
+
+
+def ensure_user(
+    context: FixtureContext,
+    *,
+    username: str,
+    display_name: str,
+    email: str,
+    academic_id: str,
+    identity_type: str,
+    primary_org_unit_id: int,
+    identity_assignments: list[dict[str, Any]] | None = None,
+) -> int:
+    existing_id = lookup_user_id(username)
+    if existing_id is None:
+        view = create_user(
+            context.api,
+            context.admin_token,
+            username,
+            display_name,
+            email,
+            academic_id,
+            identity_type,
+            primary_org_unit_id,
+            identity_assignments=identity_assignments,
+        )
+        record_fixture(context, "api", username)
+        return int(view["id"])
+    if identity_assignments is not None:
+        context.api.put_json(
+            f"/api/v1/admin/users/{existing_id}/identities",
+            {"identityAssignments": identity_assignments},
+            token=context.admin_token,
+            expected_status=200,
+        )
+    record_fixture(context, "reused", username)
+    return existing_id
+
+
+def ensure_term(
+    context: FixtureContext,
+    *,
+    term_code: str,
+    term_name: str,
+    school_year: str,
+    semester: str,
+    start_date: str,
+    end_date: str,
+) -> int:
+    existing_id = lookup_term_id(term_code)
+    if existing_id is not None:
+        record_fixture(context, "reused", term_code)
+        return existing_id
+    created = context.api.post_json(
+        "/api/v1/admin/academic-terms",
+        {
+            "termCode": term_code,
+            "termName": term_name,
+            "schoolYear": school_year,
+            "semester": semester,
+            "startDate": start_date,
+            "endDate": end_date,
+        },
+        token=context.admin_token,
+        expected_status=201,
+    )
+    record_fixture(context, "api", term_code)
+    return int(created["id"])
+
+
+def ensure_course_catalog(
+    context: FixtureContext,
+    *,
+    actor_token: str,
+    course_code: str,
+    course_name: str,
+    department_unit_id: int,
+    description: str,
+) -> int:
+    existing_id = lookup_course_catalog_id(course_code)
+    if existing_id is not None:
+        record_fixture(context, "reused", course_code)
+        return existing_id
+    created = context.api.post_json(
+        "/api/v1/admin/course-catalogs",
+        {
+            "courseCode": course_code,
+            "courseName": course_name,
+            "courseType": "REQUIRED",
+            "credit": 4.0,
+            "totalHours": 64,
+            "departmentUnitId": department_unit_id,
+            "description": description,
+        },
+        token=actor_token,
+        expected_status=201,
+    )
+    record_fixture(context, "api", course_code)
+    return int(created["id"])
+
+
+def ensure_course_offering(
+    context: FixtureContext,
+    *,
+    actor_token: str,
+    catalog_id: int,
+    term_id: int,
+    offering_code: str,
+    offering_name: str,
+    primary_college_unit_id: int,
+    instructor_user_ids: list[int],
+    start_at: str,
+    end_at: str,
+) -> int:
+    existing_id = lookup_offering_id(offering_code)
+    if existing_id is not None:
+        record_fixture(context, "reused", offering_code)
+        return existing_id
+    created = context.api.post_json(
+        "/api/v1/admin/course-offerings",
+        {
+            "catalogId": catalog_id,
+            "termId": term_id,
+            "offeringCode": offering_code,
+            "offeringName": offering_name,
+            "primaryCollegeUnitId": primary_college_unit_id,
+            "secondaryCollegeUnitIds": [],
+            "deliveryMode": "HYBRID",
+            "language": "ZH",
+            "capacity": 120,
+            "instructorUserIds": instructor_user_ids,
+            "startAt": start_at,
+            "endAt": end_at,
+        },
+        token=actor_token,
+        expected_status=201,
+    )
+    record_fixture(context, "api", offering_code)
+    return int(created["id"])
+
+
+def ensure_teaching_class(
+    context: FixtureContext,
+    *,
+    teacher_token: str,
+    offering_id: int,
+    class_code: str,
+    schedule_summary: str,
+) -> int:
+    existing_id = lookup_teaching_class_id(offering_id, class_code)
+    if existing_id is not None:
+        record_fixture(context, "reused", class_code)
+        return existing_id
+    created = context.api.post_json(
+        f"/api/v1/teacher/course-offerings/{offering_id}/classes",
+        {
+            "classCode": class_code,
+            "className": class_code,
+            "entryYear": 2024,
+            "capacity": 60,
+            "scheduleSummary": schedule_summary,
+        },
+        token=teacher_token,
+        expected_status=201,
+    )
+    record_fixture(context, "api", class_code)
+    return int(created["id"])
+
+
+def ensure_question(
+    context: FixtureContext,
+    *,
+    teacher_token: str,
+    offering_id: int,
+    title: str,
+    creator,
+) -> int:
+    existing_id = lookup_question_id(offering_id, title)
+    if existing_id is not None:
+        record_fixture(context, "reused", title)
+        return existing_id
+    created = creator(context.api, teacher_token, offering_id, title)
+    record_fixture(context, "api", title)
+    return int(created["id"])
+
+
+def ensure_assignment(
+    context: FixtureContext,
+    *,
+    teacher_token: str,
+    offering_id: int,
+    title: str,
+    question_id: int,
+    teaching_class_id: int | None,
+    open_at: str,
+    due_at: str,
+) -> tuple[int, dict[str, Any], bool]:
+    existing_id = lookup_assignment_id(offering_id, title)
+    if existing_id is None:
+        created = create_assignment(
+            context.api,
+            teacher_token,
+            offering_id,
+            title,
+            question_id,
+            100,
+            teaching_class_id=teaching_class_id,
+            open_at=open_at,
+            due_at=due_at,
+        )
+        record_fixture(context, "api", title)
+        return int(created["id"]), created, True
+    record_fixture(context, "reused", title)
+    return existing_id, teacher_assignment_detail(context.api, teacher_token, existing_id), False
+
+
+def ensure_submission(
+    context: FixtureContext,
+    *,
+    actor_token: str,
+    teacher_token: str,
+    assignment_id: int,
+    assignment_question_id: int,
+    submitter_user_id: int,
+    answer_text: str,
+    label: str,
+) -> tuple[int, dict[str, Any], bool]:
+    existing_id = lookup_submission_id(assignment_id, submitter_user_id)
+    if existing_id is None:
+        created = create_submission(context.api, actor_token, assignment_id, assignment_question_id, answer_text)
+        record_fixture(context, "api", label)
+        return int(created["id"]), created, True
+    record_fixture(context, "reused", label)
+    return existing_id, teacher_submission_detail(context.api, teacher_token, existing_id), False
+
+
+def reset_fixture_member_baseline(context: FixtureContext) -> None:
+    offer_a = context.ids["Offer-A-2025F"]
+    offer_b = context.ids["Offer-B-2026S"]
+    delete_offer_a_user_ids = ", ".join(
+        str(context.ids[key]) for key in ["U-TA2", "U-TAO1", "U-TAC1", "U-ST1", "U-ST2", "U-M1", "U-STX1"]
+    )
+    delete_offer_b_user_ids = ", ".join(str(context.ids[key]) for key in ["U-ST3", "U-M1"])
+    sql_exec(
+        f"""
+        DELETE FROM course_members
+        WHERE offering_id = {offer_a}
+          AND user_id IN ({delete_offer_a_user_ids})
+          AND member_role IN ('CLASS_INSTRUCTOR', 'OFFERING_TA', 'TA', 'STUDENT');
+        DELETE FROM course_members
+        WHERE offering_id = {offer_b}
+          AND user_id IN ({delete_offer_b_user_ids})
+          AND member_role IN ('OFFERING_TA', 'STUDENT');
+        UPDATE course_offerings offering
+        SET selected_count = (
+            SELECT COUNT(*)
+            FROM course_members member
+            WHERE member.offering_id = offering.id
+              AND member.member_role = 'STUDENT'
+              AND member.member_status = 'ACTIVE'
+        )
+        WHERE offering.id IN ({offer_a}, {offer_b});
+        """
+    )
+    record_fixture(context, "reset", "course-members-baseline")
+
+
+def reset_fixture_assignment_baseline(context: FixtureContext, active_open_at: str, active_due_at: str, closed_open_at: str, closed_due_at: str) -> None:
+    published_without_grade_ids = ", ".join(
+        str(context.ids[key])
+        for key in [
+            "Task-A1-Published",
+            "Task-A2-Published",
+            "Task-Programming-A1",
+            "Task-B1-Published",
+        ]
+    )
+    sql_exec(
+        f"""
+        UPDATE assignments
+        SET open_at = {sql_literal(active_open_at)}::timestamptz,
+            due_at = {sql_literal(active_due_at)}::timestamptz,
+            status = 'PUBLISHED',
+            published_at = COALESCE(published_at, now()),
+            closed_at = NULL,
+            grade_published_at = NULL,
+            grade_published_by_user_id = NULL
+        WHERE id IN ({published_without_grade_ids});
+        UPDATE assignments
+        SET open_at = {sql_literal(active_open_at)}::timestamptz,
+            due_at = {sql_literal(active_due_at)}::timestamptz,
+            status = 'PUBLISHED',
+            published_at = COALESCE(published_at, now()),
+            closed_at = NULL
+        WHERE id = {context.ids["Task-Offering-Published"]};
+        UPDATE assignments
+        SET open_at = {sql_literal(active_open_at)}::timestamptz,
+            due_at = {sql_literal(active_due_at)}::timestamptz,
+            status = 'DRAFT',
+            published_at = NULL,
+            closed_at = NULL,
+            grade_published_at = NULL,
+            grade_published_by_user_id = NULL
+        WHERE id = {context.ids["Task-A2-Draft"]};
+        UPDATE assignments
+        SET open_at = {sql_literal(closed_open_at)}::timestamptz,
+            due_at = {sql_literal(closed_due_at)}::timestamptz,
+            status = 'CLOSED',
+            published_at = COALESCE(published_at, now()),
+            closed_at = COALESCE(closed_at, now())
+        WHERE id = {context.ids["Task-A1-Closed"]};
+        UPDATE course_offerings
+        SET status = 'ONGOING',
+            start_at = {sql_literal(iso_offset(datetime.now(UTC_PLUS_8) - timedelta(days=30)))}::timestamptz,
+            end_at = {sql_literal(iso_offset(datetime.now(UTC_PLUS_8) + timedelta(days=90)))}::timestamptz,
+            archived_at = NULL
+        WHERE id IN ({context.ids["Offer-A-2025F"]}, {context.ids["Offer-A-2026S"]}, {context.ids["Offer-B-2026S"]});
+        """
+    )
+    record_fixture(context, "reset", "assignment-status-baseline")
 
 
 def find_member_id(
@@ -495,22 +944,12 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
     school = org_tree[0]
     context.ids["S1"] = int(school["id"])
     context.creations["bootstrap"].extend(["S1", "U-SA1", "platform-config"])
-
-    c1 = api.post_json(
-        "/api/v1/admin/org-units",
-        {"name": "计算机学院", "code": "C1", "type": "COLLEGE", "parentId": context.ids["S1"], "sortOrder": 1},
-        token=context.admin_token,
-        expected_status=201,
+    context.ids["C1"] = ensure_org_unit(
+        context, code="C1", name="计算机学院", unit_type="COLLEGE", parent_id=context.ids["S1"], sort_order=1
     )
-    c2 = api.post_json(
-        "/api/v1/admin/org-units",
-        {"name": "人工智能学院", "code": "C2", "type": "COLLEGE", "parentId": context.ids["S1"], "sortOrder": 2},
-        token=context.admin_token,
-        expected_status=201,
+    context.ids["C2"] = ensure_org_unit(
+        context, code="C2", name="人工智能学院", unit_type="COLLEGE", parent_id=context.ids["S1"], sort_order=2
     )
-    context.ids["C1"] = int(c1["id"])
-    context.ids["C2"] = int(c2["id"])
-    context.creations["api"].extend(["C1", "C2"])
 
     user_specs = [
         ("U-CA1", "学院管理员1", "ADMIN", context.ids["C1"], [{"roleCode": "COLLEGE_ADMIN", "scopeOrgUnitId": context.ids["C1"]}]),
@@ -527,20 +966,16 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
         ("U-STX1", "转班样本学生", "STUDENT", context.ids["C1"], None),
     ]
     for username, display_name, identity_type, org_id, identity_assignments in user_specs:
-        view = create_user(
-            api,
-            context.admin_token,
-            username,
-            display_name,
-            f"{username.lower().replace('-', '')}@example.edu",
-            username,
-            identity_type,
-            org_id,
+        context.ids[username] = ensure_user(
+            context,
+            username=username,
+            display_name=display_name,
+            email=f"{username.lower().replace('-', '')}@example.edu",
+            academic_id=username,
+            identity_type=identity_type,
+            primary_org_unit_id=org_id,
             identity_assignments=identity_assignments,
         )
-        context.ids[username] = int(view["id"])
-        context.views[username] = view
-        context.creations["api"].append(username)
 
     ca1_login = login(api, "U-CA1")
     ca2_login = login(api, "U-CA2")
@@ -549,132 +984,83 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
     context.tokens["U-CA1"] = get_access_token(ca1_login)
     context.tokens["U-CA2"] = get_access_token(ca2_login)
 
-    term_2025f = api.post_json(
-        "/api/v1/admin/academic-terms",
-        {
-            "termCode": "2025F",
-            "termName": "2025 秋季学期",
-            "schoolYear": "2025-2026",
-            "semester": "AUTUMN",
-            "startDate": term_window(-240, -120)[0],
-            "endDate": term_window(-240, -120)[1],
-        },
-        token=context.admin_token,
-        expected_status=201,
+    archived_term_start, archived_term_end = term_window(-240, -120)
+    active_term_start, active_term_end = term_window(-30, 120)
+    context.ids["TERM-2025F"] = ensure_term(
+        context,
+        term_code="2025F",
+        term_name="2025 秋季学期",
+        school_year="2025-2026",
+        semester="AUTUMN",
+        start_date=archived_term_start,
+        end_date=archived_term_end,
     )
-    term_2026s = api.post_json(
-        "/api/v1/admin/academic-terms",
-        {
-            "termCode": "2026S",
-            "termName": "2026 春季学期",
-            "schoolYear": "2025-2026",
-            "semester": "SPRING",
-            "startDate": term_window(-30, 120)[0],
-            "endDate": term_window(-30, 120)[1],
-        },
-        token=context.admin_token,
-        expected_status=201,
+    context.ids["TERM-2026S"] = ensure_term(
+        context,
+        term_code="2026S",
+        term_name="2026 春季学期",
+        school_year="2025-2026",
+        semester="SPRING",
+        start_date=active_term_start,
+        end_date=active_term_end,
     )
-    context.ids["TERM-2025F"] = int(term_2025f["id"])
-    context.ids["TERM-2026S"] = int(term_2026s["id"])
-    context.creations["api"].extend(["TERM-2025F", "TERM-2026S"])
 
-    course_a = api.post_json(
-        "/api/v1/admin/course-catalogs",
-        {
-            "courseCode": "Course-A",
-            "courseName": "数据结构",
-            "courseType": "REQUIRED",
-            "credit": 4.0,
-            "totalHours": 64,
-            "departmentUnitId": context.ids["C1"],
-            "description": "权限 E2E Course-A",
-        },
-        token=context.tokens["U-CA1"],
-        expected_status=201,
+    context.ids["Course-A"] = ensure_course_catalog(
+        context,
+        actor_token=context.tokens["U-CA1"],
+        course_code="Course-A",
+        course_name="数据结构",
+        department_unit_id=context.ids["C1"],
+        description="权限 E2E Course-A",
     )
-    course_b = api.post_json(
-        "/api/v1/admin/course-catalogs",
-        {
-            "courseCode": "Course-B",
-            "courseName": "机器学习",
-            "courseType": "REQUIRED",
-            "credit": 4.0,
-            "totalHours": 64,
-            "departmentUnitId": context.ids["C2"],
-            "description": "权限 E2E Course-B",
-        },
-        token=context.tokens["U-CA2"],
-        expected_status=201,
+    context.ids["Course-B"] = ensure_course_catalog(
+        context,
+        actor_token=context.tokens["U-CA2"],
+        course_code="Course-B",
+        course_name="机器学习",
+        department_unit_id=context.ids["C2"],
+        description="权限 E2E Course-B",
     )
-    context.ids["Course-A"] = int(course_a["id"])
-    context.ids["Course-B"] = int(course_b["id"])
-    context.creations["api"].extend(["Course-A", "Course-B"])
 
     offering_start = iso_offset(datetime.now(UTC_PLUS_8) - timedelta(days=30))
     offering_end = iso_offset(datetime.now(UTC_PLUS_8) + timedelta(days=90))
 
-    offer_a_2025f = api.post_json(
-        "/api/v1/admin/course-offerings",
-        {
-            "catalogId": context.ids["Course-A"],
-            "termId": context.ids["TERM-2025F"],
-            "offeringCode": "Offer-A-2025F",
-            "offeringName": "数据结构 2025 秋",
-            "primaryCollegeUnitId": context.ids["C1"],
-            "secondaryCollegeUnitIds": [],
-            "deliveryMode": "HYBRID",
-            "language": "ZH",
-            "capacity": 120,
-            "instructorUserIds": [context.ids["U-TA1"]],
-            "startAt": offering_start,
-            "endAt": offering_end,
-        },
-        token=context.tokens["U-CA1"],
-        expected_status=201,
+    context.ids["Offer-A-2025F"] = ensure_course_offering(
+        context,
+        actor_token=context.tokens["U-CA1"],
+        catalog_id=context.ids["Course-A"],
+        term_id=context.ids["TERM-2025F"],
+        offering_code="Offer-A-2025F",
+        offering_name="数据结构 2025 秋",
+        primary_college_unit_id=context.ids["C1"],
+        instructor_user_ids=[context.ids["U-TA1"]],
+        start_at=offering_start,
+        end_at=offering_end,
     )
-    offer_a_2026s = api.post_json(
-        "/api/v1/admin/course-offerings",
-        {
-            "catalogId": context.ids["Course-A"],
-            "termId": context.ids["TERM-2026S"],
-            "offeringCode": "Offer-A-2026S",
-            "offeringName": "数据结构 2026 春",
-            "primaryCollegeUnitId": context.ids["C1"],
-            "secondaryCollegeUnitIds": [],
-            "deliveryMode": "HYBRID",
-            "language": "ZH",
-            "capacity": 120,
-            "instructorUserIds": [context.ids["U-TA3"]],
-            "startAt": offering_start,
-            "endAt": offering_end,
-        },
-        token=context.tokens["U-CA1"],
-        expected_status=201,
+    context.ids["Offer-A-2026S"] = ensure_course_offering(
+        context,
+        actor_token=context.tokens["U-CA1"],
+        catalog_id=context.ids["Course-A"],
+        term_id=context.ids["TERM-2026S"],
+        offering_code="Offer-A-2026S",
+        offering_name="数据结构 2026 春",
+        primary_college_unit_id=context.ids["C1"],
+        instructor_user_ids=[context.ids["U-TA3"]],
+        start_at=offering_start,
+        end_at=offering_end,
     )
-    offer_b_2026s = api.post_json(
-        "/api/v1/admin/course-offerings",
-        {
-            "catalogId": context.ids["Course-B"],
-            "termId": context.ids["TERM-2026S"],
-            "offeringCode": "Offer-B-2026S",
-            "offeringName": "机器学习 2026 春",
-            "primaryCollegeUnitId": context.ids["C2"],
-            "secondaryCollegeUnitIds": [],
-            "deliveryMode": "HYBRID",
-            "language": "ZH",
-            "capacity": 120,
-            "instructorUserIds": [context.ids["U-TA3"]],
-            "startAt": offering_start,
-            "endAt": offering_end,
-        },
-        token=context.tokens["U-CA2"],
-        expected_status=201,
+    context.ids["Offer-B-2026S"] = ensure_course_offering(
+        context,
+        actor_token=context.tokens["U-CA2"],
+        catalog_id=context.ids["Course-B"],
+        term_id=context.ids["TERM-2026S"],
+        offering_code="Offer-B-2026S",
+        offering_name="机器学习 2026 春",
+        primary_college_unit_id=context.ids["C2"],
+        instructor_user_ids=[context.ids["U-TA3"]],
+        start_at=offering_start,
+        end_at=offering_end,
     )
-    context.ids["Offer-A-2025F"] = int(offer_a_2025f["id"])
-    context.ids["Offer-A-2026S"] = int(offer_a_2026s["id"])
-    context.ids["Offer-B-2026S"] = int(offer_b_2026s["id"])
-    context.creations["api"].extend(["Offer-A-2025F", "Offer-A-2026S", "Offer-B-2026S"])
 
     teacher_1_login = login(api, "U-TA1")
     teacher_3_login = login(api, "U-TA3")
@@ -683,36 +1069,20 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
     context.tokens["U-TA1"] = get_access_token(teacher_1_login)
     context.tokens["U-TA3"] = get_access_token(teacher_3_login)
 
-    class_a1 = api.post_json(
-        f"/api/v1/teacher/course-offerings/{context.ids['Offer-A-2025F']}/classes",
-        {"classCode": "A1", "className": "A1", "entryYear": 2024, "capacity": 60, "scheduleSummary": "周二 1-2 节"},
-        token=context.tokens["U-TA1"],
-        expected_status=201,
+    context.ids["A1"] = ensure_teaching_class(
+        context, teacher_token=context.tokens["U-TA1"], offering_id=context.ids["Offer-A-2025F"], class_code="A1", schedule_summary="周二 1-2 节"
     )
-    class_a2 = api.post_json(
-        f"/api/v1/teacher/course-offerings/{context.ids['Offer-A-2025F']}/classes",
-        {"classCode": "A2", "className": "A2", "entryYear": 2024, "capacity": 60, "scheduleSummary": "周三 3-4 节"},
-        token=context.tokens["U-TA1"],
-        expected_status=201,
+    context.ids["A2"] = ensure_teaching_class(
+        context, teacher_token=context.tokens["U-TA1"], offering_id=context.ids["Offer-A-2025F"], class_code="A2", schedule_summary="周三 3-4 节"
     )
-    class_a3 = api.post_json(
-        f"/api/v1/teacher/course-offerings/{context.ids['Offer-A-2026S']}/classes",
-        {"classCode": "A3", "className": "A3", "entryYear": 2024, "capacity": 60, "scheduleSummary": "周四 1-2 节"},
-        token=context.tokens["U-TA3"],
-        expected_status=201,
+    context.ids["A3"] = ensure_teaching_class(
+        context, teacher_token=context.tokens["U-TA3"], offering_id=context.ids["Offer-A-2026S"], class_code="A3", schedule_summary="周四 1-2 节"
     )
-    class_b1 = api.post_json(
-        f"/api/v1/teacher/course-offerings/{context.ids['Offer-B-2026S']}/classes",
-        {"classCode": "B1", "className": "B1", "entryYear": 2024, "capacity": 60, "scheduleSummary": "周五 1-2 节"},
-        token=context.tokens["U-TA3"],
-        expected_status=201,
+    context.ids["B1"] = ensure_teaching_class(
+        context, teacher_token=context.tokens["U-TA3"], offering_id=context.ids["Offer-B-2026S"], class_code="B1", schedule_summary="周五 1-2 节"
     )
-    context.ids["A1"] = int(class_a1["id"])
-    context.ids["A2"] = int(class_a2["id"])
-    context.ids["A3"] = int(class_a3["id"])
-    context.ids["B1"] = int(class_b1["id"])
-    context.creations["api"].extend(["A1", "A2", "A3", "B1"])
 
+    reset_fixture_member_baseline(context)
     api.post_json(
         f"/api/v1/teacher/course-offerings/{context.ids['Offer-A-2025F']}/members/batch",
         {
@@ -740,199 +1110,153 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
         token=context.tokens["U-TA3"],
         expected_status=200,
     )
-    context.creations["api"].append("course-members")
+    record_fixture(context, "api", "course-members")
 
     for username in ["U-TA2", "U-TAO1", "U-TAC1", "U-ST1", "U-ST2", "U-ST3", "U-M1", "U-STX1"]:
         login_result = login(api, username)
         context.login_results[username] = login_result
         context.tokens[username] = get_access_token(login_result)
 
-    q_short_a = make_short_answer_question(api, context.tokens["U-TA1"], context.ids["Offer-A-2025F"], "Question-A-Short", "请说明稳定排序的定义。")
-    q_programming_a = make_programming_question(api, context.tokens["U-TA1"], context.ids["Offer-A-2025F"], "Question-A-Programming")
-    q_short_b = make_short_answer_question(api, context.tokens["U-TA3"], context.ids["Offer-B-2026S"], "Question-B-Short", "请说明梯度下降的基本思想。")
-    context.ids["Question-A-Short"] = int(q_short_a["id"])
-    context.ids["Question-A-Programming"] = int(q_programming_a["id"])
-    context.ids["Question-B-Short"] = int(q_short_b["id"])
-    context.creations["api"].extend(["Question-A-Short", "Question-A-Programming", "Question-B-Short"])
+    context.ids["Question-A-Short"] = ensure_question(
+        context,
+        teacher_token=context.tokens["U-TA1"],
+        offering_id=context.ids["Offer-A-2025F"],
+        title="Question-A-Short",
+        creator=lambda fixture_api, token, offering_id, title: make_short_answer_question(
+            fixture_api, token, offering_id, title, "请说明稳定排序的定义。"
+        ),
+    )
+    context.ids["Question-A-Programming"] = ensure_question(
+        context,
+        teacher_token=context.tokens["U-TA1"],
+        offering_id=context.ids["Offer-A-2025F"],
+        title="Question-A-Programming",
+        creator=make_programming_question,
+    )
+    context.ids["Question-B-Short"] = ensure_question(
+        context,
+        teacher_token=context.tokens["U-TA3"],
+        offering_id=context.ids["Offer-B-2026S"],
+        title="Question-B-Short",
+        creator=lambda fixture_api, token, offering_id, title: make_short_answer_question(
+            fixture_api, token, offering_id, title, "请说明梯度下降的基本思想。"
+        ),
+    )
 
     active_open_at, active_due_at = assignment_window(-1, 7)
     closed_open_at, closed_due_at = assignment_window(-10, -2)
 
-    assignments = {
-        "Task-Offering-Published": create_assignment(
-            api,
-            context.tokens["U-TA1"],
-            context.ids["Offer-A-2025F"],
-            "Task-Offering-Published",
-            context.ids["Question-A-Short"],
-            100,
-            teaching_class_id=None,
-            open_at=active_open_at,
-            due_at=active_due_at,
-        ),
-        "Task-A1-Published": create_assignment(
-            api,
-            context.tokens["U-TA1"],
-            context.ids["Offer-A-2025F"],
-            "Task-A1-Published",
-            context.ids["Question-A-Short"],
-            100,
-            teaching_class_id=context.ids["A1"],
-            open_at=active_open_at,
-            due_at=active_due_at,
-        ),
-        "Task-A2-Published": create_assignment(
-            api,
-            context.tokens["U-TA1"],
-            context.ids["Offer-A-2025F"],
-            "Task-A2-Published",
-            context.ids["Question-A-Short"],
-            100,
-            teaching_class_id=context.ids["A2"],
-            open_at=active_open_at,
-            due_at=active_due_at,
-        ),
-        "Task-A2-Draft": create_assignment(
-            api,
-            context.tokens["U-TA1"],
-            context.ids["Offer-A-2025F"],
-            "Task-A2-Draft",
-            context.ids["Question-A-Short"],
-            100,
-            teaching_class_id=context.ids["A2"],
-            open_at=active_open_at,
-            due_at=active_due_at,
-        ),
-        "Task-A1-Closed": create_assignment(
-            api,
-            context.tokens["U-TA1"],
-            context.ids["Offer-A-2025F"],
-            "Task-A1-Closed",
-            context.ids["Question-A-Short"],
-            100,
-            teaching_class_id=context.ids["A1"],
-            open_at=closed_open_at,
-            due_at=closed_due_at,
-        ),
-        "Task-Programming-A1": create_assignment(
-            api,
-            context.tokens["U-TA1"],
-            context.ids["Offer-A-2025F"],
-            "Task-Programming-A1",
-            context.ids["Question-A-Programming"],
-            100,
-            teaching_class_id=context.ids["A1"],
-            open_at=active_open_at,
-            due_at=active_due_at,
-        ),
-        "Task-B1-Published": create_assignment(
-            api,
-            context.tokens["U-TA3"],
-            context.ids["Offer-B-2026S"],
-            "Task-B1-Published",
-            context.ids["Question-B-Short"],
-            100,
-            teaching_class_id=context.ids["B1"],
-            open_at=active_open_at,
-            due_at=active_due_at,
-        ),
-    }
-    for key, value in assignments.items():
-        context.ids[key] = int(value["id"])
-        context.views[key] = value
-        context.creations["api"].append(key)
+    assignment_specs = [
+        ("Task-Offering-Published", context.tokens["U-TA1"], context.ids["Offer-A-2025F"], context.ids["Question-A-Short"], None, active_open_at, active_due_at),
+        ("Task-A1-Published", context.tokens["U-TA1"], context.ids["Offer-A-2025F"], context.ids["Question-A-Short"], context.ids["A1"], active_open_at, active_due_at),
+        ("Task-A2-Published", context.tokens["U-TA1"], context.ids["Offer-A-2025F"], context.ids["Question-A-Short"], context.ids["A2"], active_open_at, active_due_at),
+        ("Task-A2-Draft", context.tokens["U-TA1"], context.ids["Offer-A-2025F"], context.ids["Question-A-Short"], context.ids["A2"], active_open_at, active_due_at),
+        ("Task-A1-Closed", context.tokens["U-TA1"], context.ids["Offer-A-2025F"], context.ids["Question-A-Short"], context.ids["A1"], closed_open_at, closed_due_at),
+        ("Task-Programming-A1", context.tokens["U-TA1"], context.ids["Offer-A-2025F"], context.ids["Question-A-Programming"], context.ids["A1"], active_open_at, active_due_at),
+        ("Task-B1-Published", context.tokens["U-TA3"], context.ids["Offer-B-2026S"], context.ids["Question-B-Short"], context.ids["B1"], active_open_at, active_due_at),
+    ]
+    assignment_tokens: dict[str, str] = {}
+    for key, teacher_token, offering_id, question_id, teaching_class_id, open_at, due_at in assignment_specs:
+        assignment_id, assignment_view, _ = ensure_assignment(
+            context,
+            teacher_token=teacher_token,
+            offering_id=offering_id,
+            title=key,
+            question_id=question_id,
+            teaching_class_id=teaching_class_id,
+            open_at=open_at,
+            due_at=due_at,
+        )
+        context.ids[key] = assignment_id
+        context.views[key] = assignment_view
+        assignment_tokens[key] = teacher_token
 
-    for key in ["Task-Offering-Published", "Task-A1-Published", "Task-A2-Published", "Task-A1-Closed", "Task-Programming-A1", "Task-B1-Published"]:
-        publish_assignment(api, context.tokens["U-TA1"] if key != "Task-B1-Published" else context.tokens["U-TA3"], context.ids[key])
-    close_assignment(api, context.tokens["U-TA1"], context.ids["Task-A1-Closed"])
+    reset_fixture_assignment_baseline(context, active_open_at, active_due_at, closed_open_at, closed_due_at)
+    for key, teacher_token in assignment_tokens.items():
+        context.views[key] = teacher_assignment_detail(context.api, teacher_token, context.ids[key])
 
-    submissions = {
-        "Sub-ST1-Offering": create_submission(
-            api,
-            context.tokens["U-ST1"],
-            context.ids["Task-Offering-Published"],
-            first_question_id(context.views["Task-Offering-Published"]),
-            "稳定排序不会改变相同关键字元素的相对顺序。",
-        ),
-        "Sub-ST1-A1": create_submission(
-            api,
-            context.tokens["U-ST1"],
-            context.ids["Task-A1-Published"],
-            first_question_id(context.views["Task-A1-Published"]),
-            "A1 学生作答。",
-        ),
-        "Sub-ST2-A2": create_submission(
-            api,
-            context.tokens["U-ST2"],
-            context.ids["Task-A2-Published"],
-            first_question_id(context.views["Task-A2-Published"]),
-            "A2 学生作答。",
-        ),
-        "Sub-STX1-A1": create_submission(
-            api,
-            context.tokens["U-STX1"],
-            context.ids["Task-A1-Published"],
-            first_question_id(context.views["Task-A1-Published"]),
-            "转班样本学生在 A1 的历史提交。",
-        ),
-        "Sub-ST3-B1": create_submission(
-            api,
-            context.tokens["U-ST3"],
-            context.ids["Task-B1-Published"],
-            first_question_id(context.views["Task-B1-Published"]),
-            "B1 学生作答。",
-        ),
-    }
-    for key, value in submissions.items():
-        context.ids[key] = int(value["id"])
-        context.views[key] = value
-        context.creations["api"].append(key)
+    submission_specs = [
+        ("Sub-ST1-Offering", context.tokens["U-ST1"], context.tokens["U-TA1"], "Task-Offering-Published", "U-ST1", "稳定排序不会改变相同关键字元素的相对顺序。"),
+        ("Sub-ST1-A1", context.tokens["U-ST1"], context.tokens["U-TA1"], "Task-A1-Published", "U-ST1", "A1 学生作答。"),
+        ("Sub-ST2-A2", context.tokens["U-ST2"], context.tokens["U-TA1"], "Task-A2-Published", "U-ST2", "A2 学生作答。"),
+        ("Sub-STX1-A1", context.tokens["U-STX1"], context.tokens["U-TA1"], "Task-A1-Published", "U-STX1", "转班样本学生在 A1 的历史提交。"),
+        ("Sub-ST3-B1", context.tokens["U-ST3"], context.tokens["U-TA3"], "Task-B1-Published", "U-ST3", "B1 学生作答。"),
+    ]
+    for key, actor_token, teacher_token, assignment_key, submitter_key, answer_text in submission_specs:
+        submission_id, submission_view, _ = ensure_submission(
+            context,
+            actor_token=actor_token,
+            teacher_token=teacher_token,
+            assignment_id=context.ids[assignment_key],
+            assignment_question_id=first_question_id(context.views[assignment_key]),
+            submitter_user_id=context.ids[submitter_key],
+            answer_text=answer_text,
+            label=key,
+        )
+        context.ids[key] = submission_id
+        context.views[key] = submission_view
 
-    grade_answer(
-        api,
-        context.tokens["U-TA1"],
-        context.ids["Sub-ST1-Offering"],
-        first_answer_id(context.views["Sub-ST1-Offering"]),
-        95,
-        "已发布成绩样本",
+    published_answer = context.views["Sub-ST1-Offering"]["answers"][0]
+    if published_answer.get("finalScore") != 95 or published_answer.get("feedbackText") != "已发布成绩样本":
+        grade_answer(
+            api,
+            context.tokens["U-TA1"],
+            context.ids["Sub-ST1-Offering"],
+            first_answer_id(context.views["Sub-ST1-Offering"]),
+            95,
+            "已发布成绩样本",
+        )
+        record_fixture(context, "api", "Grade-ST1-Published")
+        context.views["Sub-ST1-Offering"] = teacher_submission_detail(api, context.tokens["U-TA1"], context.ids["Sub-ST1-Offering"])
+    else:
+        record_fixture(context, "reused", "Grade-ST1-Published")
+
+    gradebook_payload = api.get_json(
+        f"/api/v1/me/course-offerings/{context.ids['Offer-A-2025F']}/gradebook",
+        token=context.tokens["U-ST1"],
+        expected_status=200,
     )
-    publish_assignment_grades(api, context.tokens["U-TA1"], context.ids["Task-Offering-Published"])
-    grade_answer(
-        api,
-        context.tokens["U-TA1"],
-        context.ids["Sub-ST1-A1"],
-        first_answer_id(context.views["Sub-ST1-A1"]),
-        88,
-        "未发布成绩草稿样本",
+    offering_grade_row = next(
+        item["grade"] for item in gradebook_payload["assignments"] if item["assignment"]["title"] == "Task-Offering-Published"
     )
-    context.creations["api"].extend(["Grade-ST1-Published", "Grade-ST1-Draft"])
+    if not bool(offering_grade_row.get("gradePublished")):
+        publish_assignment_grades(api, context.tokens["U-TA1"], context.ids["Task-Offering-Published"])
+        record_fixture(context, "api", "Task-Offering-Published.grades-published")
+    else:
+        record_fixture(context, "reused", "Task-Offering-Published.grades-published")
 
-    archived_offering = api.post_json(
-        "/api/v1/admin/course-offerings",
-        {
-            "catalogId": context.ids["Course-A"],
-            "termId": context.ids["TERM-2025F"],
-            "offeringCode": "Offer-A-Archived",
-            "offeringName": "数据结构 已归档样本",
-            "primaryCollegeUnitId": context.ids["C1"],
-            "secondaryCollegeUnitIds": [],
-            "deliveryMode": "HYBRID",
-            "language": "ZH",
-            "capacity": 30,
-            "instructorUserIds": [context.ids["U-TA1"]],
-            "startAt": offering_start,
-            "endAt": offering_end,
-        },
-        token=context.tokens["U-CA1"],
-        expected_status=201,
+    draft_answer = context.views["Sub-ST1-A1"]["answers"][0]
+    if draft_answer.get("finalScore") != 88 or draft_answer.get("feedbackText") != "未发布成绩草稿样本":
+        grade_answer(
+            api,
+            context.tokens["U-TA1"],
+            context.ids["Sub-ST1-A1"],
+            first_answer_id(context.views["Sub-ST1-A1"]),
+            88,
+            "未发布成绩草稿样本",
+        )
+        record_fixture(context, "api", "Grade-ST1-Draft")
+        context.views["Sub-ST1-A1"] = teacher_submission_detail(api, context.tokens["U-TA1"], context.ids["Sub-ST1-A1"])
+    else:
+        record_fixture(context, "reused", "Grade-ST1-Draft")
+
+    context.ids["Offer-A-Archived"] = ensure_course_offering(
+        context,
+        actor_token=context.tokens["U-CA1"],
+        catalog_id=context.ids["Course-A"],
+        term_id=context.ids["TERM-2025F"],
+        offering_code="Offer-A-Archived",
+        offering_name="数据结构 已归档样本",
+        primary_college_unit_id=context.ids["C1"],
+        instructor_user_ids=[context.ids["U-TA1"]],
+        start_at=offering_start,
+        end_at=offering_end,
     )
-    context.ids["Offer-A-Archived"] = int(archived_offering["id"])
     sql_exec(
-        "UPDATE course_offerings SET status = 'ARCHIVED' WHERE id = %d;"
+        "UPDATE course_offerings SET status = 'ARCHIVED', archived_at = COALESCE(archived_at, now()) WHERE id = %d;"
         % context.ids["Offer-A-Archived"]
     )
-    context.creations["api"].append("Offer-A-Archived")
-    context.creations["sql"].append("Offer-A-Archived.status=ARCHIVED")
+    record_fixture(context, "sql", "Offer-A-Archived.status=ARCHIVED")
 
     return context
 
@@ -1840,7 +2164,9 @@ def build_markdown_report(
         "## 夹具来源",
         "",
         f"- bootstrap: {', '.join(fixture_context.creations['bootstrap'])}",
+        f"- 复用现有: {', '.join(fixture_context.creations['reused']) if fixture_context.creations['reused'] else '无'}",
         f"- API 创建: {', '.join(fixture_context.creations['api'])}",
+        f"- 基线重置: {', '.join(fixture_context.creations['reset']) if fixture_context.creations['reset'] else '无'}",
         f"- SQL 补齐: {', '.join(fixture_context.creations['sql']) if fixture_context.creations['sql'] else '无'}",
         "",
         "## 用例结果",

@@ -46,7 +46,8 @@ class JwtTokenServiceTests {
                 List.of(),
                 List.of(new GroupBindingView("LEGACY_GOVERNANCE", "school-admin", "SCHOOL", 1L)),
                 Set.of("org.unit.manage", "auth.group.manage"),
-                42L);
+                42L,
+                true);
 
         LoginResultView result = jwtTokenService.issueToken(principal, "session-123", "refresh-token-123", 42L);
         Jwt jwt = jwtDecoder.decode(result.accessToken());
@@ -60,5 +61,6 @@ class JwtTokenServiceTests {
         assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("org.unit.manage", "auth.group.manage");
         assertThat(((List<?>) jwt.getClaim("groupBindings"))).hasSize(1);
         assertThat(((Number) jwt.getClaim("permissionVersion")).longValue()).isEqualTo(42L);
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
     }
 }

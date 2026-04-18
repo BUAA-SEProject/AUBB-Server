@@ -47,7 +47,8 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 identities,
                 groupBindings,
                 permissionCodes,
-                readLong(jwt.getClaim("permissionVersion")));
+                readLong(jwt.getClaim("permissionVersion")),
+                readBoolean(jwt.getClaim("roleBindingSnapshot")));
         return new UsernamePasswordAuthenticationToken(principal, jwt.getTokenValue(), authorities);
     }
 
@@ -121,6 +122,16 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
 
     private String readString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private boolean readBoolean(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
     }
 
     private <E extends Enum<E>> E readEnum(Object value, Class<E> enumType) {

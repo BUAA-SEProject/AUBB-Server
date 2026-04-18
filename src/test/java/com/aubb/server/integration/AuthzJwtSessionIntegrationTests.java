@@ -151,6 +151,7 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
                 .contains("class.manage", "member.manage", "role_binding.manage");
         Number permissionVersion = (Number) jwt.getClaim("permissionVersion");
         assertThat(permissionVersion).isNotNull();
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
     }
 
     @Test
@@ -187,6 +188,7 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
         assertThat(jwt.getClaimAsStringList("permissionCodes"))
                 .contains("school.manage", "role_binding.manage", "report.export");
         assertThat(jwt.getClaimAsStringList("authorities")).contains("SCHOOL_ADMIN");
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
     }
 
     @Test

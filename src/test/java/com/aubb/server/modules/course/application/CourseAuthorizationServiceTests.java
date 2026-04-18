@@ -1,9 +1,14 @@
 package com.aubb.server.modules.course.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
@@ -15,7 +20,9 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthorizationDecision;
 import com.aubb.server.modules.identityaccess.application.authz.AuthorizationService;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResult;
 import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
@@ -57,6 +64,74 @@ class CourseAuthorizationServiceTests {
 
     @Mock
     private OrgUnitMapper orgUnitMapper;
+
+    @Test
+    void assertCanManageAssignmentsShouldNotFallbackToLegacyWhenPrincipalUsesRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                true);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("task.edit"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanManageAssignments(principal, 12L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理该课程作业");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanManageAssignmentsShouldFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("task.edit"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+        when(authorizationService.decide(any())).thenReturn(AuthorizationDecision.allow(List.of()));
+
+        service.assertCanManageAssignments(principal, 12L);
+
+        verify(authorizationService).decide(any());
+    }
 
     @Test
     void loadsFullAssignmentAccessOfferingIdsFromAdminInstructorAndOfferingTaScopes() {

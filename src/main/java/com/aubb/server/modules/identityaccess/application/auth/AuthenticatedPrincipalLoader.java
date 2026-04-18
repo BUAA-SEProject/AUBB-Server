@@ -54,19 +54,20 @@ public class AuthenticatedPrincipalLoader {
         List<ScopeIdentityView> identities = scopeIdentityService.loadForUser(user.getId());
         List<RoleBindingGrantRow> roleBindingGrantRows =
                 roleBindingGrantQueryMapper.selectActiveGrantRowsByUserId(user.getId(), now);
+        boolean roleBindingSnapshot = !roleBindingGrantRows.isEmpty();
         List<AuthzGroupGrantRow> authzGroupGrantRows =
                 authzGroupQueryMapper.selectActiveGrantRowsByUserId(user.getId());
-        List<GroupBindingView> groupBindings = roleBindingGrantRows.isEmpty()
-                ? loadLegacyGroupBindings(user.getId(), identities)
-                : mergeBindings(
+        List<GroupBindingView> groupBindings = roleBindingSnapshot
+                ? mergeBindings(
                         loadRoleBindingViews(roleBindingGrantRows),
-                        loadPersistedAuthzGroupBindings(authzGroupGrantRows));
+                        loadPersistedAuthzGroupBindings(authzGroupGrantRows))
+                : loadLegacyGroupBindings(user.getId(), identities);
         AcademicProfileView academicProfile = loadAcademicProfile(user.getId());
-        LinkedHashSet<String> permissionCodes = roleBindingGrantRows.isEmpty()
-                ? loadLegacyPermissionCodes(user, academicProfile, identities, groupBindings)
-                : mergePermissionCodes(
+        LinkedHashSet<String> permissionCodes = roleBindingSnapshot
+                ? mergePermissionCodes(
                         loadRoleBindingPermissionCodes(roleBindingGrantRows),
-                        loadPersistedAuthzGroupPermissionCodes(authzGroupGrantRows));
+                        loadPersistedAuthzGroupPermissionCodes(authzGroupGrantRows))
+                : loadLegacyPermissionCodes(user, academicProfile, identities, groupBindings);
         AuthenticatedUserPrincipal snapshotPrincipal = new AuthenticatedUserPrincipal(
                 user.getId(),
                 user.getUsername(),
@@ -78,7 +79,8 @@ public class AuthenticatedPrincipalLoader {
                 identities,
                 groupBindings,
                 permissionCodes,
-                null);
+                null,
+                roleBindingSnapshot);
         return new AuthenticatedUserPrincipal(
                 snapshotPrincipal.getUserId(),
                 snapshotPrincipal.getUsername(),
@@ -90,7 +92,8 @@ public class AuthenticatedPrincipalLoader {
                 snapshotPrincipal.getIdentities(),
                 snapshotPrincipal.getGroupBindings(),
                 snapshotPrincipal.getPermissionCodes(),
-                snapshotPrincipal.getPermissionVersion());
+                snapshotPrincipal.getPermissionVersion(),
+                roleBindingSnapshot);
     }
 
     @Transactional(readOnly = true)
