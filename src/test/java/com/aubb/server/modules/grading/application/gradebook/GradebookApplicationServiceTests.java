@@ -10,7 +10,6 @@ import static org.mockito.Mockito.when;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionMapper;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
@@ -56,9 +55,6 @@ class GradebookApplicationServiceTests {
     private SubmissionAnswerApplicationService submissionAnswerApplicationService;
 
     @Mock
-    private CourseAuthorizationService courseAuthorizationService;
-
-    @Mock
     private ReadPathAuthorizationService readPathAuthorizationService;
 
     @Mock
@@ -89,7 +85,6 @@ class GradebookApplicationServiceTests {
                 assignmentSectionMapper,
                 submissionMapper,
                 submissionAnswerApplicationService,
-                courseAuthorizationService,
                 readPathAuthorizationService,
                 sensitiveOperationAuditService,
                 gradebookQueryRepository);
@@ -122,7 +117,6 @@ class GradebookApplicationServiceTests {
                 assignmentSectionMapper,
                 submissionMapper,
                 submissionAnswerApplicationService,
-                courseAuthorizationService,
                 readPathAuthorizationService,
                 sensitiveOperationAuditService,
                 gradebookQueryRepository);

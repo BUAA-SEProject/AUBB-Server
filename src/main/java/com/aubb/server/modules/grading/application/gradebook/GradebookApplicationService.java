@@ -8,7 +8,6 @@ import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSection
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionMapper;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
@@ -65,7 +64,6 @@ public class GradebookApplicationService {
     private final AssignmentSectionMapper assignmentSectionMapper;
     private final SubmissionMapper submissionMapper;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
-    private final CourseAuthorizationService courseAuthorizationService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
     private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final GradebookQueryRepository gradebookQueryRepository;
@@ -178,13 +176,7 @@ public class GradebookApplicationService {
         ReadPathAuthorizationService.TeachingReadScope scope =
                 readPathAuthorizationService.resolveTeachingReadScope(principal, "grade.read", offeringId);
         boolean allowed = teachingClassId == null ? scope.offeringReadable() : scope.canReadClass(teachingClassId);
-        if (allowed) {
-            return;
-        }
-        boolean legacyAllowed = teachingClassId == null
-                ? courseAuthorizationService.canViewOfferingGradebook(principal, offeringId)
-                : courseAuthorizationService.canViewTeachingClassGradebook(principal, offeringId, teachingClassId);
-        if (!legacyAllowed) {
+        if (!allowed) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
         }
     }

@@ -169,6 +169,16 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void legacyTeacherWithoutRoleBindingsCannotReadGradebook() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 3L);
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/gradebook", scenario.offeringId())
+                        .header("Authorization", "Bearer " + scenario.teacherToken()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void teacherReadsSingleStudentGradebookDetail() throws Exception {
         GradebookScenario scenario = seedGradebookScenario();
 
