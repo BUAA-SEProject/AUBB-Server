@@ -91,6 +91,8 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B 班");
         addStudent(teacherToken, offeringId, 4L, classAId);
         addStudent(teacherToken, offeringId, 5L, classBId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long offeringDiscussionId = createTeacherDiscussion(teacherToken, offeringId, null, "课程问答", "统一讨论区");
         Long classDiscussionId = createMyDiscussion(studentAToken, classAId, "A 班实验讨论", "这里讨论本班实验安排");
@@ -147,6 +149,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A 班");
         addStudent(teacherToken, offeringId, 4L, classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long offeringDiscussionId = createTeacherDiscussion(teacherToken, offeringId, null, "课程问答", "统一讨论区");
 

@@ -74,7 +74,9 @@ public class AuthController {
     @GetMapping("/me")
     @Operation(summary = "读取当前登录用户快照")
     public AuthenticatedUserView currentUser(@AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
-        return AuthenticatedUserView.from(principal);
+        AuthenticatedUserPrincipal currentPrincipal =
+                authenticationApplicationService.loadPrincipal(principal.getUserId());
+        return AuthenticatedUserView.from(currentPrincipal == null ? principal : currentPrincipal);
     }
 
     public record LoginRequest(

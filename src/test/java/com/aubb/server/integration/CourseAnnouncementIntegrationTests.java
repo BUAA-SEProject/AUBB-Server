@@ -90,6 +90,8 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B 班", 2026);
         addStudent(teacherToken, offeringId, 4L, classAId);
         addStudent(teacherToken, offeringId, 5L, classBId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long offeringAnnouncementId = createAnnouncement(teacherToken, offeringId, null, "开课说明", "本周开始进入课程内容。");
         Long classAnnouncementId = createAnnouncement(teacherToken, offeringId, classAId, "A 班加课提醒", "本周五晚线上答疑。");
@@ -137,6 +139,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A 班", 2026);
         addStudent(teacherToken, offeringId, 4L, classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long announcementId = createAnnouncement(teacherToken, offeringId, null, "开课说明", "课程公告默认可见。");
 

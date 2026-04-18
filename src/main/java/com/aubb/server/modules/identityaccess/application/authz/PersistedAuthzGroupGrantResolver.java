@@ -9,6 +9,10 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/**
+ * @deprecated 新权限主路径已改为查询 {@code role_bindings}，本解析器仅保留给旧授权组兼容回退。
+ */
+@Deprecated(forRemoval = false)
 @Service
 @RequiredArgsConstructor
 public class PersistedAuthzGroupGrantResolver implements PermissionGrantResolver {

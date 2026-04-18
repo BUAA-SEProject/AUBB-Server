@@ -220,6 +220,29 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void gradebookExportShouldWriteHighRiskAudit() throws Exception {
+        GradebookScenario scenario = seedGradebookScenario();
+        grantRoleBinding(3L, "offering_teacher", "offering", scenario.offeringId());
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/gradebook/export", scenario.offeringId())
+                        .header("Authorization", "Bearer " + scenario.teacherToken()))
+                .andExpect(status().isOk());
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM audit_logs WHERE action = 'GRADE_EXPORT' AND decision = 'ALLOW'",
+                        Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT scope_type FROM audit_logs WHERE action = 'GRADE_EXPORT' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("offering");
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'permissionCode' FROM audit_logs WHERE action = 'GRADE_EXPORT' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("grade.export");
+    }
+
+    @Test
     void taExportsOwnedClassGradebookAsCsvButCannotExportOtherClass() throws Exception {
         GradebookScenario scenario = seedGradebookScenario();
 
@@ -391,6 +414,8 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classAId);
         addMember(teacherToken, offeringId, 4L, "TA", classAId);
+        taAToken = login("ta-a", "Password123");
+        studentAToken = login("student-a", "Password123");
 
         Long courseWideAssignmentId = createObjectiveAssignment(teacherToken, offeringId, null, "课程公共客观题", 40);
         publishAssignment(teacherToken, courseWideAssignmentId);
@@ -415,20 +440,19 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.summary.assignmentCount").value(2))
                 .andExpect(jsonPath("$.summary.submittedCount").value(2))
                 .andExpect(jsonPath("$.summary.gradedCount").value(2))
-                .andExpect(jsonPath("$.summary.totalFinalScore").value(20))
+                .andExpect(jsonPath("$.summary.totalFinalScore").value(10))
                 .andExpect(jsonPath("$.summary.totalMaxScore").value(40))
-                .andExpect(jsonPath("$.summary.totalWeightedScore").value(60.0))
+                .andExpect(jsonPath("$.summary.totalWeightedScore").value(40.0))
                 .andExpect(jsonPath("$.summary.totalWeight").value(100))
-                .andExpect(jsonPath("$.summary.weightedScoreRate").value(0.6))
+                .andExpect(jsonPath("$.summary.weightedScoreRate").value(0.4))
                 .andExpect(jsonPath("$.assignments.length()").value(2))
                 .andExpect(jsonPath("$.assignments[0].grade.gradePublished").value(true))
                 .andExpect(jsonPath("$.assignments[0].grade.finalScore").value(10))
                 .andExpect(jsonPath("$.assignments[0].grade.weightedScore").value(40.0))
                 .andExpect(jsonPath("$.assignments[1].grade.gradePublished").value(false))
-                .andExpect(jsonPath("$.assignments[1].grade.finalScore").value(10))
-                .andExpect(jsonPath("$.assignments[1].grade.weightedScore").value(20.0))
-                .andExpect(jsonPath("$.assignments[1].grade.scoreSummary.manualScoredScore")
-                        .doesNotExist());
+                .andExpect(jsonPath("$.assignments[1].grade.finalScore").doesNotExist())
+                .andExpect(jsonPath("$.assignments[1].grade.weightedScore").doesNotExist())
+                .andExpect(jsonPath("$.assignments[1].grade.scoreSummary").doesNotExist());
 
         mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/gradebook", offeringId)
                         .header("Authorization", "Bearer " + teacherToken))
@@ -441,9 +465,9 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                 .andReturn();
 
         String csv = exportResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertThat(csv).contains("6,student-a,Student A,CLS-A,A班,2,2,2,20,40,60.0,100,0.6");
+        assertThat(csv).contains("6,student-a,Student A,CLS-A,A班,2,2,2,10,40,40.0,100,0.4");
         assertThat(csv).contains("结构化批改作业,CLS-A,A班,30,60,false,true,true,1,");
-        assertThat(csv).contains(",10,20.0,true");
+        assertThat(csv).doesNotContain(",10,20.0,true");
     }
 
     private GradebookScenario seedGradebookScenario() throws Exception {
@@ -464,6 +488,10 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         addMember(teacherToken, offeringId, 7L, "STUDENT", classBId);
         addMember(teacherToken, offeringId, 4L, "TA", classAId);
         addMember(teacherToken, offeringId, 5L, "TA", classBId);
+        taAToken = login("ta-a", "Password123");
+        taBToken = login("ta-b", "Password123");
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long courseWideAssignmentId = createObjectiveAssignment(teacherToken, offeringId, null, "课程公共客观题", 40);
         publishAssignment(teacherToken, courseWideAssignmentId);
@@ -614,6 +642,27 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(userId, roleCode, classId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
+    }
+
+    private void grantRoleBinding(Long userId, String roleCode, String scopeType, Long scopeId) {
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    effective_from,
+                    effective_to,
+                    granted_by,
+                    source_type,
+                    source_ref_id
+                )
+                SELECT ?, id, ?, ?, '{}'::jsonb, 'ACTIVE', now(), NULL, NULL, 'MANUAL', 0
+                FROM roles
+                WHERE code = ?
+                """, userId, scopeType, scopeId, roleCode);
     }
 
     private Long createObjectiveAssignment(String token, Long offeringId, Long classId, String title, int gradeWeight)

@@ -207,7 +207,7 @@ public class UserAdministrationApplicationService {
                         .toList()
                 : List.of(orgUnitId);
         boolean includeUsersWithoutOrg =
-                orgUnitId == null && principal.hasAuthority(GovernanceRole.SCHOOL_ADMIN.name());
+                orgUnitId == null && governanceAuthorizationService.canManageUserAt(principal, null);
         if (manageableOrgIds.isEmpty() && !includeUsersWithoutOrg) {
             return new PageResponse<>(List.of(), 0, safePage, safePageSize);
         }

@@ -134,6 +134,8 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B 班", 2026);
         addStudent(teacherToken, offeringId, 4L, classAId);
         addStudent(teacherToken, offeringId, 5L, classBId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long offeringResourceId = uploadResource(teacherToken, offeringId, null, "syllabus.pdf", "课程大纲");
         Long classResourceId = uploadResource(teacherToken, offeringId, classAId, "class-a.zip", "A 班样例代码");
@@ -184,6 +186,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A 班", 2026);
         addStudent(teacherToken, offeringId, 4L, classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long offeringResourceId = uploadResource(teacherToken, offeringId, null, "syllabus.pdf", "课程大纲");
 

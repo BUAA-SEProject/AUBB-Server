@@ -5,6 +5,11 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+/**
+ * @deprecated 核心业务鉴权已迁移到 {@code PermissionAuthorizationService + role_bindings}。
+ *     本类仅保留给 explain、兼容回退和旧权限矩阵收口阶段使用。
+ */
+@Deprecated(forRemoval = false)
 @Service
 public class AuthorizationService {
 

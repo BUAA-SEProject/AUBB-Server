@@ -7,12 +7,15 @@ import com.aubb.server.modules.assignment.application.paper.ProgrammingExecution
 import com.aubb.server.modules.assignment.application.paper.StructuredQuestionSupport;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
 import com.aubb.server.modules.judge.infrastructure.environment.JudgeEnvironmentProfileEntity;
 import com.aubb.server.modules.judge.infrastructure.environment.JudgeEnvironmentProfileMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -44,6 +47,7 @@ public class JudgeEnvironmentProfileApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final StructuredQuestionSupport structuredQuestionSupport;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -90,6 +94,20 @@ public class JudgeEnvironmentProfileApplicationService {
                         "offeringId", offeringId,
                         "programmingLanguage", safeLanguage.name(),
                         "profileCode", entity.getProfileCode()));
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.JUDGE_CONFIG_CHANGE,
+                "judge.config",
+                new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId),
+                Map.of(
+                        "profileId",
+                        entity.getId(),
+                        "operation",
+                        "CREATE_PROFILE",
+                        "programmingLanguage",
+                        safeLanguage.name(),
+                        "profileCode",
+                        entity.getProfileCode()));
         return toView(entity);
     }
 
@@ -161,6 +179,20 @@ public class JudgeEnvironmentProfileApplicationService {
                         "offeringId", entity.getOfferingId(),
                         "programmingLanguage", entity.getProgrammingLanguage(),
                         "profileCode", entity.getProfileCode()));
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.JUDGE_CONFIG_CHANGE,
+                "judge.config",
+                new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, entity.getOfferingId()),
+                Map.of(
+                        "profileId",
+                        entity.getId(),
+                        "operation",
+                        "UPDATE_PROFILE",
+                        "programmingLanguage",
+                        entity.getProgrammingLanguage(),
+                        "profileCode",
+                        entity.getProfileCode()));
         return toView(entity);
     }
 
@@ -182,6 +214,20 @@ public class JudgeEnvironmentProfileApplicationService {
                             "offeringId", entity.getOfferingId(),
                             "programmingLanguage", entity.getProgrammingLanguage(),
                             "profileCode", entity.getProfileCode()));
+            sensitiveOperationAuditService.recordAllowed(
+                    principal,
+                    AuditAction.JUDGE_CONFIG_CHANGE,
+                    "judge.config",
+                    new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, entity.getOfferingId()),
+                    Map.of(
+                            "profileId",
+                            entity.getId(),
+                            "operation",
+                            "ARCHIVE_PROFILE",
+                            "programmingLanguage",
+                            entity.getProgrammingLanguage(),
+                            "profileCode",
+                            entity.getProfileCode()));
         }
         return toView(requireProfile(profileId));
     }

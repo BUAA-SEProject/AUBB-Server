@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -147,6 +148,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -188,6 +190,46 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void studentCannotAccessTeacherSubmissionReadRoutes() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+        String studentBToken = login("student-b", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        addMember(teacherToken, offeringId, 5L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "教师读路径隔离作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentBToken, assignmentId, "同班同学提交");
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void studentUploadsArtifactsCreatesSubmissionAndTeacherDownloadsArtifact() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -199,6 +241,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -252,6 +295,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -291,6 +335,315 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void sensitiveSubmissionDownloadShouldWriteAuditWhenExplicitSourceGrantIsUsed() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+        insertUser(2L, "source-reader", "Source Reader", "source-reader@example.com");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-SRC", "源码班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "源码访问作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long artifactId = uploadArtifact(studentAToken, assignmentId, "main.py", "text/x-python", "print('source')\n");
+        createSubmission(studentAToken, assignmentId, "源码见附件", artifactId);
+
+        String roleCode =
+                "submission_source_reader_" + UUID.randomUUID().toString().replace("-", "");
+        jdbcTemplate.update("""
+                INSERT INTO roles (code, name, description, role_category, scope_type, is_builtin, status)
+                VALUES (?, ?, ?, 'SPECIAL', 'offering', FALSE, 'ACTIVE')
+                """, roleCode, "源码读取者", "显式授权读取源码全文");
+        Long roleId = jdbcTemplate.queryForObject("SELECT id FROM roles WHERE code = ?", Long.class, roleCode);
+        jdbcTemplate.update("""
+                INSERT INTO role_permissions (role_id, permission_id)
+                SELECT ?, id
+                FROM permissions
+                WHERE code = 'submission.read_source'
+                """, roleId);
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    effective_from,
+                    effective_to,
+                    granted_by,
+                    source_type,
+                    source_ref_id
+                ) VALUES (?, ?, 'offering', ?, '{}'::jsonb, 'ACTIVE', now(), NULL, NULL, 'MANUAL', 0)
+                """, 7L, roleId, offeringId);
+
+        String sourceReaderToken = login("source-reader", "Password123");
+
+        mockMvc.perform(get("/api/v1/teacher/submission-artifacts/{artifactId}/download", artifactId)
+                        .header("Authorization", "Bearer " + sourceReaderToken))
+                .andExpect(status().isOk());
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM audit_logs WHERE action = 'SUBMISSION_SOURCE_READ' AND decision = 'ALLOW'",
+                        Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'permissionCode' FROM audit_logs WHERE action = 'SUBMISSION_SOURCE_READ' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("submission.read_source");
+    }
+
+    @Test
+    void manualSubmissionReadBindingCanReadTeacherSubmissionButContentIsMasked() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+        insertUser(2L, "submission-reader", "Submission Reader", "submission-reader@example.com");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "只读提交列表作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "需要被裁剪的源码正文");
+
+        String roleCode = "submission_read_only_" + UUID.randomUUID().toString().replace("-", "");
+        jdbcTemplate.update("""
+                INSERT INTO roles (code, name, description, role_category, scope_type, is_builtin, status)
+                VALUES (?, ?, ?, 'TEACHING', 'offering', FALSE, 'ACTIVE')
+                """, roleCode, "只读提交审阅者", "仅允许查看提交元数据");
+        Long roleId = jdbcTemplate.queryForObject("SELECT id FROM roles WHERE code = ?", Long.class, roleCode);
+        jdbcTemplate.update("""
+                INSERT INTO role_permissions (role_id, permission_id)
+                SELECT ?, id
+                FROM permissions
+                WHERE code = 'submission.read'
+                """, roleId);
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    effective_from,
+                    effective_to,
+                    granted_by,
+                    source_type,
+                    source_ref_id
+                ) VALUES (?, ?, 'offering', ?, '{}'::jsonb, 'ACTIVE', now(), NULL, NULL, 'MANUAL', 0)
+                """, 7L, roleId, offeringId);
+
+        String submissionReaderToken = login("submission-reader", "Password123");
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + submissionReaderToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].submitterUserId").value(4))
+                .andExpect(jsonPath("$.items[0].contentText").value(org.hamcrest.Matchers.nullValue()));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + submissionReaderToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(submissionId))
+                .andExpect(jsonPath("$.contentText").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void transferredStudentCanReadOwnHistoryButCannotSubmitNewAttempt() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-HIS", "历史班", 2024);
+        Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-NEW", "新班", 2025);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "转班历史读取作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "转班前首次提交");
+
+        Long memberId = findMemberId(offeringId, 4L, "STUDENT");
+        mockMvc.perform(post(
+                                "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/transfer",
+                                offeringId,
+                                memberId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"targetTeachingClassId":%s,"remark":"转班到新班"}
+                                """.formatted(classBId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.teachingClassId").value(classBId))
+                .andExpect(jsonPath("$.memberStatus").value("ACTIVE"));
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isUnauthorized());
+
+        String refreshedStudentToken = login("student-a", "Password123");
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + refreshedStudentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(assignmentId));
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + refreshedStudentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(submissionId))
+                .andExpect(jsonPath("$.contentText").value("转班前首次提交"));
+
+        mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + refreshedStudentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "contentText":"转班后不应再允许正式提交",
+                                  "artifactIds":[]
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 4"
+                        + " AND member_role = 'STUDENT'"))
+                .isEqualTo(2);
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 4"
+                        + " AND teaching_class_id = "
+                        + classAId
+                        + " AND member_status = 'TRANSFERRED'"))
+                .isEqualTo(1);
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 4"
+                        + " AND teaching_class_id = "
+                        + classBId
+                        + " AND member_status = 'ACTIVE'"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void droppedStudentCanReadOwnHistoryButCannotSubmitNewAttempt() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-DROP", "退课班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "退课历史读取作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "退课前首次提交");
+
+        Long memberId = findMemberId(offeringId, 4L, "STUDENT");
+        mockMvc.perform(patch(
+                                "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/status",
+                                offeringId,
+                                memberId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"memberStatus":"DROPPED","remark":"退课处理"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.memberStatus").value("DROPPED"));
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isUnauthorized());
+
+        String refreshedStudentToken = login("student-a", "Password123");
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + refreshedStudentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(assignmentId));
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + refreshedStudentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(submissionId));
+
+        mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + refreshedStudentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "contentText":"退课后不得继续提交",
+                                  "artifactIds":[]
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 4"
+                        + " AND teaching_class_id = "
+                        + classAId
+                        + " AND member_status = 'DROPPED'"))
+                .isEqualTo(1);
+    }
+
+    @Test
     void studentCannotUploadMoreThanTenPendingArtifactsForSameAssignment() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -302,6 +655,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -348,6 +702,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -387,6 +742,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -433,6 +789,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -470,6 +827,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long futureAssignmentId = createAssignment(
                 teacherToken,
@@ -529,6 +887,8 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2025);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
         addMember(teacherToken, offeringId, 5L, "STUDENT", classBId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -568,6 +928,8 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2025);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
         addMember(teacherToken, offeringId, 5L, "STUDENT", classBId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -809,6 +1171,18 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(userId, roleCode, classId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
+    }
+
+    private Long findMemberId(Long offeringId, Long userId, String memberRole) {
+        return jdbcTemplate.queryForObject("""
+                SELECT id
+                FROM course_members
+                WHERE offering_id = ?
+                  AND user_id = ?
+                  AND member_role = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """, Long.class, offeringId, userId, memberRole);
     }
 
     private Long createAssignment(

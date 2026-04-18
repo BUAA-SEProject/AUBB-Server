@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
@@ -15,6 +16,7 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapp
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.AuthorizationService;
+import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
@@ -31,6 +33,12 @@ class CourseAuthorizationServiceTests {
 
     @Mock
     private AuthorizationService authorizationService;
+
+    @Mock
+    private PermissionAuthorizationService permissionAuthorizationService;
+
+    @Mock
+    private SensitiveOperationAuditService sensitiveOperationAuditService;
 
     @Mock
     private GovernanceAuthorizationService governanceAuthorizationService;
@@ -62,6 +70,8 @@ class CourseAuthorizationServiceTests {
 
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
                 governanceAuthorizationService,
                 courseOfferingMapper,
                 courseOfferingCollegeMapMapper,

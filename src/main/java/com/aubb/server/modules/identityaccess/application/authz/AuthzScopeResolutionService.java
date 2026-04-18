@@ -33,7 +33,7 @@ public class AuthzScopeResolutionService {
     @Transactional(readOnly = true)
     public ScopeRef resolveScope(AuthorizationScopeType scopeType, Long scopeRefId) {
         return switch (scopeType) {
-            case SCHOOL, COLLEGE, COURSE -> new ScopeRef(scopeType, scopeRefId);
+            case PLATFORM, SCHOOL, COLLEGE, COURSE -> new ScopeRef(scopeType, scopeRefId);
             case OFFERING -> resolveOfferingScope(scopeRefId);
             case CLASS -> resolveTeachingClassScope(scopeRefId);
         };

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -133,6 +134,115 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].offeringCode").value("CS101-2026SP-01"));
+    }
+
+    @Test
+    void collegeAdminCannotReadUnsharedOfferingFromAnotherCollege() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String bizAdminToken = login("biz-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        MvcResult offeringResult = mockMvc.perform(post("/api/v1/admin/course-offerings")
+                        .header("Authorization", "Bearer " + engAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "catalogId":%s,
+                                  "termId":%s,
+                                  "offeringCode":"CS101-2026SP-ENG",
+                                  "offeringName":"工程学院独占开课",
+                                  "primaryCollegeUnitId":2,
+                                  "secondaryCollegeUnitIds":[],
+                                  "deliveryMode":"HYBRID",
+                                  "language":"ZH",
+                                  "capacity":120,
+                                  "instructorUserIds":[4],
+                                  "startAt":"2026-02-20T08:00:00+08:00",
+                                  "endAt":"2026-07-10T23:59:59+08:00"
+                                }
+                                """.formatted(catalogId, termId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long offeringId = readLong(offeringResult, "$.id");
+
+        mockMvc.perform(get("/api/v1/admin/course-offerings/{offeringId}", offeringId)
+                        .header("Authorization", "Bearer " + bizAdminToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/api/v1/admin/course-offerings")
+                        .header("Authorization", "Bearer " + bizAdminToken)
+                        .param("collegeUnitId", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+    }
+
+    @Test
+    void organizationWriteAuditShouldCaptureDecisionAndScope() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+
+        mockMvc.perform(post("/api/v1/admin/org-units")
+                        .header("Authorization", "Bearer " + schoolAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"name":"Science","code":"COL-SCI","type":"COLLEGE","sortOrder":3,"parentId":1}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.type").value("COLLEGE"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT decision FROM audit_logs WHERE action = 'ORG_UNIT_CREATED' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("ALLOW");
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT scope_type FROM audit_logs WHERE action = 'ORG_UNIT_CREATED' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("school");
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT scope_id FROM audit_logs WHERE action = 'ORG_UNIT_CREATED' ORDER BY id DESC LIMIT 1",
+                        Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'requestedType' FROM audit_logs WHERE action = 'ORG_UNIT_CREATED' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("COLLEGE");
+    }
+
+    @Test
+    void archivedOfferingShouldStayReadableButRejectTeachingWrites() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId, "CS101-2026SP-ARCH", "归档开课");
+
+        jdbcTemplate.update(
+                "UPDATE course_offerings SET status = 'ARCHIVED', archived_at = now() WHERE id = ?", offeringId);
+
+        mockMvc.perform(get("/api/v1/admin/course-offerings/{offeringId}", offeringId)
+                        .header("Authorization", "Bearer " + engAdminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"))
+                .andExpect(jsonPath("$.archivedAt").isNotEmpty());
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "classCode":"CLS-ARCH",
+                                  "className":"归档班级",
+                                  "entryYear":2026,
+                                  "capacity":60,
+                                  "scheduleSummary":"周二 1-2 节"
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -294,7 +404,9 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(3));
 
-        mockMvc.perform(get("/api/v1/me/courses").header("Authorization", "Bearer " + taToken))
+        String refreshedTaToken = login("ta-mixed", "Password123");
+
+        mockMvc.perform(get("/api/v1/me/courses").header("Authorization", "Bearer " + refreshedTaToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].offeringCode").value("CS101-2026SP-01"))
@@ -302,13 +414,13 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$[0].classes[*].classCode", containsInAnyOrder("CLS-2024", "CLS-2025")));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
-                        .header("Authorization", "Bearer " + taToken)
+                        .header("Authorization", "Bearer " + refreshedTaToken)
                         .param("teachingClassId", String.valueOf(class2025Id)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2));
 
         mockMvc.perform(put("/api/v1/teacher/course-classes/{teachingClassId}/features", class2025Id)
-                        .header("Authorization", "Bearer " + taToken)
+                        .header("Authorization", "Bearer " + refreshedTaToken)
                         .contentType("application/json")
                         .content("""
                                 {
@@ -322,7 +434,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + taToken)
+                        .header("Authorization", "Bearer " + refreshedTaToken)
                         .contentType("application/json")
                         .content("""
                                 {
@@ -332,6 +444,42 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                                 }
                                 """.formatted(class2025Id)))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void sameUserCannotBeTeacherAndStudentInSameOffering() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":6,"memberRole":"STUDENT","teachingClassId":%s,"remark":"作为学生"},
+                                    {"userId":6,"memberRole":"CLASS_INSTRUCTOR","teachingClassId":%s,"remark":"同时设为班级教师"}
+                                  ]
+                                }
+                                """.formatted(class2024Id, class2024Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failCount").value(1));
+
+        assertThat(queryForCount(
+                        "SELECT COUNT(*) FROM course_members WHERE offering_id = " + offeringId + " AND user_id = 6"))
+                .isEqualTo(1);
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 6"
+                        + " AND member_role = 'CLASS_INSTRUCTOR'"))
+                .isEqualTo(0);
     }
 
     @Test
@@ -363,6 +511,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(4));
 
+        taToken = login("ta-mixed", "Password123");
+
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
                         .header("Authorization", "Bearer " + teacherToken)
                         .param("memberRole", "STUDENT")
@@ -375,9 +525,10 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.pageSize").value(2))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].user.username").value("student-import"))
+                .andExpect(jsonPath("$.items[0].user.email").value("student-import@example.com"))
                 .andExpect(jsonPath("$.items[0].classCode").value("CLS-2025"));
 
-        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
+        MvcResult taResult = mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
                         .header("Authorization", "Bearer " + taToken)
                         .param("teachingClassId", String.valueOf(class2025Id))
                         .param("memberRole", "STUDENT")
@@ -386,6 +537,235 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.items[*].user.username", containsInAnyOrder("student-25", "student-import")))
+                .andExpect(jsonPath("$.items[*].classCode", containsInAnyOrder("CLS-2025", "CLS-2025")))
+                .andReturn();
+
+        Object firstEmail = JsonPath.read(taResult.getResponse().getContentAsString(), "$.items[0].user.email");
+        Object secondEmail = JsonPath.read(taResult.getResponse().getContentAsString(), "$.items[1].user.email");
+        assertThat(firstEmail).isNull();
+        assertThat(secondEmail).isNull();
+    }
+
+    @Test
+    void teacherCanUpdateMemberStatusAndInvalidateAffectedUserSessions() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-DROP", "退课班", 2024);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":6,"memberRole":"STUDENT","teachingClassId":%s,"remark":"在读学生"}
+                                  ]
+                                }
+                                """.formatted(class2024Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1));
+
+        String studentToken = login("student-24", "Password123");
+        Long memberId = findMemberId(offeringId, 6L, "STUDENT");
+
+        mockMvc.perform(patch(
+                                "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/status",
+                                offeringId,
+                                memberId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"memberStatus":"DROPPED","remark":"教师退课处理"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(memberId))
+                .andExpect(jsonPath("$.memberStatus").value("DROPPED"))
+                .andExpect(jsonPath("$.leftAt").isNotEmpty());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isUnauthorized());
+
+        String refreshedStudentToken = login("student-24", "Password123");
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + refreshedStudentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("student-24"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 6"
+                        + " AND member_status = 'DROPPED'"))
+                .isEqualTo(1);
+        assertThat(
+                        queryForCount(
+                                "SELECT COUNT(*) FROM auth_sessions WHERE user_id = 6 AND revoked_reason = 'COURSE_MEMBER_STATUS_CHANGED'"))
+                .isGreaterThanOrEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'currentStatus' FROM audit_logs WHERE action = 'COURSE_MEMBER_STATUS_CHANGED' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("DROPPED");
+    }
+
+    @Test
+    void teacherCanTransferStudentAndPreserveHistoryRows() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+        Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":8,"memberRole":"STUDENT","teachingClassId":%s,"remark":"待转班学生"}
+                                  ]
+                                }
+                                """.formatted(class2024Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1));
+
+        String studentToken = login("student-import", "Password123");
+        Long memberId = findMemberId(offeringId, 8L, "STUDENT");
+
+        mockMvc.perform(post(
+                                "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/transfer",
+                                offeringId,
+                                memberId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"targetTeachingClassId":%s,"remark":"转入 25 级班"}
+                                """.formatted(class2025Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.teachingClassId").value(class2025Id))
+                .andExpect(jsonPath("$.classCode").value("CLS-2025"))
+                .andExpect(jsonPath("$.memberStatus").value("ACTIVE"));
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isUnauthorized());
+
+        String refreshedStudentToken = login("student-import", "Password123");
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + refreshedStudentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("student-import"));
+
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 8"
+                        + " AND member_role = 'STUDENT'"))
+                .isEqualTo(2);
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 8"
+                        + " AND teaching_class_id = "
+                        + class2024Id
+                        + " AND member_status = 'TRANSFERRED'"))
+                .isEqualTo(1);
+        assertThat(queryForCount("SELECT COUNT(*) FROM course_members WHERE offering_id = "
+                        + offeringId
+                        + " AND user_id = 8"
+                        + " AND teaching_class_id = "
+                        + class2025Id
+                        + " AND member_status = 'ACTIVE'"))
+                .isEqualTo(1);
+        assertThat(
+                        queryForCount(
+                                "SELECT COUNT(*) FROM auth_sessions WHERE user_id = 8 AND revoked_reason = 'COURSE_MEMBER_TRANSFERRED'"))
+                .isGreaterThanOrEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'fromTeachingClassId' FROM audit_logs WHERE action = 'COURSE_MEMBER_TRANSFERRED' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo(String.valueOf(class2024Id));
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'toTeachingClassId' FROM audit_logs WHERE action = 'COURSE_MEMBER_TRANSFERRED' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo(String.valueOf(class2025Id));
+    }
+
+    @Test
+    void classTaCanReadOnlyOwnedTeachingClasses() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        insertUser(2L, "ta-only", "Ta Only", "ta-only@example.com");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+        Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":9,"memberRole":"TA","teachingClassId":%s,"remark":"25级助教"},
+                                    {"userId":6,"memberRole":"STUDENT","teachingClassId":%s,"remark":"24级学生"},
+                                    {"userId":7,"memberRole":"STUDENT","teachingClassId":%s,"remark":"25级学生"}
+                                  ]
+                                }
+                                """.formatted(class2025Id, class2024Id, class2025Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(3));
+
+        String taOnlyToken = login("ta-only", "Password123");
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
+                        .header("Authorization", "Bearer " + taOnlyToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(class2025Id))
+                .andExpect(jsonPath("$[0].classCode").value("CLS-2025"));
+    }
+
+    @Test
+    void classTaMemberListingWithoutClassFilterReturnsOnlyOwnedClassMembers() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        insertUser(2L, "ta-only", "Ta Only", "ta-only@example.com");
+        insertAcademicProfile("ta-only", "T-3001", "独立助教", "TEACHER");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+        Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":9,"memberRole":"TA","teachingClassId":%s,"remark":"25级助教"},
+                                    {"userId":6,"memberRole":"STUDENT","teachingClassId":%s,"remark":"24级学生"},
+                                    {"userId":7,"memberRole":"STUDENT","teachingClassId":%s,"remark":"25级学生"}
+                                  ]
+                                }
+                                """.formatted(class2025Id, class2024Id, class2025Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(3));
+
+        String taOnlyToken = login("ta-only", "Password123");
+
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
+                        .header("Authorization", "Bearer " + taOnlyToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[*].user.username", containsInAnyOrder("ta-only", "student-25")))
                 .andExpect(jsonPath("$.items[*].classCode", containsInAnyOrder("CLS-2025", "CLS-2025")));
     }
 
@@ -576,6 +956,18 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andReturn();
 
         return JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken");
+    }
+
+    private Long findMemberId(Long offeringId, Long userId, String memberRole) {
+        return jdbcTemplate.queryForObject("""
+                SELECT id
+                FROM course_members
+                WHERE offering_id = ?
+                  AND user_id = ?
+                  AND member_role = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """, Long.class, offeringId, userId, memberRole);
     }
 
     private Long readLong(MvcResult result, String expression) throws Exception {

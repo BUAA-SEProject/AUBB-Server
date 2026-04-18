@@ -142,6 +142,11 @@ public class StructuredQuestionSupport {
 
     public AssignmentQuestionConfigView toConfigView(
             AssignmentQuestionConfigInput config, boolean revealSensitiveFields) {
+        return toConfigView(config, revealSensitiveFields, revealSensitiveFields);
+    }
+
+    public AssignmentQuestionConfigView toConfigView(
+            AssignmentQuestionConfigInput config, boolean revealHiddenJudgeFields, boolean revealSensitiveJudgeConfig) {
         if (config == null) {
             return new AssignmentQuestionConfigView(
                     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
@@ -166,9 +171,9 @@ public class StructuredQuestionSupport {
                 config.runArgs(),
                 config.judgeCases() == null ? 0 : config.judgeCases().size(),
                 config.judgeMode(),
-                revealSensitiveFields ? blankToNull(config.customJudgeScript()) : null,
-                revealSensitiveFields ? blankToNull(config.referenceAnswer()) : null,
-                revealSensitiveFields && config.judgeCases() != null
+                revealSensitiveJudgeConfig ? blankToNull(config.customJudgeScript()) : null,
+                revealHiddenJudgeFields ? blankToNull(config.referenceAnswer()) : null,
+                revealHiddenJudgeFields && config.judgeCases() != null
                         ? config.judgeCases().stream()
                                 .map(caseInput -> new ProgrammingJudgeCaseView(
                                         caseInput.stdinText(), caseInput.expectedStdout(), caseInput.score()))
@@ -180,9 +185,9 @@ public class StructuredQuestionSupport {
                                 .map(environment -> new ProgrammingLanguageExecutionEnvironmentView(
                                         environment.programmingLanguage(),
                                         toExecutionEnvironmentView(
-                                                environment.executionEnvironment(), revealSensitiveFields)))
+                                                environment.executionEnvironment(), revealSensitiveJudgeConfig)))
                                 .toList(),
-                toExecutionEnvironmentView(config.executionEnvironment(), revealSensitiveFields));
+                toExecutionEnvironmentView(config.executionEnvironment(), revealSensitiveJudgeConfig));
     }
 
     public void validateProgrammingExecutionEnvironment(
@@ -559,7 +564,7 @@ public class StructuredQuestionSupport {
     }
 
     private ProgrammingExecutionEnvironmentView toExecutionEnvironmentView(
-            ProgrammingExecutionEnvironmentInput environment, boolean revealSensitiveFields) {
+            ProgrammingExecutionEnvironmentInput environment, boolean revealSensitiveJudgeConfig) {
         if (environment == null) {
             return null;
         }
@@ -570,12 +575,14 @@ public class StructuredQuestionSupport {
                 blankToNull(environment.profileScope()),
                 blankToNull(environment.languageVersion()),
                 blankToNull(environment.workingDirectory()),
-                environment.environmentVariables() == null ? null : Map.copyOf(environment.environmentVariables()),
+                revealSensitiveJudgeConfig && environment.environmentVariables() != null
+                        ? Map.copyOf(environment.environmentVariables())
+                        : null,
                 environment.cpuRateLimit(),
-                revealSensitiveFields ? blankToNull(environment.compileCommand()) : null,
-                revealSensitiveFields ? blankToNull(environment.runCommand()) : null,
-                revealSensitiveFields ? blankToNull(environment.initScript()) : null,
-                revealSensitiveFields && environment.supportFiles() != null
+                revealSensitiveJudgeConfig ? blankToNull(environment.compileCommand()) : null,
+                revealSensitiveJudgeConfig ? blankToNull(environment.runCommand()) : null,
+                revealSensitiveJudgeConfig ? blankToNull(environment.initScript()) : null,
+                revealSensitiveJudgeConfig && environment.supportFiles() != null
                         ? List.copyOf(environment.supportFiles())
                         : null);
     }

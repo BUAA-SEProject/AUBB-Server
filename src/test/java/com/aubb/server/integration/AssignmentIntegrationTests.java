@@ -153,6 +153,8 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
         addMember(teacherToken, offeringId, 5L, "STUDENT", classBId);
         addMember(teacherToken, offeringId, 6L, "TA", classAId);
+        studentAToken = login("student-a", "Password123");
+        studentBToken = login("student-b", "Password123");
 
         Long offeringAssignmentId = createAssignment(teacherToken, offeringId, null, "课程公共任务");
         Long classAssignmentId = createAssignment(teacherToken, offeringId, classAId, "A班专属任务");
@@ -215,6 +217,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, otherOfferingId, "CLS-B", "B班", 2025);
 
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         Long offeringAssignmentId = createAssignment(teacherToken, offeringId, null, "课程公共任务");
         Long classAssignmentOneId = createAssignment(teacherToken, offeringId, classAId, "A班任务一");
@@ -275,6 +278,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
                         .header("Authorization", "Bearer " + studentAToken)

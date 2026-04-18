@@ -114,6 +114,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -252,6 +253,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JC", "多语言班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long javaAssignmentId = createJavaProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, javaAssignmentId);
@@ -371,6 +373,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-IDE", "IDE 班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -532,6 +535,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-RUN", "试运行班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -641,6 +645,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-SAMPLE-LIST", "样例列表班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -705,6 +710,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-ARGS", "参数班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createCppArgsProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -766,6 +772,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-GO", "Go 班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGoEnvironmentProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -833,6 +840,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JFAIL", "编译失败班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJavaProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -880,6 +888,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createCustomScriptProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);

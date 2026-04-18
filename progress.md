@@ -1379,3 +1379,74 @@
   - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests test`
   - `bash ./mvnw clean verify`
   - 当前结果：`BUILD SUCCESS`，全量 `82` 个测试通过
+
+## Session: 2026-04-17 真实运行与 API 联调验证
+
+### Phase 54：启动路径确认与运行时验证准备
+
+- **Status:** in_progress
+- Actions taken:
+  - 读取 `README.md`、`compose.yaml`、`application.yaml`、`Dockerfile` 与启动主类，确认主入口为 `com.aubb.server.AubbServerApplication`
+  - 确认本机运行条件满足：Java 25、Docker 29、Docker Compose v5、Maven Wrapper 可用
+  - 复核当前 compose 基线：基础设施默认包含 PostgreSQL、RabbitMQ、MinIO、Redis、go-judge；`app` profile 会额外拉起 `app + judge-worker`
+  - 识别本次验证关键前置：`AUBB_JWT_SECRET` 必须外部注入；首启可通过 `AUBB_BOOTSTRAP_*` 创建首个学校与管理员
+  - 校验端口当前空闲，`docker compose --profile app config` 解析成功，可继续进入真实拉起
+- Pending:
+  - 启动依赖与应用，确认 Flyway、health readiness、`/v3/api-docs`、Swagger UI
+  - 抽取 OpenAPI 列表并基于真实 token 做 API 验证
+
+### Phase 55：真实依赖联调与全量 OpenAPI 覆盖完成
+
+- **Status:** completed
+- Actions taken:
+  - 使用隔离 compose 项目 `aubb-realrun-20260417` 真实拉起 `PostgreSQL + RabbitMQ + MinIO + Redis + go-judge + app + judge-worker`
+  - 通过 `AUBB_BOOTSTRAP_*` 完成首启学校与管理员引导；`/actuator/health/readiness` 返回 `UP`，包含 `db/goJudge/judgeQueue/minioStorage/redisEnhancement`
+  - 真实访问 `GET /v3/api-docs` 与 `GET /swagger-ui/index.html`，确认 OpenAPI/Swagger 可用；运行时抽取得到 `125` 个公开 REST operation
+  - 基于真实 token 构造管理员、教师、学生身份，跑通认证、课程、作业、提交、工作区、样例试运行、go-judge 评测、批改、成绩发布、申诉、实验、通知、会话吊销、账户禁用、作业关闭后拒提等链路
+  - 追加手工补测，覆盖脚本未命中的 `7` 个 operation：`/actuator/prometheus`、教师实验报告详情/发布、教师 submission-answer 评测查询/重跑、教师评测环境归档、管理员 identities 更新
+- Runtime baseline:
+  - 启动命令：
+    - `docker compose -p aubb-realrun-20260417 --profile app up -d`
+  - 关键环境变量：
+    - `AUBB_APP_PORT=18080`
+    - `AUBB_POSTGRES_PORT=15432`
+    - `AUBB_RABBITMQ_PORT=15673`
+    - `AUBB_MINIO_PORT=19000`
+    - `AUBB_GO_JUDGE_PORT=15050`
+    - `AUBB_JWT_SECRET=***`
+    - `AUBB_BOOTSTRAP_ENABLED=true`
+    - `AUBB_BOOTSTRAP_SCHOOL_CODE=SCH-REALRUN`
+    - `AUBB_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin`
+  - 关键产物：
+    - `/tmp/aubb-realrun-verify/artifacts/results.json`
+    - `/tmp/aubb-realrun-verify/artifacts/summary.json`
+    - `/tmp/aubb-realrun-verify/artifacts/operation_summary_augmented.json`
+    - `/tmp/aubb-realrun-verify/manual/*.headers|*.body`
+- Final verification snapshot:
+  - OpenAPI operation 总数：`125`
+  - 已验证 operation：`125`
+  - 通过 operation：`125`
+  - 失败 operation：`0`
+  - 阻塞 operation：`0`
+  - 请求级异常：`1` 次，系脚本在“附件尚未绑定提交前”就调用教师下载接口，运行时返回 `404 SUBMISSION_ARTIFACT_NOT_FOUND`；在附件绑定提交后同一路径复验返回 `200`
+
+### Phase 56：CLASS_ADMIN 班级级治理专测完成
+
+- **Status:** completed
+- Actions taken:
+  - 复核授权代码与运行中数据库，确认教学班对应班级组织单元真实存在：`org_units.id=4`，只是教学班接口响应未回填 `orgClassUnitId`
+  - 在运行中环境中创建真实班级作用域管理员 `CLASS_ADMIN@4` 与班级内测试用户，登录后执行单独治理矩阵
+  - 产出独立证据：`/tmp/aubb-realrun-verify/class-admin-artifacts/summary.json`
+- Verification snapshot:
+  - 班级级治理专测请求数：`21`
+  - 通过：`21`
+  - 失败：`0`
+  - 关键正向：
+    - `GET /api/v1/admin/org-units/tree` 返回的可见树节点仅含班级节点 `4`
+    - `GET /api/v1/admin/users?orgUnitId=4` 可见班级范围内用户
+    - `GET /api/v1/admin/users/{classScopeUserId}`、`PUT /profile`、`PUT /memberships`、`POST /sessions/revoke`、`PATCH /status`、`POST /api/v1/admin/users` 在班级作用域内均成功
+  - 关键负向：
+    - 访问班级外用户 `GET /api/v1/admin/users/{studentAId}` 返回 `403`
+    - `PUT /api/v1/admin/users/{userId}/identities` 返回 `403`，说明 `CLASS_ADMIN` 不能继续分配治理身份
+    - `POST /api/v1/admin/org-units` 返回 `403`，说明 `CLASS_ADMIN` 不能创建组织节点
+    - `GET /api/v1/teacher/teaching-classes/{id}/gradebook` 与 `PUT /api/v1/teacher/course-classes/{id}/features` 均返回 `403`，说明 `CLASS_ADMIN` 不具备教师域班级运营权限

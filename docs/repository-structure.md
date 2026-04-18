@@ -82,10 +82,12 @@ Java 生产代码根目录。
   - 文档总入口。
 - `product-specs/`
   - 当前业务规格。
+  - 其中 `product-specs/permission-system.md` 是权限模型、作用域、字段裁剪与审计要求的权威来源。
 - `stable-api.md`
   - 当前稳定接口范围与 OpenAPI / Swagger 事实入口。
 - `design-docs/`
   - ADR、核心设计信条等长期设计资产。
+  - 权限系统盘点和实现说明也统一收敛到这里，而不是散落到临时目录。
 - `generated/`
   - 当前数据库结构等可生成参考。
 - `exec-plans/`
@@ -97,6 +99,17 @@ Java 生产代码根目录。
 ### `design/`
 
 本目录保留较长周期的专题设计草稿，例如用户系统、课程系统扩展设计。它们可以作为后续模块输入，但不应替代 `docs/` 中反映“当前实现状态”的正式文档。
+
+### `scripts/`
+
+只保留可重复执行的工程脚本，不放一次性产物或缓存。
+
+- `scripts/api-tests/`
+  - 真实 HTTP API 回归脚本目录。
+  - 当前权限系统真实端到端回归入口位于 `scripts/api-tests/permission/`。
+- `scripts/realrun/`
+  - 保留跨模块 smoke 与权限矩阵验证脚本，例如 `verify_authz_matrix.*`。
+  - 目录下的 `__pycache__`、运行产物和临时报告不应进入版本库。
 
 ### 仓库根目录工作记忆文件
 

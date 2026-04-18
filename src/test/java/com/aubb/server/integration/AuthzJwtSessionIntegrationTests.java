@@ -148,9 +148,45 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
             assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(1L);
         });
         assertThat(jwt.getClaimAsStringList("permissionCodes"))
-                .contains("class.manage", "user.manage", "member.manage");
+                .contains("class.manage", "member.manage", "role_binding.manage");
         Number permissionVersion = (Number) jwt.getClaim("permissionVersion");
         assertThat(permissionVersion).isNotNull();
+    }
+
+    @Test
+    void loginTokenShouldLoadAuthoritiesFromRoleBindingsWithoutLegacyScopeRoles() throws Exception {
+        jdbcTemplate.update("DELETE FROM user_scope_roles WHERE user_id = ?", 1L);
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    source_type,
+                    source_ref_id
+                )
+                SELECT ?, id, 'school', ?, '{}'::jsonb, 'ACTIVE', 'MANUAL', ?
+                FROM roles
+                WHERE code = 'school_admin'
+                """, 1L, 1L, 10001L);
+
+        AuthTokens tokens = loginWithRefresh("school-admin", "Password123");
+
+        Jwt jwt = jwtDecoder.decode(tokens.accessToken());
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
+
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.get("templateCode")).isEqualTo("school-admin");
+            assertThat(binding.get("scopeType")).isEqualTo("SCHOOL");
+            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(1L);
+        });
+        assertThat(jwt.getClaimAsStringList("permissionCodes"))
+                .contains("school.manage", "role_binding.manage", "report.export");
+        assertThat(jwt.getClaimAsStringList("authorities")).contains("SCHOOL_ADMIN");
     }
 
     @Test

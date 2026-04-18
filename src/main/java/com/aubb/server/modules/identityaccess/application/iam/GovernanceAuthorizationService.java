@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -135,14 +136,16 @@ public class GovernanceAuthorizationService {
     }
 
     private List<GovernanceAssignment> loadGovernanceAssignments(AuthenticatedUserPrincipal principal) {
-        List<GovernanceAssignment> legacyAssignments = principal.getIdentities().stream()
+        List<GovernanceAssignment> roleBindingAssignments = principal.getGroupBindings().stream()
+                .flatMap(binding -> toGovernanceAssignment(binding).stream())
+                .distinct()
+                .toList();
+        if (!roleBindingAssignments.isEmpty()) {
+            return roleBindingAssignments;
+        }
+        return principal.getIdentities().stream()
                 .map(identity ->
                         new GovernanceAssignment(GovernanceRole.from(identity.roleCode()), identity.scopeOrgUnitId()))
-                .toList();
-        List<GovernanceAssignment> authzGroupAssignments = principal.getGroupBindings().stream()
-                .flatMap(binding -> toGovernanceAssignment(binding).stream())
-                .toList();
-        return java.util.stream.Stream.concat(legacyAssignments.stream(), authzGroupAssignments.stream())
                 .distinct()
                 .toList();
     }
@@ -162,8 +165,10 @@ public class GovernanceAuthorizationService {
         if (role == null) {
             return java.util.Optional.empty();
         }
+        String normalizedScopeType =
+                binding.scopeType() == null ? null : binding.scopeType().trim().toUpperCase(Locale.ROOT);
         Long scopeOrgUnitId =
-                switch (binding.scopeType()) {
+                switch (normalizedScopeType) {
                     case "SCHOOL", "COLLEGE", "COURSE" -> binding.scopeRefId();
                     case "CLASS" ->
                         authzScopeResolutionService.findOrgClassUnitIdByTeachingClassId(binding.scopeRefId());

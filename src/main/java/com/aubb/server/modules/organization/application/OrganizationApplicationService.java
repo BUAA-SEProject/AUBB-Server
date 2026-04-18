@@ -2,7 +2,9 @@ package com.aubb.server.modules.organization.application;
 
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.AuditLogCommand;
 import com.aubb.server.modules.audit.domain.AuditAction;
+import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
@@ -16,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -41,6 +44,7 @@ public class OrganizationApplicationService {
             Long parentId,
             int sortOrder,
             AuthenticatedUserPrincipal principal) {
+        OrgUnitEntity parent = parentId == null ? null : orgUnitMapper.selectById(parentId);
         String normalizedCode = normalizeCode(code);
         if (orgUnitMapper.selectOne(Wrappers.<OrgUnitEntity>lambdaQuery()
                         .eq(OrgUnitEntity::getCode, normalizedCode)
@@ -68,7 +72,6 @@ public class OrganizationApplicationService {
             }
             level = validationResult.childLevel();
         } else {
-            OrgUnitEntity parent = orgUnitMapper.selectById(parentId);
             if (parent == null) {
                 throw new BusinessException(HttpStatus.NOT_FOUND, "ORG_PARENT_NOT_FOUND", "上级组织不存在");
             }
@@ -90,13 +93,22 @@ public class OrganizationApplicationService {
         entity.setStatus("ACTIVE");
         orgUnitMapper.insert(entity);
 
-        auditLogApplicationService.record(
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("code", normalizedCode);
+        metadata.put("name", name);
+        metadata.put("type", type.name());
+        metadata.put("requestedType", type.name());
+        metadata.put("parentId", parentId);
+        auditLogApplicationService.record(new AuditLogCommand(
                 principal.getUserId(),
                 AuditAction.ORG_UNIT_CREATED,
                 "ORG_UNIT",
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
-                Map.of("code", normalizedCode, "name", name, "type", type.name()));
+                parent == null ? "platform" : parent.getType().toLowerCase(Locale.ROOT),
+                parent == null ? 0L : parent.getId(),
+                AuditDecision.ALLOW,
+                metadata));
         return toNode(entity);
     }
 
@@ -131,21 +143,23 @@ public class OrganizationApplicationService {
         entity.setStatus("ACTIVE");
         orgUnitMapper.insert(entity);
 
-        auditLogApplicationService.record(
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("code", normalizedCode);
+        metadata.put("name", name);
+        metadata.put("type", OrgUnitType.CLASS.name());
+        metadata.put("requestedType", OrgUnitType.CLASS.name());
+        metadata.put("source", "COURSE_MODULE");
+        metadata.put("parentId", courseOrgUnitId);
+        auditLogApplicationService.record(new AuditLogCommand(
                 actorUserId,
                 AuditAction.ORG_UNIT_CREATED,
                 "ORG_UNIT",
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
-                Map.of(
-                        "code",
-                        normalizedCode,
-                        "name",
-                        name,
-                        "type",
-                        OrgUnitType.CLASS.name(),
-                        "source",
-                        "COURSE_MODULE"));
+                parent.getType().toLowerCase(Locale.ROOT),
+                parent.getId(),
+                AuditDecision.ALLOW,
+                metadata));
         return toSummary(entity);
     }
 

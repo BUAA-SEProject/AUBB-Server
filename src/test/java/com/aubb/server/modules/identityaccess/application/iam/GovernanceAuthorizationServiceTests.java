@@ -86,11 +86,34 @@ class GovernanceAuthorizationServiceTests {
                 AccountStatus.ACTIVE,
                 null,
                 List.of(),
-                List.of(new GroupBindingView("AUTHZ_GROUP", "college-admin", "COLLEGE", 2L)),
+                List.of(new GroupBindingView("ROLE_BINDING", "college-admin", "college", 2L)),
                 Set.of(),
                 null);
 
         assertThat(service.canManageUserAt(principal, 5L)).isTrue();
+    }
+
+    @Test
+    void roleBindingsShouldOverrideLegacyGovernanceIdentitiesWhenPresent() {
+        when(authzScopeResolutionService.findOrgClassUnitIdByTeachingClassId(8L))
+                .thenReturn(4L);
+
+        GovernanceAuthorizationService service =
+                new GovernanceAuthorizationService(orgUnitMapper, authzScopeResolutionService);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "mixed-admin",
+                "Mixed Admin",
+                1L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(new ScopeIdentityView("SCHOOL_ADMIN", 1L, "SCHOOL", "AUBB School")),
+                List.of(new GroupBindingView("ROLE_BINDING", "class-admin", "class", 8L)),
+                Set.of(),
+                null);
+
+        assertThat(service.canManageUserAt(principal, null)).isFalse();
     }
 
     private OrgUnitEntity orgUnit(Long id, Long parentId) {

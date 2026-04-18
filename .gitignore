@@ -38,3 +38,6 @@ build/
 .worktrees/
 prompt*
 todo.md
+__pycache__/
+*.py[cod]
+docs/superpowers/

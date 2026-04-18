@@ -169,7 +169,7 @@ class AuthzTeachingScopeIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void gradebookExportShouldRespectClassAndOfferingScopes() throws Exception {
+    void gradebookExportShouldRespectClassScopeAndDenyOfferingTaByDefault() throws Exception {
         Fixture fixture = prepareFixture();
         String teacherToken = login("teacher-main", "Password123");
         Long a1AssignmentId = createAssignment(
@@ -199,7 +199,8 @@ class AuthzTeachingScopeIntegrationTests extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/gradebook/export", fixture.offeringId())
                         .header("Authorization", "Bearer " + offeringTaToken)
                         .accept("text/csv"))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     private Fixture prepareFixture() throws Exception {

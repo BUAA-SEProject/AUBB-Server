@@ -24,7 +24,7 @@
 - 未列入本清单的路径，默认视为内部实现细节、过渡接口或后续扩展位，不承诺稳定性。
 - `/actuator/health`、`/actuator/health/readiness`、`/actuator/info` 与 `/actuator/prometheus` 属于公开运维检查面；其他 `actuator` 端点不属于稳定业务 API。
 - 当前通知中心承诺轮询式 HTTP 接口与当前 HTTP SSE stream 入口；未来 WebSocket / Redis 推送不纳入本轮稳定承诺。
-- 稳定业务接口一旦新增、改名或调整权限语义，必须同步更新本文、`AuthzOpenApiAccessRegistry` 与 `scripts/realrun/verify_authz_matrix.*`。
+- 稳定业务接口一旦新增、改名或调整权限语义，必须同步更新本文、`AuthzOpenApiAccessRegistry`、`scripts/realrun/verify_authz_matrix.*` 与 `scripts/api-tests/permission/*`。
 
 ## 当前稳定接口范围
 

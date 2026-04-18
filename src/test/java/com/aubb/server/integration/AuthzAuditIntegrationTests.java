@@ -68,6 +68,7 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
         insertUser(2L, "eng-admin", "Engineering Admin", "eng-admin@example.com");
         insertUser(2L, "teacher-main", "Teacher Main", "teacher-main@example.com");
         insertUser(2L, "student-a1", "Student A1", "student-a1@example.com");
+        insertUser(2L, "student-a2", "Student A2", "student-a2@example.com");
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -90,6 +91,7 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "A1", "A1班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        addMember(teacherToken, offeringId, 5L, "STUDENT", classId);
 
         Long assignmentId = createAssignment(
                 teacherToken,
@@ -100,12 +102,13 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
                 OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3));
         publishAssignment(teacherToken, assignmentId);
 
-        String studentToken = login("student-a1", "Password123");
-        Long submissionId = createSubmission(studentToken, assignmentId, "student submission");
+        String studentA1Token = login("student-a1", "Password123");
+        String studentA2Token = login("student-a2", "Password123");
+        Long submissionId = createSubmission(studentA2Token, assignmentId, "student submission");
         int auditCountBefore = countAuditLogs();
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + studentToken))
+                        .header("Authorization", "Bearer " + studentA1Token))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 

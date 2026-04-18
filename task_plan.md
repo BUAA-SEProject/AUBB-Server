@@ -449,3 +449,16 @@ Phase 53 completed，Phase 52 completed，Phase 51 completed，Phase 50 complete
 | 评测任务在 RabbitMQ 路径下可能出现 `finished_at < started_at` 约束冲突 | 1 | 在 `JudgeExecutionService` 中将 `startedAt / finishedAt` 归一到不早于排队时间与开始时间，避免时序抖动触发表约束 |
 | 工作区从历史修订恢复时，`last_stdin_text` 无法被清空 | 1 | 为 `ProgrammingWorkspaceEntity.lastStdinText` 增加 `FieldStrategy.ALWAYS`，确保恢复空值时也会写回数据库 |
 | 真实 go-judge 的每次 `/run` 都是全新沙箱，直接拆成两次调用会丢失编译产物 | 1 | 通过 `copyOut / copyIn` 回传编译阶段产物，再在第二阶段恢复执行，保证 Go 多文件工程等场景稳定运行 |
+
+## Session: 2026-04-17 真实运行与 API 联调验证
+
+### Phase 54：真实依赖联调、OpenAPI 契约提取与 API 验证
+
+- [ ] 确认启动主类、Maven/Wrapper 命令、Compose 编排、必要环境变量与 bootstrap 初始化路径
+- [ ] 真实拉起 PostgreSQL、RabbitMQ、MinIO、go-judge，并记录依赖健康状态与关键端口
+- [ ] 真实启动 Spring Boot 应用与 judge worker，确认 Flyway、readiness、`/v3/api-docs`、Swagger UI
+- [ ] 从运行时 `/v3/api-docs` 自动提取全部 API 并按模块分类统计
+- [ ] 获取管理员真实 token，并通过真实接口准备教师、学生、课程与业务测试数据
+- [ ] 对公开 REST API 执行正向、权限、越权与非法参数验证，重点覆盖认证、课程、作业、提交、评测、批改、成绩册、实验、通知
+- [ ] 汇总通过、失败、阻塞、风险与证据，输出《AUBB Server 真实 API 验证报告》
+- **Status:** in_progress

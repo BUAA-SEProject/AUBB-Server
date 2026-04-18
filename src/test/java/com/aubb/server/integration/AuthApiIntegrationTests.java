@@ -133,6 +133,24 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void authMeShouldReturnLatestUserSnapshotInsteadOfJwtEmbeddedSnapshot() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
+
+        jdbcTemplate.update(
+                "UPDATE users SET display_name = ? WHERE username = ?", "School Admin Updated", "school-admin");
+        jdbcTemplate.update("""
+                UPDATE academic_profiles
+                SET real_name = ?
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                """, "最新学校管理员", "school-admin");
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("School Admin Updated"))
+                .andExpect(jsonPath("$.academicProfile.realName").value("最新学校管理员"));
+    }
+
+    @Test
     void forbidsClassAdminFromAccessingSchoolLevelPlatformConfigEndpoint() throws Exception {
         AuthTokens tokens = login("teacher", "Password123");
 

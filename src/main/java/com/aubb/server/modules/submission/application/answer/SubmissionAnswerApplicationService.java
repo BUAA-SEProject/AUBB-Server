@@ -99,20 +99,32 @@ public class SubmissionAnswerApplicationService {
 
     @Transactional(readOnly = true)
     public List<SubmissionAnswerView> loadAnswerViews(Long submissionId, Long assignmentId) {
-        return loadAnswerViews(submissionId, assignmentId, true);
+        return loadAnswerViews(submissionId, assignmentId, true, true);
     }
 
     @Transactional(readOnly = true)
     public List<SubmissionAnswerView> loadAnswerViews(
             Long submissionId, Long assignmentId, boolean revealNonObjectiveScores) {
+        return loadAnswerViews(submissionId, assignmentId, revealNonObjectiveScores, true);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SubmissionAnswerView> loadAnswerViews(
+            Long submissionId,
+            Long assignmentId,
+            boolean revealNonObjectiveScores,
+            boolean revealSensitiveAnswerContent) {
         List<SubmissionAnswerEntity> entities = loadAnswerEntities(submissionId);
         if (entities.isEmpty()) {
             return List.of();
         }
         Map<Long, AssignmentQuestionSnapshot> questionIndex = loadQuestionIndex(assignmentId);
         return entities.stream()
-                .map(entity ->
-                        toView(entity, questionIndex.get(entity.getAssignmentQuestionId()), revealNonObjectiveScores))
+                .map(entity -> toView(
+                        entity,
+                        questionIndex.get(entity.getAssignmentQuestionId()),
+                        revealNonObjectiveScores,
+                        revealSensitiveAnswerContent))
                 .toList();
     }
 
@@ -382,20 +394,29 @@ public class SubmissionAnswerApplicationService {
     }
 
     private SubmissionAnswerView toView(
-            SubmissionAnswerEntity entity, AssignmentQuestionSnapshot question, boolean revealNonObjectiveScores) {
+            SubmissionAnswerEntity entity,
+            AssignmentQuestionSnapshot question,
+            boolean revealNonObjectiveScores,
+            boolean revealSensitiveAnswerContent) {
         AnswerPayload payload = readPayload(entity.getAnswerPayloadJson());
         boolean revealAnswerResult = revealNonObjectiveScores || isObjective(question);
+        AssignmentQuestionType questionType = question == null ? null : question.questionType();
+        boolean hideProgrammingSource =
+                !revealSensitiveAnswerContent && AssignmentQuestionType.PROGRAMMING.equals(questionType);
+        boolean hideArtifacts = !revealSensitiveAnswerContent
+                && (AssignmentQuestionType.PROGRAMMING.equals(questionType)
+                        || AssignmentQuestionType.FILE_UPLOAD.equals(questionType));
         return new SubmissionAnswerView(
                 entity.getId(),
                 entity.getAssignmentQuestionId(),
                 question == null ? null : question.title(),
-                question == null ? null : question.questionType(),
-                entity.getAnswerText(),
+                questionType,
+                hideProgrammingSource ? null : entity.getAnswerText(),
                 payload.selectedOptionKeys(),
-                payload.artifactIds(),
+                hideArtifacts ? null : payload.artifactIds(),
                 payload.programmingLanguage(),
-                payload.entryFilePath(),
-                payload.files(),
+                hideProgrammingSource ? null : payload.entryFilePath(),
+                hideProgrammingSource ? null : payload.files(),
                 revealAnswerResult ? entity.getAutoScore() : null,
                 revealAnswerResult ? entity.getManualScore() : null,
                 revealAnswerResult ? entity.getFinalScore() : null,

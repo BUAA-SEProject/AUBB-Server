@@ -10,6 +10,10 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/**
+ * @deprecated 核心治理权限已收口到 {@code role_bindings}，本解析器仅保留为旧表兼容回退。
+ */
+@Deprecated(forRemoval = false)
 @Service
 @RequiredArgsConstructor
 public class LegacyGovernanceGrantResolver implements PermissionGrantResolver {

@@ -131,6 +131,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB", "实验班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "操作系统实验", "完成进程调度报告");
         publishLab(teacherToken, labId);
@@ -237,6 +238,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB2", "实验二班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "数据库实验", "初版说明");
         updateLab(teacherToken, labId, "数据库实验-更新", "更新后的实验说明");
@@ -276,6 +278,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB-LIMIT", "实验限制班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "附件上限实验", "验证实验附件上传上限");
         publishLab(teacherToken, labId);
@@ -315,6 +318,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB3", "实验三班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "网络实验", "先创建再关闭能力");
         publishLab(teacherToken, labId);

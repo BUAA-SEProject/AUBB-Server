@@ -558,3 +558,36 @@
   3. `docs/product-specs/index.md`
   4. `docs/exec-plans/active/README.md`
   5. `todo.md`
+
+## 2026-04-17 真实 API 联调发现
+
+- `compose.yaml` 的 `app` profile 已经包含真实运行所需的 `app + judge-worker`；基础设施基线是 `PostgreSQL + RabbitMQ + MinIO + Redis + go-judge`，其中 `AUBB_JWT_SECRET` 是启动硬前置。
+- 首次使用曾经用过的 compose project name 会复用旧 volume，导致 bootstrap 因“学校根节点 code 不一致”失败；真实验证必须使用全新项目名或显式 `down -v` 清空本次验证环境。
+- `GET /actuator/health/readiness` 在真实环境下能同时证明 `db / goJudge / judgeQueue / minioStorage / redisEnhancement` 已就绪，比只看容器状态更可靠。
+- 运行中的 `GET /v3/api-docs` 可稳定返回 `125` 个公开 REST operation；最终通过脚本 + 手工补测实现 `125/125` 全覆盖。
+- 核心链路已在真实依赖下跑通：
+  - JWT 登录/刷新/登出/吊销
+  - 课程目录、学期、开课、教学班、成员导入
+  - 题库题目、作业创建/发布/关闭
+  - 附件上传、工作区保存/修订/恢复/模板重置、样例试运行
+  - go-judge 正式评测、重判、报告下载
+  - 人工批改、批量调分、CSV 导入、成绩发布、申诉复核、成绩册/导出/报告
+  - 实验发布、附件、实验报告、教师评审/发布/关闭
+  - 通知列表、未读数、标记已读、SSE stream
+- 唯一请求级异常不是服务缺陷：
+  - 脚本在“附件尚未绑定到 submission 前”调用了 `GET /api/v1/teacher/submission-artifacts/{artifactId}/download`
+  - 运行时返回 `404 SUBMISSION_ARTIFACT_NOT_FOUND`
+  - 同一附件在提交完成并绑定 `submission_id` 后复验返回 `200`
+  - 结论：教师下载接口语义正确，异常源于验证顺序而非后端故障
+- `orgClassUnitId` 虽然在教学班接口响应中为空，但运行中数据库已真实创建班级组织节点：
+  - `org_units.id=4`
+  - `code=CS101-2026SP-REAL-CLS-REAL-2026`
+  - `type=CLASS`
+- `CLASS_ADMIN` 专测结论已经补齐：
+  - 班级管理员登录后的组织树只可见班级节点 `4`
+  - 可在班级作用域内查看/创建用户、更新画像、更新成员关系、吊销会话、禁用账号
+  - 对班级外主组织用户执行详情查询会返回 `403`
+  - `CLASS_ADMIN` 不能继续分配治理身份，`PUT /api/v1/admin/users/{userId}/identities` 返回 `403`
+  - `CLASS_ADMIN` 不能创建组织节点，`POST /api/v1/admin/org-units` 返回 `403`
+  - `CLASS_ADMIN` 也不会自动获得教师域能力；访问班级成绩册和班级功能开关接口均返回 `403`
+- 结论：当前系统里的 `CLASS_ADMIN` 是“班级组织治理角色”，而不是“班级教学运营角色”；班级级治理边界已被真实验证，不再属于未测风险。

@@ -17,6 +17,7 @@ import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.judge.application.JudgeArtifactStorageService;
 import com.aubb.server.modules.judge.application.JudgeExecutionService;
 import com.aubb.server.modules.judge.application.JudgeExecutionService.ProgrammingSampleRunOutcome;
@@ -69,6 +70,7 @@ public class ProgrammingSampleRunApplicationService {
     private final ProgrammingWorkspaceMapper programmingWorkspaceMapper;
     private final ProgrammingWorkspaceRevisionMapper programmingWorkspaceRevisionMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final JudgeExecutionService judgeExecutionService;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
@@ -299,8 +301,9 @@ public class ProgrammingSampleRunApplicationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
         if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || !courseAuthorizationService.canViewAssignment(
-                        principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+                || (!readPathAuthorizationService.canReadAssignment(principal, "task.read", assignment)
+                        && !courseAuthorizationService.canViewAssignment(
+                                principal, assignment.getOfferingId(), assignment.getTeachingClassId()))) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题试运行");
         }
         AssignmentQuestionSnapshot question =

@@ -11,6 +11,10 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/**
+ * @deprecated 教学成员权限主路径已迁移到 {@code role_bindings}，本解析器仅保留为旧成员表兜底。
+ */
+@Deprecated(forRemoval = false)
 @Service
 @RequiredArgsConstructor
 public class LegacyCourseMemberGrantResolver implements PermissionGrantResolver {

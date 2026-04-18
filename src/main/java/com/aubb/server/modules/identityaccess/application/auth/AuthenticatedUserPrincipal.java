@@ -8,6 +8,7 @@ import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -102,14 +103,16 @@ public class AuthenticatedUserPrincipal implements Serializable {
         this.groupBindings = List.copyOf(groupBindings == null ? List.of() : groupBindings);
         this.permissionCodes = Set.copyOf(permissionCodes == null ? Set.of() : permissionCodes);
         this.permissionVersion = permissionVersion;
-        LinkedHashSet<String> resolvedAuthorities = this.identities.stream()
-                .map(ScopeIdentityView::roleCode)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        this.groupBindings.stream()
+        LinkedHashSet<String> bindingAuthorities = this.groupBindings.stream()
                 .map(AuthenticatedUserPrincipal::authorityForBinding)
                 .filter(java.util.Optional::isPresent)
                 .map(java.util.Optional::get)
-                .forEach(resolvedAuthorities::add);
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> resolvedAuthorities = bindingAuthorities.isEmpty()
+                ? this.identities.stream()
+                        .map(ScopeIdentityView::roleCode)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new))
+                : bindingAuthorities;
         this.authorityCodes = Set.copyOf(resolvedAuthorities);
     }
 
@@ -122,7 +125,7 @@ public class AuthenticatedUserPrincipal implements Serializable {
     }
 
     public List<String> roleCodes() {
-        return authorityCodes.stream().sorted().toList();
+        return authorityCodes.stream().sorted(Comparator.naturalOrder()).toList();
     }
 
     private static java.util.Optional<String> authorityForBinding(GroupBindingView binding) {

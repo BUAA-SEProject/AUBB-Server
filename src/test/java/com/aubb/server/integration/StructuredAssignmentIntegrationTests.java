@@ -97,6 +97,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-2026", "2026级一班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long singleChoiceQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
                 {
@@ -167,6 +168,49 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void collegeAdminCanReadAssignmentButHiddenJudgeFieldsRemainMasked() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-ADMIN", "管理员班", 2026);
+
+        Long singleChoiceQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"树结构单选",
+                  "prompt":"二叉搜索树中序遍历结果具有什么性质？",
+                  "questionType":"SINGLE_CHOICE",
+                  "defaultScore":10,
+                  "options":[
+                    {"optionKey":"A","content":"严格递增","correct":true},
+                    {"optionKey":"B","content":"严格递减","correct":false},
+                    {"optionKey":"C","content":"随机顺序","correct":false}
+                  ]
+                }
+                """);
+
+        Long assignmentId = createStructuredAssignment(teacherToken, offeringId, classId, singleChoiceQuestionId);
+        publishAssignment(teacherToken, assignmentId);
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + engAdminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].options[0].correct")
+                        .value(true))
+                .andExpect(jsonPath("$.paper.sections[1].questions[0].config.referenceAnswer")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.paper.sections[2].questions[0].config.supportedLanguages[0]")
+                        .value("PYTHON3"))
+                .andExpect(jsonPath("$.paper.sections[2].questions[0].config.customJudgeScript")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.paper.sections[2].questions[0].config.judgeCases")
+                        .doesNotExist());
+    }
+
+    @Test
     void studentSubmitsStructuredAssignmentAndReceivesObjectiveScoring() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -178,6 +222,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-2026", "2026级一班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long bankQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
                 {
@@ -954,6 +999,51 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                         .value("Java 包运行模板（更新）"));
     }
 
+    @Test
+    void offeringTaCannotCreateJudgeProfileWithoutJudgeConfigAndDeniedAuditShouldBeRecorded() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        insertUser(2L, "offering-ta", "Offering TA", "offering-ta@example.com");
+        String offeringTaToken = login("offering-ta", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        createTeachingClass(teacherToken, offeringId, "CLS-JCFG", "配置班", 2026);
+        grantRoleBinding(5L, "offering_ta", "offering", offeringId);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
+                        .header("Authorization", "Bearer " + offeringTaToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "profileCode":"PY_LIMITED",
+                                  "profileName":"Python 受限模板",
+                                  "description":"开课助教不应修改 judge 配置",
+                                  "programmingLanguage":"PYTHON3",
+                                  "environment":{
+                                    "runCommand":"python3 main.py",
+                                    "cpuRateLimit":800
+                                  }
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(queryForCount(
+                        "SELECT COUNT(*) FROM audit_logs WHERE action = 'JUDGE_CONFIG_CHANGE' AND decision = 'DENY'"))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT scope_type FROM audit_logs WHERE action = 'JUDGE_CONFIG_CHANGE' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("offering");
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'permissionCode' FROM audit_logs WHERE action = 'JUDGE_CONFIG_CHANGE' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("judge.config");
+    }
+
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
         jdbcTemplate.update(
                 """
@@ -1072,6 +1162,27 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(userId, roleCode, classId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
+    }
+
+    private void grantRoleBinding(Long userId, String roleCode, String scopeType, Long scopeId) {
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    effective_from,
+                    effective_to,
+                    granted_by,
+                    source_type,
+                    source_ref_id
+                )
+                SELECT ?, id, ?, ?, '{}'::jsonb, 'ACTIVE', now(), NULL, NULL, 'MANUAL', 0
+                FROM roles
+                WHERE code = ?
+                """, userId, scopeType, scopeId, roleCode);
     }
 
     private Long createQuestionBankQuestion(String token, Long offeringId, String body) throws Exception {

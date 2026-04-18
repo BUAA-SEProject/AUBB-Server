@@ -1,6 +1,8 @@
 package com.aubb.server.modules.course.application;
 
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
+import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
@@ -15,6 +17,11 @@ import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUser
 import com.aubb.server.modules.identityaccess.application.authz.AuthorizationRequest;
 import com.aubb.server.modules.identityaccess.application.authz.AuthorizationService;
 import com.aubb.server.modules.identityaccess.application.authz.ScopeRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationContext;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResult;
+import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.domain.authz.AuthorizationScopeType;
 import com.aubb.server.modules.identityaccess.domain.authz.PermissionCode;
@@ -22,6 +29,8 @@ import com.aubb.server.modules.organization.domain.OrgUnitType;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -39,7 +48,15 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CourseAuthorizationService {
 
+    private static final Set<String> HISTORY_READABLE_STUDENT_STATUSES = Set.of(
+            CourseMemberStatus.ACTIVE.name(),
+            CourseMemberStatus.DROPPED.name(),
+            CourseMemberStatus.TRANSFERRED.name(),
+            CourseMemberStatus.COMPLETED.name());
+
     private final AuthorizationService authorizationService;
+    private final PermissionAuthorizationService permissionAuthorizationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final GovernanceAuthorizationService governanceAuthorizationService;
     private final CourseOfferingMapper courseOfferingMapper;
     private final CourseOfferingCollegeMapMapper courseOfferingCollegeMapMapper;
@@ -68,18 +85,61 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageOffering(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(principal, PermissionCode.OFFERING_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理该课程");
+        assertPermissionWithFallback(
+                principal,
+                "offering.manage",
+                offeringResource(offeringId),
+                PermissionCode.OFFERING_MANAGE,
+                resolveOfferingScope(offeringId),
+                "当前用户无权管理该课程",
+                null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(principal, PermissionCode.MEMBER_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理课程成员");
+        assertPermissionWithFallback(
+                principal,
+                "member.manage",
+                offeringResource(offeringId),
+                PermissionCode.MEMBER_MANAGE,
+                resolveOfferingScope(offeringId),
+                "当前用户无权管理课程成员",
+                null);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canManageMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
+        AuthorizationResult result = permissionAuthorizationService.authorize(
+                principal, "member.manage", offeringResource(offeringId), currentContext());
+        if (result.allowed()) {
+            return true;
+        }
+        return "DENY_NO_ROLE_BINDING".equals(result.reasonCode())
+                && hasPermission(principal, PermissionCode.MEMBER_MANAGE, resolveOfferingScope(offeringId));
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanImportMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertPermissionWithFallback(
+                principal,
+                "member.import",
+                offeringResource(offeringId),
+                PermissionCode.MEMBER_MANAGE,
+                resolveOfferingScope(offeringId),
+                "当前用户无权导入课程成员",
+                AuditAction.COURSE_MEMBERS_IMPORTED);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageAssignments(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(
-                principal, PermissionCode.ASSIGNMENT_UPDATE, resolveOfferingScope(offeringId), "当前用户无权管理该课程作业");
+        assertPermissionWithFallback(
+                principal,
+                "task.edit",
+                offeringResource(offeringId),
+                PermissionCode.ASSIGNMENT_UPDATE,
+                resolveOfferingScope(offeringId),
+                "当前用户无权管理该课程作业",
+                null);
     }
 
     @Transactional(readOnly = true)
@@ -93,39 +153,51 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanCreateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "task.create",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.ASSIGNMENT_CREATE,
                 resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权创建该课程作业");
+                "当前用户无权创建该课程作业",
+                null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanUpdateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "task.edit",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.ASSIGNMENT_UPDATE,
                 resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权编辑该课程作业");
+                "当前用户无权编辑该课程作业",
+                null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanPublishAssignment(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "task.publish",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.ASSIGNMENT_PUBLISH,
                 resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权发布该课程作业");
+                "当前用户无权发布该课程作业",
+                null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanCloseAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "task.close",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.ASSIGNMENT_CLOSE,
                 resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权关闭该课程作业");
+                "当前用户无权关闭该课程作业",
+                null);
     }
 
     @Transactional(readOnly = true)
@@ -135,8 +207,14 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageJudgeProfiles(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(
-                principal, PermissionCode.JUDGE_PROFILE_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理评测环境");
+        assertPermissionWithFallback(
+                principal,
+                "judge.config",
+                offeringResource(offeringId),
+                PermissionCode.JUDGE_PROFILE_MANAGE,
+                resolveOfferingScope(offeringId),
+                "当前用户无权管理评测环境",
+                AuditAction.JUDGE_CONFIG_CHANGE);
     }
 
     @Transactional(readOnly = true)
@@ -226,55 +304,78 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanGradeSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "submission.grade",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.SUBMISSION_GRADE,
                 resolveSubmissionScope(offeringId, teachingClassId),
-                "当前用户无权批改该提交");
+                "当前用户无权批改该提交",
+                null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanReadSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        ScopeRef scope = resolveSubmissionScope(offeringId, teachingClassId);
-        if (teachingClassId == null) {
-            assertPermission(principal, PermissionCode.SUBMISSION_READ_OFFERING, scope, "当前用户无权查看该提交");
+        if (canReadSubmission(principal, offeringId, teachingClassId)) {
             return;
         }
-        assertAnyPermission(
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canReadSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        ScopeRef scope = resolveSubmissionScope(offeringId, teachingClassId);
+        if (teachingClassId == null) {
+            return hasPermission(principal, PermissionCode.SUBMISSION_READ_OFFERING, scope);
+        }
+        return hasAnyPermission(
                 principal,
                 List.of(PermissionCode.SUBMISSION_READ_CLASS, PermissionCode.SUBMISSION_READ_OFFERING),
-                scope,
-                "当前用户无权查看该提交");
+                scope);
     }
 
     @Transactional(readOnly = true)
     public void assertCanReadSensitiveSubmission(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        if (canReadSensitiveSubmission(principal, offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看敏感提交详情");
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canReadSensitiveSubmission(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        return hasPermission(
                 principal,
                 PermissionCode.SUBMISSION_CODE_READ_SENSITIVE,
-                resolveSubmissionScope(offeringId, teachingClassId),
-                "当前用户无权查看敏感提交详情");
+                resolveSubmissionScope(offeringId, teachingClassId));
     }
 
     @Transactional(readOnly = true)
     public void assertCanRejudgeSubmission(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "judge.rejudge",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.SUBMISSION_REJUDGE,
                 resolveSubmissionScope(offeringId, teachingClassId),
-                "当前用户无权重判该提交");
+                "当前用户无权重判该提交",
+                AuditAction.JUDGE_REJUDGE);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageClassFeatures(AuthenticatedUserPrincipal principal, Long teachingClassId) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "class.manage",
+                classResource(teachingClassId),
                 PermissionCode.CLASS_MANAGE,
                 resolveTeachingClassScope(teachingClass.getOfferingId(), teachingClassId),
-                "当前用户无权管理该教学班");
+                "当前用户无权管理该教学班",
+                null);
     }
 
     @Transactional(readOnly = true)
@@ -298,36 +399,69 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanViewOfferingGradebook(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermission(
-                principal, PermissionCode.GRADE_EXPORT_OFFERING, resolveOfferingScope(offeringId), "当前用户无权查看课程成绩册");
+        if (canViewOfferingGradebook(principal, offeringId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看课程成绩册");
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canViewOfferingGradebook(AuthenticatedUserPrincipal principal, Long offeringId) {
+        return hasPermission(principal, PermissionCode.GRADE_EXPORT_OFFERING, resolveOfferingScope(offeringId));
     }
 
     @Transactional(readOnly = true)
     public void assertCanViewTeachingClassGradebook(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertAnyPermission(
+        if (canViewTeachingClassGradebook(principal, offeringId, teachingClassId)) {
+            return;
+        }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看教学班成绩册");
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canViewTeachingClassGradebook(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        return hasAnyPermission(
                 principal,
                 List.of(PermissionCode.GRADE_EXPORT_CLASS, PermissionCode.GRADE_EXPORT_OFFERING),
-                resolveTeachingClassScope(offeringId, teachingClassId),
-                "当前用户无权查看教学班成绩册");
+                resolveTeachingClassScope(offeringId, teachingClassId));
     }
 
     @Transactional(readOnly = true)
     public void assertCanPublishGrades(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "grade.publish",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.GRADE_PUBLISH,
                 resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权发布成绩");
+                "当前用户无权发布成绩",
+                AuditAction.GRADE_PUBLISH);
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanImportGrades(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermissionWithFallback(
+                principal,
+                "grade.import",
+                teachingResource(offeringId, teachingClassId),
+                PermissionCode.SUBMISSION_GRADE,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权导入成绩",
+                AuditAction.ASSIGNMENT_GRADES_IMPORTED);
     }
 
     @Transactional(readOnly = true)
     public void assertCanOverrideGrade(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermission(
+        assertPermissionWithFallback(
                 principal,
+                "grade.override",
+                teachingResource(offeringId, teachingClassId),
                 PermissionCode.GRADE_OVERRIDE,
                 resolveAssignmentScope(offeringId, teachingClassId),
-                "当前用户无权覆盖成绩");
+                "当前用户无权覆盖成绩",
+                AuditAction.GRADE_OVERRIDE);
     }
 
     @Transactional(readOnly = true)
@@ -488,6 +622,18 @@ public class CourseAuthorizationService {
                 != null;
     }
 
+    @Transactional(readOnly = true)
+    public boolean hasReadableStudentMembership(Long userId, Long offeringId, Long teachingClassId) {
+        return courseMemberMapper.selectOne(Wrappers.<CourseMemberEntity>lambdaQuery()
+                        .eq(CourseMemberEntity::getUserId, userId)
+                        .eq(CourseMemberEntity::getOfferingId, offeringId)
+                        .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.STUDENT.name())
+                        .eq(teachingClassId != null, CourseMemberEntity::getTeachingClassId, teachingClassId)
+                        .in(CourseMemberEntity::getMemberStatus, HISTORY_READABLE_STUDENT_STATUSES)
+                        .last("LIMIT 1"))
+                != null;
+    }
+
     private Set<Long> loadAdminAccessibleOfferingIds(AuthenticatedUserPrincipal principal, Long offeringId) {
         Set<Long> manageableOrgUnitIds = governanceAuthorizationService.loadManageableOrgUnitIds(principal);
         if (manageableOrgUnitIds.isEmpty()) {
@@ -547,6 +693,30 @@ public class CourseAuthorizationService {
         }
     }
 
+    private void assertPermissionWithFallback(
+            AuthenticatedUserPrincipal principal,
+            String permissionCode,
+            AuthorizationResourceRef resourceRef,
+            PermissionCode legacyPermission,
+            ScopeRef legacyScope,
+            String message,
+            AuditAction deniedAuditAction) {
+        AuthorizationResult result =
+                permissionAuthorizationService.authorize(principal, permissionCode, resourceRef, currentContext());
+        if (result.allowed()) {
+            return;
+        }
+        if (!"DENY_NO_ROLE_BINDING".equals(result.reasonCode())) {
+            recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+        }
+        if (legacyPermission != null && hasPermission(principal, legacyPermission, legacyScope)) {
+            return;
+        }
+        recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+    }
+
     private void assertAnyPermission(
             AuthenticatedUserPrincipal principal, List<PermissionCode> permissions, ScopeRef scope, String message) {
         if (!hasAnyPermission(principal, permissions, scope)) {
@@ -563,6 +733,35 @@ public class CourseAuthorizationService {
     private boolean hasAnyPermission(
             AuthenticatedUserPrincipal principal, List<PermissionCode> permissions, ScopeRef scope) {
         return permissions.stream().anyMatch(permission -> hasPermission(principal, permission, scope));
+    }
+
+    private AuthorizationContext currentContext() {
+        return AuthorizationContext.of(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    private AuthorizationResourceRef offeringResource(Long offeringId) {
+        return new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId);
+    }
+
+    private AuthorizationResourceRef classResource(Long teachingClassId) {
+        return new AuthorizationResourceRef(AuthorizationResourceType.CLASS, teachingClassId);
+    }
+
+    private AuthorizationResourceRef teachingResource(Long offeringId, Long teachingClassId) {
+        return teachingClassId == null ? offeringResource(offeringId) : classResource(teachingClassId);
+    }
+
+    private void recordDeniedAudit(
+            AuthenticatedUserPrincipal principal,
+            AuditAction deniedAuditAction,
+            String permissionCode,
+            AuthorizationResourceRef resourceRef,
+            AuthorizationResult result) {
+        if (deniedAuditAction == null) {
+            return;
+        }
+        sensitiveOperationAuditService.recordDenied(
+                principal, deniedAuditAction, permissionCode, resourceRef, result, Map.of());
     }
 
     private ScopeRef resolveAssignmentScope(Long offeringId, Long teachingClassId) {

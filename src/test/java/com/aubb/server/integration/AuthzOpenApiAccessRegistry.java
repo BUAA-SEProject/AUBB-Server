@@ -119,6 +119,8 @@ final class AuthzOpenApiAccessRegistry {
             rule("GET", "^/api/v1/teacher/course-offerings/\\{[^/]+}/members$", "member.read"),
             rule("POST", "^/api/v1/teacher/course-offerings/\\{[^/]+}/members/batch$", "member.manage"),
             rule("POST", "^/api/v1/teacher/course-offerings/\\{[^/]+}/members/import$", "member.manage"),
+            rule("PATCH", "^/api/v1/teacher/course-offerings/\\{[^/]+}/members/\\{[^/]+}/status$", "member.manage"),
+            rule("POST", "^/api/v1/teacher/course-offerings/\\{[^/]+}/members/\\{[^/]+}/transfer$", "member.manage"),
             rule("POST", "^/api/v1/teacher/course-offerings/\\{[^/]+}/announcements$", "RULE.ANNOUNCEMENT_MANAGE"),
             rule("GET", "^/api/v1/teacher/course-offerings/\\{[^/]+}/announcements$", "RULE.ANNOUNCEMENT_MANAGE"),
             rule("POST", "^/api/v1/teacher/course-offerings/\\{[^/]+}/resources$", "RULE.RESOURCE_MANAGE"),

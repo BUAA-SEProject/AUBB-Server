@@ -1,6 +1,7 @@
 package com.aubb.server.modules.course.infrastructure.member;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -21,8 +22,14 @@ public interface CourseMemberMapper extends BaseMapper<CourseMemberEntity> {
         "  <if test='teachingClassId != null'>",
         "    AND cm.teaching_class_id = #{teachingClassId}",
         "  </if>",
-        "  <if test='restrictToNullTeachingClass'>",
-        "    AND cm.teaching_class_id IS NULL",
+        "  <if test='teachingClassId == null and !authorizedAll and (authorizedTeachingClassIds == null or authorizedTeachingClassIds.size() == 0)'>",
+        "    AND 1 = 0",
+        "  </if>",
+        "  <if test='teachingClassId == null and !authorizedAll and authorizedTeachingClassIds != null and authorizedTeachingClassIds.size() > 0'>",
+        "    AND cm.teaching_class_id IN",
+        "    <foreach collection='authorizedTeachingClassIds' item='classId' open='(' separator=',' close=')'>",
+        "      #{classId}",
+        "    </foreach>",
         "  </if>",
         "  <if test='memberRole != null'>",
         "    AND cm.member_role = #{memberRole}",
@@ -46,7 +53,8 @@ public interface CourseMemberMapper extends BaseMapper<CourseMemberEntity> {
             @Param("memberRole") String memberRole,
             @Param("memberStatus") String memberStatus,
             @Param("keyword") String keyword,
-            @Param("restrictToNullTeachingClass") boolean restrictToNullTeachingClass);
+            @Param("authorizedAll") boolean authorizedAll,
+            @Param("authorizedTeachingClassIds") Collection<Long> authorizedTeachingClassIds);
 
     @Select({
         "<script>",
@@ -81,8 +89,14 @@ public interface CourseMemberMapper extends BaseMapper<CourseMemberEntity> {
         "  <if test='teachingClassId != null'>",
         "    AND cm.teaching_class_id = #{teachingClassId}",
         "  </if>",
-        "  <if test='restrictToNullTeachingClass'>",
-        "    AND cm.teaching_class_id IS NULL",
+        "  <if test='teachingClassId == null and !authorizedAll and (authorizedTeachingClassIds == null or authorizedTeachingClassIds.size() == 0)'>",
+        "    AND 1 = 0",
+        "  </if>",
+        "  <if test='teachingClassId == null and !authorizedAll and authorizedTeachingClassIds != null and authorizedTeachingClassIds.size() > 0'>",
+        "    AND cm.teaching_class_id IN",
+        "    <foreach collection='authorizedTeachingClassIds' item='classId' open='(' separator=',' close=')'>",
+        "      #{classId}",
+        "    </foreach>",
         "  </if>",
         "  <if test='memberRole != null'>",
         "    AND cm.member_role = #{memberRole}",
@@ -108,7 +122,8 @@ public interface CourseMemberMapper extends BaseMapper<CourseMemberEntity> {
             @Param("memberRole") String memberRole,
             @Param("memberStatus") String memberStatus,
             @Param("keyword") String keyword,
-            @Param("restrictToNullTeachingClass") boolean restrictToNullTeachingClass,
+            @Param("authorizedAll") boolean authorizedAll,
+            @Param("authorizedTeachingClassIds") Collection<Long> authorizedTeachingClassIds,
             @Param("offset") long offset,
             @Param("limit") long limit);
 }

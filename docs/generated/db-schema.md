@@ -32,6 +32,13 @@
 - `src/main/resources/db/migration/V28__db_paginated_permission_filter_indexes.sql`
 - `src/main/resources/db/migration/V29__judge_artifact_tracking_phase2.sql`
 - `src/main/resources/db/migration/V30__grade_publish_snapshots_v1.sql`
+- `src/main/resources/db/migration/V31__course_announcements_mvp.sql`
+- `src/main/resources/db/migration/V32__course_resources_mvp.sql`
+- `src/main/resources/db/migration/V33__course_discussions_mvp.sql`
+- `src/main/resources/db/migration/V34__authz_group_rbac_abac_foundation.sql`
+- `src/main/resources/db/migration/V35__course_member_extended_roles.sql`
+- `src/main/resources/db/migration/V36__submission_and_member_perf_indexes.sql`
+- `src/main/resources/db/migration/V37__permission_system_data_layer_foundation.sql`
 
 ## 总览
 
@@ -46,12 +53,18 @@
 - `academic_profiles`：用户教务画像
 - `user_org_memberships`：用户组织成员关系
 - `user_scope_roles`：用户作用域身份分配
+- `roles`：权限系统角色模板定义
+- `permissions`：权限点定义
+- `role_permissions`：角色与权限点映射
+- `role_bindings`：用户在作用域上的角色绑定
 - `academic_terms`：学期主数据
 - `course_catalogs`：课程模板
 - `course_offerings`：开课实例
 - `course_offering_college_maps`：课程跨学院共同管理映射
 - `teaching_classes`：教学班
 - `course_members`：课程成员
+- `offering_members`：开课级业务成员
+- `class_members`：班级级业务成员
 - `assignments`：作业主数据
 - `labs`：教学班级实验主数据
 - `lab_reports`：学生当前实验报告
@@ -78,6 +91,17 @@
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
 - `programming_sample_runs`：样例试运行日志
 - `audit_logs`：关键治理与认证审计日志
+
+## 权限系统增量（V37）
+
+V37 在保留 `user_scope_roles`、`course_members`、`auth_group_*` 兼容链路的同时，引入新的统一权限基础结构：
+
+- `roles`：角色模板主表，`scope_type` 支持 `platform / school / college / course / offering / class`
+- `permissions`：规范化权限点字典，按 `resource.action` 组织
+- `role_permissions`：角色默认权限模板映射
+- `role_bindings`：用户角色绑定，支持 `constraints_json`、生效时间和来源追踪
+- `offering_members` / `class_members`：面向业务查询的成员表，与 `role_bindings` 分层协作
+- `audit_logs`：补充 `user_id`、`resource_type`、`resource_id`、`scope_type`、`scope_id`、`decision` 等兼容列与索引
 
 ## 表结构
 

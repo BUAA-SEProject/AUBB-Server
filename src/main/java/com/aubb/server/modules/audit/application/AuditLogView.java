@@ -12,5 +12,9 @@ public record AuditLogView(
         String result,
         String requestId,
         String ip,
+        String scopeType,
+        Long scopeId,
+        String decision,
+        String userAgent,
         Map<String, Object> metadata,
         OffsetDateTime createdAt) {}

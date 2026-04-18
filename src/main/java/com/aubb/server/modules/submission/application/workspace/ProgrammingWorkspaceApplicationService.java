@@ -16,6 +16,7 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
 import com.aubb.server.modules.submission.domain.workspace.ProgrammingWorkspaceRevisionKind;
 import com.aubb.server.modules.submission.domain.workspace.ProgrammingWorkspaceSaveKind;
@@ -61,6 +62,7 @@ public class ProgrammingWorkspaceApplicationService {
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final SubmissionArtifactMapper submissionArtifactMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectMapper objectMapper;
 
@@ -507,8 +509,9 @@ public class ProgrammingWorkspaceApplicationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
         if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || !courseAuthorizationService.canViewAssignment(
-                        principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+                || (!readPathAuthorizationService.canReadAssignment(principal, "task.read", assignment)
+                        && !courseAuthorizationService.canViewAssignment(
+                                principal, assignment.getOfferingId(), assignment.getTeachingClassId()))) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题工作区");
         }
         AssignmentQuestionSnapshot question =

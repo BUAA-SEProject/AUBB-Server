@@ -2,7 +2,7 @@ package com.aubb.server.modules.identityaccess.application.authz;
 
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
-import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
@@ -37,12 +37,14 @@ public class AuthzAuditService {
         metadata.put("reason", reasonCode);
 
         try {
-            auditLogApplicationService.record(
+            auditLogApplicationService.recordDecision(
                     principal == null ? null : principal.getUserId(),
                     AuditAction.AUTHZ_DENIED,
                     "AUTHORIZATION",
                     request.getRequestURI(),
-                    AuditResult.FAILURE,
+                    null,
+                    null,
+                    AuditDecision.DENY,
                     metadata);
         } catch (RuntimeException exception) {
             log.warn(

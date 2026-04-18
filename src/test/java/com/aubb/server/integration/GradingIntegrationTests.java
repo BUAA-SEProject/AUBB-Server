@@ -144,6 +144,8 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
         addMember(teacherToken, offeringId, 4L, "TA", classId);
+        taToken = login("ta-a", "Password123");
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -298,6 +300,7 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -405,6 +408,7 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -514,6 +518,7 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -586,6 +591,90 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void classTaBatchAdjustShouldRequireGradeOverrideAndRecordDeniedAudit() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String classTaToken = login("ta-a", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-OVERRIDE", "改分班", 2026);
+        addMember(teacherToken, offeringId, 4L, "TA", classId);
+        addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        classTaToken = login("ta-a", "Password123");
+        studentToken = login("student-a", "Password123");
+        grantRoleBinding(4L, "class_ta", "class", classId);
+
+        Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long objectiveQuestionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+        Long shortAnswerQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[0].id");
+        Long fileQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[1].id");
+        Long artifactId =
+                uploadArtifact(studentToken, assignmentId, "override.pdf", "application/pdf", "%PDF-1.7\noverride");
+
+        MvcResult submissionResult = mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "answers":[
+                                    {"assignmentQuestionId":%s,"selectedOptionKeys":["A"]},
+                                    {"assignmentQuestionId":%s,"answerText":"需要显式改分权限。"},
+                                    {"assignmentQuestionId":%s,"artifactIds":[%s]}
+                                  ]
+                                }
+                                """.formatted(objectiveQuestionId, shortAnswerQuestionId, fileQuestionId, artifactId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long submissionId = readLong(submissionResult, "$.id");
+        Long shortAnswerId = readLong(submissionResult, "$.answers[1].id");
+
+        mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/grades/batch-adjust", assignmentId)
+                        .header("Authorization", "Bearer " + classTaToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "adjustments":[
+                                    {
+                                      "submissionId":%s,
+                                      "answerId":%s,
+                                      "score":19,
+                                      "feedbackText":"班级助教不应直接改分"
+                                    }
+                                  ]
+                                }
+                                """.formatted(submissionId, shortAnswerId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(queryForCount(
+                        "SELECT COUNT(*) FROM audit_logs WHERE action = 'GRADE_OVERRIDE' AND decision = 'DENY'"))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT scope_type FROM audit_logs WHERE action = 'GRADE_OVERRIDE' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("class");
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT scope_id FROM audit_logs WHERE action = 'GRADE_OVERRIDE' ORDER BY id DESC LIMIT 1",
+                        Long.class))
+                .isEqualTo(classId);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT metadata->>'permissionCode' FROM audit_logs WHERE action = 'GRADE_OVERRIDE' ORDER BY id DESC LIMIT 1",
+                        String.class))
+                .isEqualTo("grade.override");
+    }
+
+    @Test
     void teacherExportsAndImportsBatchGradeTemplate() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -597,6 +686,7 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -691,6 +781,7 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -777,6 +868,8 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
         addMember(teacherToken, offeringId, 4L, "TA", classId);
+        taToken = login("ta-a", "Password123");
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -911,6 +1004,8 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
         addMember(teacherToken, offeringId, 4L, "TA", classId);
+        taToken = login("ta-a", "Password123");
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -1014,6 +1109,8 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
         addMember(teacherToken, offeringId, 7L, "CLASS_INSTRUCTOR", classId);
+        classInstructorToken = login("class-instructor", "Password123");
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -1099,6 +1196,8 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2026);
         addMember(teacherToken, offeringId, 6L, "STUDENT", classAId);
         addMember(teacherToken, offeringId, 5L, "TA", classBId);
+        taToken = login("ta-b", "Password123");
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classAId);
         publishAssignment(teacherToken, assignmentId);
@@ -1265,6 +1364,27 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(userId, roleCode, classId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
+    }
+
+    private void grantRoleBinding(Long userId, String roleCode, String scopeType, Long scopeId) {
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    effective_from,
+                    effective_to,
+                    granted_by,
+                    source_type,
+                    source_ref_id
+                )
+                SELECT ?, id, ?, ?, '{}'::jsonb, 'ACTIVE', now(), NULL, NULL, 'MANUAL', 0
+                FROM roles
+                WHERE code = ?
+                """, userId, scopeType, scopeId, roleCode);
     }
 
     private Long createGradableStructuredAssignment(String token, Long offeringId, Long classId) throws Exception {
