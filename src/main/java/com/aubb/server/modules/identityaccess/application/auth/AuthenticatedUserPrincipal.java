@@ -4,6 +4,7 @@ import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.application.user.view.AcademicProfileView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
+import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.Collection;
@@ -101,9 +102,15 @@ public class AuthenticatedUserPrincipal implements Serializable {
         this.groupBindings = List.copyOf(groupBindings == null ? List.of() : groupBindings);
         this.permissionCodes = Set.copyOf(permissionCodes == null ? Set.of() : permissionCodes);
         this.permissionVersion = permissionVersion;
-        this.authorityCodes = this.identities.stream()
+        LinkedHashSet<String> resolvedAuthorities = this.identities.stream()
                 .map(ScopeIdentityView::roleCode)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        this.groupBindings.stream()
+                .map(AuthenticatedUserPrincipal::authorityForBinding)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
+                .forEach(resolvedAuthorities::add);
+        this.authorityCodes = Set.copyOf(resolvedAuthorities);
     }
 
     public Collection<? extends GrantedAuthority> authorities() {
@@ -116,5 +123,18 @@ public class AuthenticatedUserPrincipal implements Serializable {
 
     public List<String> roleCodes() {
         return authorityCodes.stream().sorted().toList();
+    }
+
+    private static java.util.Optional<String> authorityForBinding(GroupBindingView binding) {
+        if (binding == null || binding.templateCode() == null) {
+            return java.util.Optional.empty();
+        }
+        return switch (binding.templateCode()) {
+            case "school-admin" -> java.util.Optional.of(GovernanceRole.SCHOOL_ADMIN.name());
+            case "college-admin" -> java.util.Optional.of(GovernanceRole.COLLEGE_ADMIN.name());
+            case "course-admin" -> java.util.Optional.of(GovernanceRole.COURSE_ADMIN.name());
+            case "class-admin" -> java.util.Optional.of(GovernanceRole.CLASS_ADMIN.name());
+            default -> java.util.Optional.empty();
+        };
     }
 }

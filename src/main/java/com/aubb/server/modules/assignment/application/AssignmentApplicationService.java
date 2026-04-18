@@ -72,7 +72,7 @@ public class AssignmentApplicationService {
             AssignmentPaperInput paper,
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanCreateAssignment(principal, offeringId, teachingClassId);
         CourseOfferingEntity offering = requireOffering(offeringId);
         TeachingClassEntity teachingClass = validateTeachingClassBelongsToOffering(offeringId, teachingClassId);
         validateSchedule(openAt, dueAt);
@@ -131,7 +131,8 @@ public class AssignmentApplicationService {
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanUpdateAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以编辑");
         }
@@ -179,7 +180,8 @@ public class AssignmentApplicationService {
     public AssignmentView replaceAssignmentPaper(
             Long assignmentId, AssignmentPaperInput paper, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanUpdateAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以编辑");
         }
@@ -206,7 +208,7 @@ public class AssignmentApplicationService {
             long page,
             long pageSize,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanReadAssignment(principal, offeringId, teachingClassId);
         CourseOfferingEntity offering = requireOffering(offeringId);
         if (teachingClassId != null) {
             validateTeachingClassBelongsToOffering(offeringId, teachingClassId);
@@ -227,14 +229,16 @@ public class AssignmentApplicationService {
     @Transactional(readOnly = true)
     public AssignmentView getTeacherAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanReadAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         return toView(entity);
     }
 
     @Transactional
     public AssignmentView publishAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanPublishAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以发布");
         }
@@ -255,7 +259,8 @@ public class AssignmentApplicationService {
     @Transactional
     public AssignmentView closeAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanCloseAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (AssignmentStatus.CLOSED.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "任务已关闭");
         }

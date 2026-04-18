@@ -30,13 +30,17 @@ class OpenApiContractIntegrationTests {
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(content().string(containsString("/api/v1/auth/refresh")))
                 .andExpect(content().string(containsString("/api/v1/auth/revoke")))
+                .andExpect(content().string(containsString("/api/v1/admin/auth/groups")))
+                .andExpect(content().string(containsString("/api/v1/admin/auth/explain")))
                 .andExpect(content().string(containsString("/api/v1/admin/users")))
+                .andExpect(content().string(containsString("/api/v1/admin/users/{userId}/status")))
                 .andExpect(content().string(containsString("/api/v1/me/assignments")))
                 .andExpect(content().string(containsString("/api/v1/me/notifications")))
                 .andExpect(content().string(containsString("/api/v1/me/notifications/stream")))
                 .andExpect(content()
                         .string(containsString("/api/v1/teacher/assignments/{assignmentId}/grade-publish-batches")))
                 .andExpect(content().string(containsString("/api/v1/teacher/assignments/{assignmentId}/paper")))
+                .andExpect(content().string(containsString("/api/v1/teacher/submissions/{submissionId}")))
                 .andExpect(content().string(containsString("/api/v1/teacher/course-offerings/{offeringId}/labs")));
     }
 

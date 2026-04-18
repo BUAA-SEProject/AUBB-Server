@@ -91,55 +91,17 @@ public class GradingApplicationService {
             Integer score,
             String feedbackText,
             AuthenticatedUserPrincipal principal) {
-        SubmissionEntity submission = requireSubmission(submissionId);
-        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanGradeSubmission(
-                principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        return applyManualGrade(submissionId, answerId, score, feedbackText, principal, false);
+    }
 
-        SubmissionAnswerEntity answer = requireAnswer(answerId);
-        if (!Objects.equals(answer.getSubmissionId(), submissionId)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ANSWER_SCOPE_INVALID", "答案不属于当前提交");
-        }
-
-        AssignmentQuestionSnapshot question =
-                assignmentPaperApplicationService.loadQuestionSnapshots(assignment.getId()).stream()
-                        .filter(candidate -> Objects.equals(candidate.id(), answer.getAssignmentQuestionId()))
-                        .findFirst()
-                        .orElseThrow(() ->
-                                new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_QUESTION_NOT_FOUND", "题目不存在"));
-        validateManualGrade(question, score);
-
-        OffsetDateTime gradedAt = OffsetDateTime.now();
-        answer.setManualScore(score);
-        answer.setFinalScore(score);
-        answer.setGradingStatus(SubmissionAnswerGradingStatus.MANUALLY_GRADED.name());
-        answer.setFeedbackText(StringUtils.hasText(feedbackText) ? feedbackText.trim() : null);
-        answer.setGradedByUserId(principal.getUserId());
-        answer.setGradedAt(gradedAt);
-        submissionAnswerMapper.updateById(answer);
-
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("assignmentId", assignment.getId());
-        metadata.put("submissionId", submissionId);
-        metadata.put("assignmentQuestionId", answer.getAssignmentQuestionId());
-        metadata.put("score", score);
-        auditLogApplicationService.record(
-                principal.getUserId(),
-                AuditAction.SUBMISSION_ANSWER_GRADED,
-                "SUBMISSION_ANSWER",
-                String.valueOf(answer.getId()),
-                AuditResult.SUCCESS,
-                metadata);
-
-        SubmissionAnswerView answerView =
-                submissionAnswerApplicationService.loadAnswerViews(submissionId, assignment.getId()).stream()
-                        .filter(candidate -> Objects.equals(candidate.id(), answerId))
-                        .findFirst()
-                        .orElseThrow(() -> new BusinessException(
-                                HttpStatus.INTERNAL_SERVER_ERROR, "SUBMISSION_ANSWER_VIEW_MISSING", "批改结果无法读取"));
-        SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
-                submissionId, assignment.getId(), true, assignment.getGradePublishedAt() != null);
-        return new ManualGradeResultView(answerView, scoreSummary);
+    @Transactional
+    public ManualGradeResultView overrideAnswerGrade(
+            Long submissionId,
+            Long answerId,
+            Integer score,
+            String feedbackText,
+            AuthenticatedUserPrincipal principal) {
+        return applyManualGrade(submissionId, answerId, score, feedbackText, principal, true);
     }
 
     @Transactional
@@ -327,7 +289,8 @@ public class GradingApplicationService {
     public AssignmentGradePublicationView publishAssignmentGrades(
             Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanPublishGrades(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         assertGradesReady(assignmentId);
         boolean initialPublication = assignment.getGradePublishedAt() == null;
         OffsetDateTime snapshotCapturedAt = currentDatabaseTimestamp();
@@ -368,7 +331,8 @@ public class GradingApplicationService {
     public List<GradePublishBatchSummaryView> listGradePublishBatches(
             Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanPublishGrades(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return gradePublishSnapshotBatchMapper
                 .selectList(Wrappers.<GradePublishSnapshotBatchEntity>lambdaQuery()
                         .eq(GradePublishSnapshotBatchEntity::getAssignmentId, assignmentId)
@@ -383,7 +347,8 @@ public class GradingApplicationService {
     public GradePublishBatchDetailView getGradePublishBatch(
             Long assignmentId, Long batchId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanPublishGrades(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         GradePublishSnapshotBatchEntity batch = requireSnapshotBatch(batchId);
         if (!Objects.equals(batch.getAssignmentId(), assignmentId)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "GRADE_PUBLISH_BATCH_SCOPE_INVALID", "快照批次不属于当前作业");
@@ -396,6 +361,70 @@ public class GradingApplicationService {
                 .map(this::toSnapshotView)
                 .toList();
         return new GradePublishBatchDetailView(toBatchSummaryView(batch), snapshots);
+    }
+
+    private ManualGradeResultView applyManualGrade(
+            Long submissionId,
+            Long answerId,
+            Integer score,
+            String feedbackText,
+            AuthenticatedUserPrincipal principal,
+            boolean overrideMode) {
+        SubmissionEntity submission = requireSubmission(submissionId);
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
+        if (overrideMode) {
+            courseAuthorizationService.assertCanOverrideGrade(
+                    principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        } else {
+            courseAuthorizationService.assertCanGradeSubmission(
+                    principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        }
+
+        SubmissionAnswerEntity answer = requireAnswer(answerId);
+        if (!Objects.equals(answer.getSubmissionId(), submissionId)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ANSWER_SCOPE_INVALID", "答案不属于当前提交");
+        }
+
+        AssignmentQuestionSnapshot question =
+                assignmentPaperApplicationService.loadQuestionSnapshots(assignment.getId()).stream()
+                        .filter(candidate -> Objects.equals(candidate.id(), answer.getAssignmentQuestionId()))
+                        .findFirst()
+                        .orElseThrow(() ->
+                                new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_QUESTION_NOT_FOUND", "题目不存在"));
+        validateManualGrade(question, score);
+
+        OffsetDateTime gradedAt = OffsetDateTime.now();
+        answer.setManualScore(score);
+        answer.setFinalScore(score);
+        answer.setGradingStatus(SubmissionAnswerGradingStatus.MANUALLY_GRADED.name());
+        answer.setFeedbackText(StringUtils.hasText(feedbackText) ? feedbackText.trim() : null);
+        answer.setGradedByUserId(principal.getUserId());
+        answer.setGradedAt(gradedAt);
+        submissionAnswerMapper.updateById(answer);
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("assignmentId", assignment.getId());
+        metadata.put("submissionId", submissionId);
+        metadata.put("assignmentQuestionId", answer.getAssignmentQuestionId());
+        metadata.put("score", score);
+        metadata.put("overrideMode", overrideMode);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.SUBMISSION_ANSWER_GRADED,
+                "SUBMISSION_ANSWER",
+                String.valueOf(answer.getId()),
+                AuditResult.SUCCESS,
+                metadata);
+
+        SubmissionAnswerView answerView =
+                submissionAnswerApplicationService.loadAnswerViews(submissionId, assignment.getId()).stream()
+                        .filter(candidate -> Objects.equals(candidate.id(), answerId))
+                        .findFirst()
+                        .orElseThrow(() -> new BusinessException(
+                                HttpStatus.INTERNAL_SERVER_ERROR, "SUBMISSION_ANSWER_VIEW_MISSING", "批改结果无法读取"));
+        SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
+                submissionId, assignment.getId(), true, assignment.getGradePublishedAt() != null);
+        return new ManualGradeResultView(answerView, scoreSummary);
     }
 
     private void assertGradesReady(Long assignmentId) {

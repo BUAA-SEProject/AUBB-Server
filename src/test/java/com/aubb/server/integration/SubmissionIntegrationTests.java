@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,6 +74,9 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    auth_sessions,
+                    auth_group_members,
+                    auth_groups,
                     judge_jobs,
                     submission_artifacts,
                     submissions,
@@ -220,6 +224,57 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .isEqualTo(1);
         assertThat(queryForCount("SELECT COUNT(*) FROM audit_logs WHERE action = 'SUBMISSION_ARTIFACT_UPLOADED'"))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void offeringSubmissionReaderWithoutSensitiveGrantCannotDownloadTeacherArtifact() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+        insertUser(2L, "submission-reader", "Submission Reader", "submission-reader@example.com");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "附件敏感权限作业",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long artifactId =
+                uploadArtifact(studentAToken, assignmentId, "secret.py", "text/x-python", "print('secret')\n");
+        createSubmission(studentAToken, assignmentId, "包含源码附件", artifactId);
+
+        String uniqueSuffix = UUID.randomUUID().toString().replace("-", "");
+        String templateCode = "submission-reader-" + uniqueSuffix;
+        String groupDisplayName = "submission-reader-offering-" + uniqueSuffix;
+        Long templateId = insertAuthzGroupTemplate(templateCode, "仅看提交元数据", "OFFERING");
+        jdbcTemplate.update(
+                "INSERT INTO auth_group_template_permissions (template_id, permission_code) VALUES (?, ?)",
+                templateId,
+                "submission.read.offering");
+        Long groupId = insertAuthzGroup(templateId, groupDisplayName, "OFFERING", offeringId);
+        jdbcTemplate.update(
+                "INSERT INTO auth_group_members (group_id, user_id, source_type, joined_at) VALUES (?, ?, ?, now())",
+                groupId,
+                7L,
+                "MANUAL");
+
+        String submissionReaderToken = login("submission-reader", "Password123");
+
+        mockMvc.perform(get("/api/v1/teacher/submission-artifacts/{artifactId}/download", artifactId)
+                        .header("Authorization", "Bearer " + submissionReaderToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -629,6 +684,39 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
+    }
+
+    private Long insertAuthzGroupTemplate(String code, String displayName, String scopeType) {
+        jdbcTemplate.update("""
+                INSERT INTO auth_group_templates (
+                    code,
+                    name,
+                    scope_type,
+                    system_managed,
+                    built_in,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """, code, displayName, scopeType, false, true, "ACTIVE");
+        return jdbcTemplate.queryForObject("SELECT id FROM auth_group_templates WHERE code = ?", Long.class, code);
+    }
+
+    private Long insertAuthzGroup(Long templateId, String code, String scopeType, Long scopeRefId) {
+        jdbcTemplate.update("""
+                INSERT INTO auth_groups (
+                    template_id,
+                    scope_type,
+                    scope_ref_id,
+                    display_name,
+                    managed_by_system,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """, templateId, scopeType, scopeRefId, code, false, "ACTIVE");
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM auth_groups WHERE template_id = ? AND scope_type = ? AND scope_ref_id = ?",
+                Long.class,
+                templateId,
+                scopeType,
+                scopeRefId);
     }
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {

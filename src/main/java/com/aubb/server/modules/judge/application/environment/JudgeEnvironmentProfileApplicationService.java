@@ -55,7 +55,7 @@ public class JudgeEnvironmentProfileApplicationService {
             ProgrammingLanguage programmingLanguage,
             ProgrammingExecutionEnvironmentInput environment,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanManageJudgeProfiles(principal, offeringId);
         requireOffering(offeringId);
         ProgrammingLanguage safeLanguage = requireProgrammingLanguage(programmingLanguage);
         ProgrammingExecutionEnvironmentInput normalizedEnvironment = normalizeDirectEnvironment(environment);
@@ -99,7 +99,7 @@ public class JudgeEnvironmentProfileApplicationService {
             ProgrammingLanguage programmingLanguage,
             boolean includeArchived,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanManageJudgeProfiles(principal, offeringId);
         requireOffering(offeringId);
         String languageCode = programmingLanguage == null ? null : programmingLanguage.name();
         return judgeEnvironmentProfileMapper
@@ -118,7 +118,7 @@ public class JudgeEnvironmentProfileApplicationService {
     @Transactional(readOnly = true)
     public JudgeEnvironmentProfileView getProfile(Long profileId, AuthenticatedUserPrincipal principal) {
         JudgeEnvironmentProfileEntity entity = requireProfile(profileId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageJudgeProfiles(principal, entity.getOfferingId());
         return toView(entity);
     }
 
@@ -131,7 +131,7 @@ public class JudgeEnvironmentProfileApplicationService {
             ProgrammingExecutionEnvironmentInput environment,
             AuthenticatedUserPrincipal principal) {
         JudgeEnvironmentProfileEntity entity = requireProfile(profileId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageJudgeProfiles(principal, entity.getOfferingId());
         assertActiveProfile(entity);
         ProgrammingExecutionEnvironmentInput normalizedEnvironment = normalizeDirectEnvironment(environment);
         structuredQuestionSupport.validateProgrammingExecutionEnvironment(
@@ -167,7 +167,7 @@ public class JudgeEnvironmentProfileApplicationService {
     @Transactional
     public JudgeEnvironmentProfileView archiveProfile(Long profileId, AuthenticatedUserPrincipal principal) {
         JudgeEnvironmentProfileEntity entity = requireProfile(profileId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageJudgeProfiles(principal, entity.getOfferingId());
         if (entity.getArchivedAt() == null) {
             entity.setArchivedAt(OffsetDateTime.now());
             entity.setArchivedByUserId(principal.getUserId());

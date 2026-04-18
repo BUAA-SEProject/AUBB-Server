@@ -1,5 +1,6 @@
 package com.aubb.server.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -9,6 +10,7 @@ import com.jayway.jsonpath.JsonPath;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
+class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -33,6 +35,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    auth_sessions,
                     judge_jobs,
                     submission_artifacts,
                     submissions,
@@ -46,8 +49,6 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
                     user_org_memberships,
                     academic_profiles,
                     user_scope_roles,
-                    auth_group_members,
-                    auth_groups,
                     platform_configs,
                     users,
                     org_units
@@ -66,7 +67,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
         insertUser(1L, "school-admin", "School Admin", "school-admin@example.com");
         insertUser(2L, "eng-admin", "Engineering Admin", "eng-admin@example.com");
         insertUser(2L, "teacher-main", "Teacher Main", "teacher-main@example.com");
-        insertUser(2L, "student-a", "Student A", "student-a@example.com");
+        insertUser(2L, "student-a1", "Student A1", "student-a1@example.com");
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -79,67 +80,58 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
-    void legacyInstructorShouldStillReadSubmissionThroughAuthzService() throws Exception {
+    void forbiddenTeacherSubmissionAccessShouldWriteAuthzDeniedAuditLog() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
-        String studentToken = login("student-a", "Password123");
 
         Long termId = createTerm(schoolAdminToken);
         Long catalogId = createCatalog(engAdminToken);
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
-        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        Long classId = createTeachingClass(teacherToken, offeringId, "A1", "A1班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
 
         Long assignmentId = createAssignment(
                 teacherToken,
                 offeringId,
                 classId,
-                "兼容性提交作业",
+                "审计任务",
                 OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
-                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
-                2);
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3));
         publishAssignment(teacherToken, assignmentId);
-        Long submissionId = createSubmission(studentToken, assignmentId, "legacy submission");
+
+        String studentToken = login("student-a1", "Password123");
+        Long submissionId = createSubmission(studentToken, assignmentId, "student submission");
+        int auditCountBefore = countAuditLogs();
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(submissionId))
-                .andExpect(jsonPath("$.submitterUserId").value(4));
-    }
-
-    @Test
-    void legacyCollegeAdminShouldNotManageAssignmentsWithoutTeachingGrant() throws Exception {
-        String schoolAdminToken = login("school-admin", "Password123");
-        String engAdminToken = login("eng-admin", "Password123");
-        String teacherToken = login("teacher-main", "Password123");
-
-        Long termId = createTerm(schoolAdminToken);
-        Long catalogId = createCatalog(engAdminToken);
-        Long offeringId = createOffering(engAdminToken, catalogId, termId);
-        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2025);
-
-        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + engAdminToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "title":"学院管理员兼容作业",
-                                  "description":"验证 legacy governance grant",
-                                  "teachingClassId":%s,
-                                  "openAt":"%s",
-                                  "dueAt":"%s",
-                                  "maxSubmissions":2
-                                }
-                                """.formatted(
-                                        classId,
-                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
-                                                .minusDays(1)),
-                                        OFFSET_DATE_TIME.format(OffsetDateTime.now(ZoneOffset.ofHours(8))
-                                                .plusDays(2)))))
+                        .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(countAuditLogs()).isEqualTo(auditCountBefore + 1);
+
+        Map<String, Object> latestAudit = jdbcTemplate.queryForMap("""
+                SELECT action,
+                       result,
+                       actor_user_id,
+                       target_type,
+                       target_id,
+                       metadata ->> 'method' AS method,
+                       metadata ->> 'path' AS path,
+                       metadata ->> 'reason' AS reason
+                FROM audit_logs
+                ORDER BY id DESC
+                LIMIT 1
+                """);
+        assertThat(latestAudit.get("action")).isEqualTo("AUTHZ_DENIED");
+        assertThat(latestAudit.get("result")).isEqualTo("FAILURE");
+        assertThat(((Number) latestAudit.get("actor_user_id")).longValue()).isEqualTo(4L);
+        assertThat(latestAudit.get("target_type")).isEqualTo("AUTHORIZATION");
+        assertThat(latestAudit.get("target_id")).isEqualTo("/api/v1/teacher/submissions/" + submissionId);
+        assertThat(latestAudit.get("method")).isEqualTo("GET");
+        assertThat(latestAudit.get("path")).isEqualTo("/api/v1/teacher/submissions/" + submissionId);
+        assertThat(latestAudit.get("reason")).isEqualTo("FORBIDDEN");
     }
 
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
@@ -257,7 +249,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
                                     {"userId":%s,"memberRole":"%s","teachingClassId":%s,"remark":"seed"}
                                   ]
                                 }
-                                """.formatted(userId, roleCode, classId)))
+                                """.formatted(userId, roleCode, classId == null ? "null" : String.valueOf(classId))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
     }
@@ -268,8 +260,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
             Long teachingClassId,
             String title,
             OffsetDateTime openAt,
-            OffsetDateTime dueAt,
-            int maxSubmissions)
+            OffsetDateTime dueAt)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
                         .header("Authorization", "Bearer " + token)
@@ -281,14 +272,13 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
                                   "teachingClassId":%s,
                                   "openAt":"%s",
                                   "dueAt":"%s",
-                                  "maxSubmissions":%s
+                                  "maxSubmissions":2
                                 }
                                 """.formatted(
                                         title,
                                         teachingClassId,
                                         OFFSET_DATE_TIME.format(openAt),
-                                        OFFSET_DATE_TIME.format(dueAt),
-                                        maxSubmissions)))
+                                        OFFSET_DATE_TIME.format(dueAt))))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
@@ -336,5 +326,9 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
             return longValue;
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private int countAuditLogs() {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM audit_logs", Integer.class);
     }
 }

@@ -151,8 +151,8 @@ public class AuthenticatedPrincipalLoader {
 
     private String classScopedTemplateCode(CourseMemberRole role) {
         return switch (role) {
-            case INSTRUCTOR -> "class-instructor";
-            case TA -> "class-ta";
+            case INSTRUCTOR, CLASS_INSTRUCTOR -> "class-instructor";
+            case OFFERING_TA, TA -> "class-ta";
             case STUDENT -> "student";
             case OBSERVER -> "observer";
         };
@@ -161,7 +161,8 @@ public class AuthenticatedPrincipalLoader {
     private String offeringScopedTemplateCode(CourseMemberRole role) {
         return switch (role) {
             case INSTRUCTOR -> "offering-instructor";
-            case TA -> "offering-ta";
+            case CLASS_INSTRUCTOR -> "class-instructor";
+            case OFFERING_TA, TA -> "offering-ta";
             case STUDENT -> "student";
             case OBSERVER -> "observer";
         };

@@ -50,6 +50,15 @@ public class AuthzScopeResolutionService {
         return teachingClass == null ? null : teachingClass.getId();
     }
 
+    @Transactional(readOnly = true)
+    public Long findOrgClassUnitIdByTeachingClassId(Long teachingClassId) {
+        if (teachingClassId == null) {
+            return null;
+        }
+        TeachingClassEntity teachingClass = teachingClassMapper.selectById(teachingClassId);
+        return teachingClass == null ? null : teachingClass.getOrgClassUnitId();
+    }
+
     private ScopeRef resolveOfferingScope(Long offeringId) {
         CourseOfferingEntity offering = courseOfferingMapper.selectById(offeringId);
         if (offering == null) {

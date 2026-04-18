@@ -3,6 +3,7 @@ package com.aubb.server.config;
 import com.aubb.server.common.api.ApiErrorResponse;
 import com.aubb.server.common.web.RequestIdFilter;
 import com.aubb.server.modules.identityaccess.application.auth.AccessTokenSessionValidator;
+import com.aubb.server.modules.identityaccess.application.authz.AuthzAuditService;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import javax.crypto.SecretKey;
@@ -41,6 +42,7 @@ public class SecurityConfig {
     private final RequestIdFilter requestIdFilter;
     private final JwtPrincipalAuthenticationConverter jwtPrincipalAuthenticationConverter;
     private final AccessTokenSessionValidator accessTokenSessionValidator;
+    private final AuthzAuditService authzAuditService;
 
     @Bean
     @ConditionalOnWebApplication(type = Type.SERVLET)
@@ -99,8 +101,11 @@ public class SecurityConfig {
     }
 
     private AccessDeniedHandler accessDeniedHandler() {
-        return (request, response, accessDeniedException) ->
-                writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "当前用户无权执行该操作");
+        return (request, response, accessDeniedException) -> {
+            authzAuditService.recordDenied(request, "FORBIDDEN");
+
+            writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "当前用户无权执行该操作");
+        };
     }
 
     private void writeError(HttpServletResponse response, int status, String code, String message) throws IOException {

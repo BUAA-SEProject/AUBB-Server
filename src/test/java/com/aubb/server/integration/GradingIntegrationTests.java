@@ -118,6 +118,7 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         insertUser(2L, "ta-a", "TA A", "ta-a@example.com");
         insertUser(2L, "ta-b", "TA B", "ta-b@example.com");
         insertUser(2L, "student-a", "Student A", "student-a@example.com");
+        insertUser(2L, "class-instructor", "Class Instructor", "class-instructor@example.com");
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -997,6 +998,90 @@ class GradingIntegrationTests extends AbstractIntegrationTest {
         assertThat(counterValue(GradingMetricsRecorder.GRADE_APPEALS_REVIEWED_METRIC, "result", "rejected")
                         - rejectedAppealCounterBefore)
                 .isEqualTo(0.0d);
+    }
+
+    @Test
+    void classInstructorCanAcceptAppealWithinOwnedTeachingClass() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String classInstructorToken = login("class-instructor", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
+        addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
+        addMember(teacherToken, offeringId, 7L, "CLASS_INSTRUCTOR", classId);
+
+        Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long objectiveQuestionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+        Long shortAnswerQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[0].id");
+        Long fileQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[1].id");
+        Long artifactId =
+                uploadArtifact(studentToken, assignmentId, "report.pdf", "application/pdf", "%PDF-1.7\nreport");
+
+        MvcResult submissionResult = mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "answers":[
+                                    {"assignmentQuestionId":%s,"selectedOptionKeys":["A"]},
+                                    {"assignmentQuestionId":%s,"answerText":"路径压缩会在查找时压缩父指针。"},
+                                    {"assignmentQuestionId":%s,"artifactIds":[%s]}
+                                  ]
+                                }
+                                """.formatted(objectiveQuestionId, shortAnswerQuestionId, fileQuestionId, artifactId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long submissionId = readLong(submissionResult, "$.id");
+        Long shortAnswerId = readLong(submissionResult, "$.answers[1].id");
+        Long fileAnswerId = readLong(submissionResult, "$.answers[2].id");
+
+        gradeAnswer(classInstructorToken, submissionId, shortAnswerId, 18, "补充按秩合并可更完整。");
+        gradeAnswer(classInstructorToken, submissionId, fileAnswerId, 27, "实验报告结构完整。");
+        publishGrades(teacherToken, assignmentId);
+
+        MvcResult appealResult = mockMvc.perform(post(
+                                "/api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals",
+                                submissionId,
+                                shortAnswerId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "reason":"已补充按秩合并说明，请重新评估。"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long appealId = readLong(appealResult, "$.id");
+
+        mockMvc.perform(post("/api/v1/teacher/grade-appeals/{appealId}/review", appealId)
+                        .header("Authorization", "Bearer " + classInstructorToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "decision":"ACCEPTED",
+                                  "responseText":"补充分点有效，予以加分。",
+                                  "revisedScore":20,
+                                  "revisedFeedbackText":"复核后按满分计。"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACCEPTED"))
+                .andExpect(jsonPath("$.resolvedScore").value(20))
+                .andExpect(jsonPath("$.currentFinalScore").value(20))
+                .andExpect(jsonPath("$.respondedByUserId").value(7));
     }
 
     @Test

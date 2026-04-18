@@ -157,6 +157,63 @@ class AuthzGroupAdministrationIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void builtInCollegeAdminGroupShouldReachAdminEndpointsWithoutLegacyIdentity() throws Exception {
+        insertUser(2L, "group-college-admin", "Group College Admin", "group-college-admin@example.com");
+        seedBuiltInGroup("college-admin", "COLLEGE", 2L, 4L);
+
+        String schoolAdminToken = login("school-admin", "Password123");
+        String groupedAdminToken = login("group-college-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+
+        MvcResult catalogResult = mockMvc.perform(post("/api/v1/admin/course-catalogs")
+                        .header("Authorization", "Bearer " + groupedAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "courseCode":"CS201",
+                                  "courseName":"编译原理",
+                                  "courseType":"REQUIRED",
+                                  "credit":3.0,
+                                  "totalHours":48,
+                                  "departmentUnitId":2,
+                                  "description":"组授权学院管理员创建课程目录"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long catalogId = readLong(catalogResult, "$.id");
+
+        MvcResult offeringResult = mockMvc.perform(post("/api/v1/admin/course-offerings")
+                        .header("Authorization", "Bearer " + groupedAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "catalogId":%s,
+                                  "termId":%s,
+                                  "offeringCode":"CS201-2026SP-01",
+                                  "offeringName":"编译原理（2026春）",
+                                  "primaryCollegeUnitId":2,
+                                  "secondaryCollegeUnitIds":[],
+                                  "deliveryMode":"HYBRID",
+                                  "language":"ZH",
+                                  "capacity":80,
+                                  "instructorUserIds":[2],
+                                  "startAt":"2026-02-20T08:00:00+08:00",
+                                  "endAt":"2026-07-10T23:59:59+08:00"
+                                }
+                                """.formatted(catalogId, termId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long offeringId = readLong(offeringResult, "$.id");
+
+        mockMvc.perform(get("/api/v1/admin/course-offerings/{offeringId}", offeringId)
+                        .header("Authorization", "Bearer " + groupedAdminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.offeringCode").value("CS201-2026SP-01"));
+    }
+
+    @Test
     void addMemberShouldReactivateExpiredMembership() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
 
@@ -311,6 +368,27 @@ class AuthzGroupAdministrationIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
+    }
+
+    private void seedBuiltInGroup(String templateCode, String scopeType, Long scopeRefId, Long userId) {
+        Long templateId = jdbcTemplate.queryForObject(
+                "SELECT id FROM auth_group_templates WHERE code = ?", Long.class, templateCode);
+        jdbcTemplate.update("""
+                INSERT INTO auth_groups (
+                    template_id,
+                    scope_type,
+                    scope_ref_id,
+                    display_name,
+                    managed_by_system,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """, templateId, scopeType, scopeRefId, templateCode + "-seed", false, "ACTIVE");
+        Long groupId =
+                jdbcTemplate.queryForObject("SELECT currval(pg_get_serial_sequence('auth_groups', 'id'))", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO auth_group_members (group_id, user_id, source_type)
+                VALUES (?, ?, ?)
+                """, groupId, userId, "MANUAL");
     }
 
     private String login(String username, String password) throws Exception {

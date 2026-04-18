@@ -136,6 +136,37 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void offeringSummaryShouldIncludeClassInstructorInInstructorList() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
+
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":5,"memberRole":"CLASS_INSTRUCTOR","teachingClassId":%s,"remark":"班级教师"}
+                                  ]
+                                }
+                                """.formatted(class2024Id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failCount").value(0));
+
+        mockMvc.perform(get("/api/v1/admin/course-offerings/{offeringId}", offeringId)
+                        .header("Authorization", "Bearer " + engAdminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.instructors[*].username", containsInAnyOrder("teacher-main", "ta-mixed")));
+    }
+
+    @Test
     void teacherCreatesDifferentYearClassesAndTogglesClassFeatures() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");

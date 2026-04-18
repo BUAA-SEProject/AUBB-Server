@@ -490,7 +490,7 @@ public class CourseTeachingApplicationService {
                 .eq(CourseMemberEntity::getOfferingId, offeringId)
                 .eq(CourseMemberEntity::getUserId, userId)
                 .eq(CourseMemberEntity::getMemberRole, role.name());
-        if (role == CourseMemberRole.TA) {
+        if (teachingClassId != null) {
             query.eq(CourseMemberEntity::getTeachingClassId, teachingClassId);
         }
         return courseMemberMapper.selectOne(query.last("LIMIT 1"));

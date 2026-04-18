@@ -83,6 +83,63 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanReadAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.ASSIGNMENT_READ,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权查看该课程作业");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanCreateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.ASSIGNMENT_CREATE,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权创建该课程作业");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanUpdateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.ASSIGNMENT_UPDATE,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权编辑该课程作业");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanPublishAssignment(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.ASSIGNMENT_PUBLISH,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权发布该课程作业");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanCloseAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.ASSIGNMENT_CLOSE,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权关闭该课程作业");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanManageQuestionBank(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertPermission(principal, PermissionCode.QUESTION_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理题库");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanManageJudgeProfiles(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertPermission(
+                principal, PermissionCode.JUDGE_PROFILE_MANAGE, resolveOfferingScope(offeringId), "当前用户无权管理评测环境");
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanManageLabs(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertLabFeatureEnabled(offeringId, teachingClassId);
         assertPermission(
@@ -112,6 +169,40 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanReadSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        ScopeRef scope = resolveSubmissionScope(offeringId, teachingClassId);
+        if (teachingClassId == null) {
+            assertPermission(principal, PermissionCode.SUBMISSION_READ_OFFERING, scope, "当前用户无权查看该提交");
+            return;
+        }
+        assertAnyPermission(
+                principal,
+                List.of(PermissionCode.SUBMISSION_READ_CLASS, PermissionCode.SUBMISSION_READ_OFFERING),
+                scope,
+                "当前用户无权查看该提交");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanReadSensitiveSubmission(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.SUBMISSION_CODE_READ_SENSITIVE,
+                resolveSubmissionScope(offeringId, teachingClassId),
+                "当前用户无权查看敏感提交详情");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanRejudgeSubmission(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.SUBMISSION_REJUDGE,
+                resolveSubmissionScope(offeringId, teachingClassId),
+                "当前用户无权重判该提交");
+    }
+
+    @Transactional(readOnly = true)
     public void assertCanManageClassFeatures(AuthenticatedUserPrincipal principal, Long teachingClassId) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         assertPermission(
@@ -138,6 +229,58 @@ public class CourseAuthorizationService {
                 PermissionCode.LAB_READ,
                 resolveTeachingClassScope(offeringId, teachingClassId),
                 "当前用户无权查看该实验");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewOfferingGradebook(AuthenticatedUserPrincipal principal, Long offeringId) {
+        assertPermission(
+                principal, PermissionCode.GRADE_EXPORT_OFFERING, resolveOfferingScope(offeringId), "当前用户无权查看课程成绩册");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanViewTeachingClassGradebook(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertAnyPermission(
+                principal,
+                List.of(PermissionCode.GRADE_EXPORT_CLASS, PermissionCode.GRADE_EXPORT_OFFERING),
+                resolveTeachingClassScope(offeringId, teachingClassId),
+                "当前用户无权查看教学班成绩册");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanPublishGrades(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.GRADE_PUBLISH,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权发布成绩");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanOverrideGrade(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.GRADE_OVERRIDE,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权覆盖成绩");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanReadAppeals(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.APPEAL_READ_CLASS,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权查看成绩申诉");
+    }
+
+    @Transactional(readOnly = true)
+    public void assertCanReviewAppeal(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        assertPermission(
+                principal,
+                PermissionCode.APPEAL_REVIEW,
+                resolveAssignmentScope(offeringId, teachingClassId),
+                "当前用户无权处理成绩申诉");
     }
 
     @Transactional(readOnly = true)
@@ -193,8 +336,13 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public boolean canViewAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        return hasPermission(
-                principal, PermissionCode.ASSIGNMENT_READ, resolveAssignmentScope(offeringId, teachingClassId));
+        if (teachingClassId == null) {
+            return hasPermission(principal, PermissionCode.ASSIGNMENT_READ, resolveOfferingScope(offeringId));
+        }
+        if (loadFullAssignmentAccessOfferingIds(principal, offeringId).contains(offeringId)) {
+            return true;
+        }
+        return isActiveClassMember(principal.getUserId(), offeringId, teachingClassId);
     }
 
     @Transactional(readOnly = true)
@@ -203,7 +351,9 @@ public class CourseAuthorizationService {
         offeringIds.addAll(courseMemberMapper
                 .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                         .eq(CourseMemberEntity::getUserId, principal.getUserId())
-                        .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.INSTRUCTOR.name())
+                        .in(
+                                CourseMemberEntity::getMemberRole,
+                                List.of(CourseMemberRole.INSTRUCTOR.name(), CourseMemberRole.OFFERING_TA.name()))
                         .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
                         .eq(offeringId != null, CourseMemberEntity::getOfferingId, offeringId))
                 .stream()
@@ -311,10 +461,22 @@ public class CourseAuthorizationService {
         }
     }
 
+    private void assertAnyPermission(
+            AuthenticatedUserPrincipal principal, List<PermissionCode> permissions, ScopeRef scope, String message) {
+        if (!hasAnyPermission(principal, permissions, scope)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+        }
+    }
+
     private boolean hasPermission(AuthenticatedUserPrincipal principal, PermissionCode permission, ScopeRef scope) {
         return authorizationService
                 .decide(AuthorizationRequest.forPermission(principal, permission, scope))
                 .allowed();
+    }
+
+    private boolean hasAnyPermission(
+            AuthenticatedUserPrincipal principal, List<PermissionCode> permissions, ScopeRef scope) {
+        return permissions.stream().anyMatch(permission -> hasPermission(principal, permission, scope));
     }
 
     private ScopeRef resolveAssignmentScope(Long offeringId, Long teachingClassId) {

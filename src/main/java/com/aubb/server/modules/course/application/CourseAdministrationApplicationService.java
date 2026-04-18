@@ -530,7 +530,9 @@ public class CourseAdministrationApplicationService {
         List<Long> instructorIds = courseMemberMapper
                 .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                         .eq(CourseMemberEntity::getOfferingId, entity.getId())
-                        .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.INSTRUCTOR.name())
+                        .in(
+                                CourseMemberEntity::getMemberRole,
+                                List.of(CourseMemberRole.INSTRUCTOR.name(), CourseMemberRole.CLASS_INSTRUCTOR.name()))
                         .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name()))
                 .stream()
                 .map(CourseMemberEntity::getUserId)
