@@ -13,7 +13,6 @@ import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
@@ -63,7 +62,6 @@ public class SubmissionApplicationService {
     private final AssignmentMapper assignmentMapper;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
-    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final SensitiveOperationAuditService sensitiveOperationAuditService;
@@ -523,8 +521,7 @@ public class SubmissionApplicationService {
         if (!AssignmentStatus.PUBLISHED.name().equals(assignment.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ASSIGNMENT_UNAVAILABLE", "当前作业暂不允许提交");
         }
-        if (!courseMemberAccessPolicyService.hasActiveStudentMembership(
-                principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!readPathAuthorizationService.canAccessMyAssignmentCapability(principal, "ide.submit", assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权提交该作业");
         }
     }
