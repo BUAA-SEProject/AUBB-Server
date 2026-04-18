@@ -54,6 +54,18 @@ public class CourseAuthorizationService {
             CourseMemberStatus.DROPPED.name(),
             CourseMemberStatus.TRANSFERRED.name(),
             CourseMemberStatus.COMPLETED.name());
+    /**
+     * 这些能力已经明确迁移到新的 PermissionAuthorizationService，不能再因为旧授权矩阵存在残留数据而兜回 legacy。
+     */
+    private static final Set<PermissionCode> LEGACY_FALLBACK_DISABLED_PERMISSIONS = Set.of(
+            PermissionCode.SUBMISSION_CODE_READ_SENSITIVE,
+            PermissionCode.GRADE_EXPORT_CLASS,
+            PermissionCode.GRADE_EXPORT_OFFERING,
+            PermissionCode.GRADE_OVERRIDE,
+            PermissionCode.JUDGE_PROFILE_MANAGE,
+            PermissionCode.JUDGE_HIDDEN_READ,
+            PermissionCode.JUDGE_HIDDEN_MANAGE,
+            PermissionCode.SUBMISSION_REJUDGE);
 
     private final AuthorizationService authorizationService;
     private final PermissionAuthorizationService permissionAuthorizationService;
@@ -840,7 +852,8 @@ public class CourseAuthorizationService {
                 return true;
             }
             if (!"DENY_NO_ROLE_BINDING".equals(modernResult.reasonCode())
-                    || !canFallbackToLegacyAuthorization(principal)) {
+                    || !canFallbackToLegacyAuthorization(principal)
+                    || LEGACY_FALLBACK_DISABLED_PERMISSIONS.contains(permission)) {
                 return false;
             }
         }
@@ -902,6 +915,8 @@ public class CourseAuthorizationService {
             case APPEAL_READ_OWN, APPEAL_READ_CLASS -> "appeal.read";
             case APPEAL_REVIEW -> "appeal.review";
             case JUDGE_PROFILE_MANAGE -> "judge.config";
+            case JUDGE_HIDDEN_READ, JUDGE_HIDDEN_MANAGE -> "judge.view_hidden";
+            case SUBMISSION_REJUDGE -> "judge.rejudge";
             case LAB_READ -> "lab.read";
             case LAB_MANAGE -> "lab.manage";
             case LAB_REPORT_REVIEW -> "lab.report.review";

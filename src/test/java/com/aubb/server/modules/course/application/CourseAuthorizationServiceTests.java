@@ -441,6 +441,107 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
+    void canViewOfferingGradebookShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("grade.export"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThat(service.canViewOfferingGradebook(principal, 12L)).isFalse();
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void canViewTeachingClassGradebookShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("grade.export"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThat(service.canViewTeachingClassGradebook(principal, 12L, 34L)).isFalse();
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void canReadSensitiveSubmissionShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("submission.read_source"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThat(service.canReadSensitiveSubmission(principal, 12L, 34L)).isFalse();
+
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
     void assertCanViewLabShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,
