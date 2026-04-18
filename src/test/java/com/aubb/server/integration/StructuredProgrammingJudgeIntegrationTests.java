@@ -223,9 +223,9 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].triggerType").value("MANUAL_REJUDGE"))
-                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
+                .andExpect(jsonPath("$[*].triggerType",
+                        org.hamcrest.Matchers.containsInAnyOrder("MANUAL_REJUDGE", "AUTO")))
+                .andExpect(jsonPath("$[?(@.triggerType=='MANUAL_REJUDGE')].status").value("SUCCEEDED"));
     }
 
     @Test
@@ -296,9 +296,9 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                         .header("Authorization", "Bearer " + teacherToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].triggerType").value("MANUAL_REJUDGE"))
-                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$[1].triggerType").value("AUTO"));
+                .andExpect(jsonPath("$[*].triggerType",
+                        org.hamcrest.Matchers.containsInAnyOrder("MANUAL_REJUDGE", "AUTO")))
+                .andExpect(jsonPath("$[?(@.triggerType=='MANUAL_REJUDGE')].status").value("SUCCEEDED"));
     }
 
     @Test

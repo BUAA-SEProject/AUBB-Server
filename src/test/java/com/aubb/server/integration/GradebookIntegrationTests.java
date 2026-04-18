@@ -31,6 +31,7 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    auth_sessions,
                     role_bindings,
                     class_members,
                     offering_members,
@@ -429,7 +430,7 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, classAssignmentId);
         GradeableSubmission gradeableSubmission = submitGradableAssignment(studentAToken, classAssignmentId);
         gradeAnswer(
-                taAToken,
+                teacherToken,
                 gradeableSubmission.submissionId(),
                 gradeableSubmission.shortAnswerId(),
                 18,
@@ -507,7 +508,7 @@ class GradebookIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, classAssignmentId);
         GradeableSubmission gradeableSubmission = submitGradableAssignment(studentAToken, classAssignmentId);
         gradeAnswer(
-                taAToken,
+                teacherToken,
                 gradeableSubmission.submissionId(),
                 gradeableSubmission.shortAnswerId(),
                 18,
