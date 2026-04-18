@@ -64,6 +64,9 @@ class AuthzOpenApiPermissionCoverageTests extends AbstractIntegrationTest {
                 .contains("auth.explain.read");
         assertThat(AuthzOpenApiAccessRegistry.resolve("POST", "/api/v1/admin/auth/groups"))
                 .contains("auth.group.manage");
+        assertThat(AuthzOpenApiAccessRegistry.resolve(
+                        "POST", "/api/v1/teacher/course-offerings/{offeringId}/members/import"))
+                .contains("member.import");
         assertThat(AuthzOpenApiAccessRegistry.resolve("GET", "/api/v1/teacher/submissions/{submissionId}"))
                 .contains("submission.read.class|submission.read.offering + submission.code.read_sensitive");
         assertThat(AuthzOpenApiAccessRegistry.resolve(

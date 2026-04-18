@@ -101,7 +101,7 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
-    void assertCanManageAssignmentsShouldFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+    void assertCanManageAssignmentsShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,
                 permissionAuthorizationService,
@@ -127,11 +127,80 @@ class CourseAuthorizationServiceTests {
                 false);
         when(permissionAuthorizationService.authorize(eq(principal), eq("task.edit"), any(), any()))
                 .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
-        when(authorizationService.decide(any())).thenReturn(AuthorizationDecision.allow(List.of()));
 
-        service.assertCanManageAssignments(principal, 12L);
+        assertThatThrownBy(() -> service.assertCanManageAssignments(principal, 12L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理该课程作业");
+        verify(authorizationService, never()).decide(any());
+    }
 
-        verify(authorizationService).decide(any());
+    @Test
+    void assertCanManageMembersShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("member.manage"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanManageMembers(principal, 12L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理课程成员");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanManageClassFeaturesShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("class.manage"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanManageClassFeatures(principal, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理该教学班");
+        verify(authorizationService, never()).decide(any());
     }
 
     @Test

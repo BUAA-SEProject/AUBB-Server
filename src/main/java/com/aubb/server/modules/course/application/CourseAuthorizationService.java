@@ -86,24 +86,20 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageOffering(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "offering.manage",
                 offeringResource(offeringId),
-                PermissionCode.OFFERING_MANAGE,
-                resolveOfferingScope(offeringId),
                 "当前用户无权管理该课程",
                 null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "member.manage",
                 offeringResource(offeringId),
-                PermissionCode.MEMBER_MANAGE,
-                resolveOfferingScope(offeringId),
                 "当前用户无权管理课程成员",
                 null);
     }
@@ -121,24 +117,20 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanImportMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "member.import",
                 offeringResource(offeringId),
-                PermissionCode.MEMBER_MANAGE,
-                resolveOfferingScope(offeringId),
                 "当前用户无权导入课程成员",
                 AuditAction.COURSE_MEMBERS_IMPORTED);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageAssignments(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "task.edit",
                 offeringResource(offeringId),
-                PermissionCode.ASSIGNMENT_UPDATE,
-                resolveOfferingScope(offeringId),
                 "当前用户无权管理该课程作业",
                 null);
     }
@@ -154,24 +146,20 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanCreateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "task.create",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.ASSIGNMENT_CREATE,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权创建该课程作业",
                 null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanUpdateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "task.edit",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.ASSIGNMENT_UPDATE,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权编辑该课程作业",
                 null);
     }
@@ -179,24 +167,20 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanPublishAssignment(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "task.publish",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.ASSIGNMENT_PUBLISH,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权发布该课程作业",
                 null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanCloseAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "task.close",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.ASSIGNMENT_CLOSE,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权关闭该课程作业",
                 null);
     }
@@ -393,13 +377,11 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageClassFeatures(AuthenticatedUserPrincipal principal, Long teachingClassId) {
-        TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
-        assertPermissionWithFallback(
+        requireTeachingClass(teachingClassId);
+        assertPermissionWithoutFallback(
                 principal,
                 "class.manage",
                 classResource(teachingClassId),
-                PermissionCode.CLASS_MANAGE,
-                resolveTeachingClassScope(teachingClass.getOfferingId(), teachingClassId),
                 "当前用户无权管理该教学班",
                 null);
     }
@@ -838,32 +820,6 @@ public class CourseAuthorizationService {
         if (!hasPermission(principal, permission, scope)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
         }
-    }
-
-    private void assertPermissionWithFallback(
-            AuthenticatedUserPrincipal principal,
-            String permissionCode,
-            AuthorizationResourceRef resourceRef,
-            PermissionCode legacyPermission,
-            ScopeRef legacyScope,
-            String message,
-            AuditAction deniedAuditAction) {
-        AuthorizationResult result =
-                permissionAuthorizationService.authorize(principal, permissionCode, resourceRef, currentContext());
-        if (result.allowed()) {
-            return;
-        }
-        if (!"DENY_NO_ROLE_BINDING".equals(result.reasonCode())) {
-            recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
-        }
-        if (canFallbackToLegacyAuthorization(principal)
-                && legacyPermission != null
-                && hasPermission(principal, legacyPermission, legacyScope)) {
-            return;
-        }
-        recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
-        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
     }
 
     private void assertPermissionWithoutFallback(

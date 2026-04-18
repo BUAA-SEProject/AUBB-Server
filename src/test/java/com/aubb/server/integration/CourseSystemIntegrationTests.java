@@ -10,7 +10,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationContext;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResult;
+import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
+import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.jayway.jsonpath.JsonPath;
+import java.time.OffsetDateTime;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +40,9 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PermissionAuthorizationService permissionAuthorizationService;
 
     @DynamicPropertySource
     static void redisProperties(DynamicPropertyRegistry registry) {
@@ -177,6 +189,80 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                         .param("collegeUnitId", "3"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
+    }
+
+    @Test
+    void initialInstructorRoleBindingShouldExposeMemberManageGrant() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        Integer bindingCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM role_bindings rb
+                JOIN roles r ON r.id = rb.role_id
+                WHERE rb.user_id = 4
+                  AND rb.scope_type = 'offering'
+                  AND rb.scope_id = ?
+                  AND rb.status = 'ACTIVE'
+                  AND r.code = 'offering_teacher'
+                """,
+                Integer.class,
+                offeringId);
+        Integer grantCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM role_bindings rb
+                JOIN roles r ON r.id = rb.role_id
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE rb.user_id = 4
+                  AND rb.scope_type = 'offering'
+                  AND rb.scope_id = ?
+                  AND rb.status = 'ACTIVE'
+                  AND r.code = 'offering_teacher'
+                  AND p.code = 'member.manage'
+                """,
+                Integer.class,
+                offeringId);
+
+        assertThat(bindingCount).isEqualTo(1);
+        assertThat(grantCount).isEqualTo(1);
+    }
+
+    @Test
+    void initialInstructorShouldBeAuthorizedToManageMembersByPermissionCore() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                4L,
+                "teacher-main",
+                "Teacher Main",
+                2L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        AuthorizationResult result = permissionAuthorizationService.authorize(
+                principal,
+                "member.manage",
+                new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId),
+                AuthorizationContext.of(OffsetDateTime.now()));
+
+        assertThat(result.allowed()).withFailMessage(result.reasonCode()).isTrue();
     }
 
     @Test
