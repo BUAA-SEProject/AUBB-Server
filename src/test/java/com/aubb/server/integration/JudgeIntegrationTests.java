@@ -116,6 +116,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "字符串反转实验");
@@ -182,6 +183,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-RQ-DENY", "重判限制班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
         grantRoleBinding(5L, "offering_ta", "offering", offeringId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
         offeringTaToken = login("offering-ta", "Password123");
 
@@ -222,6 +224,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "大小写转换实验");
@@ -253,6 +256,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "运行失败实验");
@@ -285,6 +289,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "失败场景实验");
@@ -315,6 +320,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "报告接口实验");
@@ -362,6 +368,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-MASK", "脱敏班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "报告字段脱敏实验");
@@ -425,6 +432,42 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
     }
 
     @Test
+    void activeStudentWithoutRoleBindingsCannotReadOwnJudgeJobs() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-HIS", "判题历史班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "判题历史收口实验");
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentToken, assignmentId, "print(input()[::-1])");
+        waitForLatestJudgeJobTerminal(submissionId);
+        Long judgeJobId = jdbcTemplate.queryForObject(
+                "SELECT id FROM judge_jobs WHERE submission_id = ? ORDER BY id DESC LIMIT 1", Long.class, submissionId);
+
+        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 4L);
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/api/v1/me/judge-jobs/{judgeJobId}/report", judgeJobId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void judgeJobReportUsesCacheAfterFirstSuccessfulRead() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -436,6 +479,7 @@ class JudgeIntegrationTests extends AbstractRealJudgeIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-CACHE", "缓存班", 2024);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        teacherToken = login("teacher-main", "Password123");
         studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJudgeAssignment(teacherToken, offeringId, classId, "缓存报告实验");

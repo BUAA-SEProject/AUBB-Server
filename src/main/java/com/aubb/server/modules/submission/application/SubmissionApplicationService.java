@@ -13,8 +13,7 @@ import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
-import com.aubb.server.modules.course.domain.member.CourseMemberRole;
+import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
@@ -64,7 +63,7 @@ public class SubmissionApplicationService {
     private final AssignmentMapper assignmentMapper;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
-    private final CourseAuthorizationService courseAuthorizationService;
+    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final SensitiveOperationAuditService sensitiveOperationAuditService;
@@ -430,8 +429,8 @@ public class SubmissionApplicationService {
     }
 
     private boolean canReadOwnSubmissionHistory(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
-        return readPathAuthorizationService.canReadAssignment(principal, "submission.read", assignment)
-                || courseAuthorizationService.hasReadableStudentMembership(
+        return readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
+                || courseMemberAccessPolicyService.hasHistoricalReadableStudentMembership(
                         principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId());
     }
 
@@ -439,27 +438,22 @@ public class SubmissionApplicationService {
             AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
         ReadPathAuthorizationService.TeachingReadScope scope = readPathAuthorizationService.resolveTeachingReadScope(
                 principal, "submission.read", assignment.getOfferingId());
-        if (readPathAuthorizationService.canReadAssignment(principal, "submission.read", assignment)) {
-            return scope;
-        }
-        if (!courseAuthorizationService.canReadSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        boolean allowed = assignment.getTeachingClassId() == null
+                ? scope.canReadSharedOfferingResource()
+                : scope.canReadClass(assignment.getTeachingClassId());
+        if (!allowed) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
         }
-        return ReadPathAuthorizationService.TeachingReadScope.offeringWide(assignment.getOfferingId());
+        return scope;
     }
 
     private boolean canReadTeacherSubmission(AuthenticatedUserPrincipal principal, SubmissionEntity submission) {
-        return readPathAuthorizationService.canReadSubmission(principal, "submission.read", submission)
-                || courseAuthorizationService.canReadSubmission(
-                        principal, submission.getOfferingId(), submission.getTeachingClassId());
+        return readPathAuthorizationService.canReadSubmission(principal, "submission.read", submission);
     }
 
     private boolean canReadSensitiveTeacherSubmission(
             AuthenticatedUserPrincipal principal, SubmissionEntity submission) {
-        return readPathAuthorizationService.canReadSensitiveSubmission(principal, submission)
-                || courseAuthorizationService.canReadSensitiveSubmission(
-                        principal, submission.getOfferingId(), submission.getTeachingClassId());
+        return readPathAuthorizationService.canReadSensitiveSubmission(principal, submission);
     }
 
     private SubmissionArtifactView toArtifactView(SubmissionArtifactEntity entity) {
@@ -531,11 +525,8 @@ public class SubmissionApplicationService {
         if (!AssignmentStatus.PUBLISHED.name().equals(assignment.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ASSIGNMENT_UNAVAILABLE", "当前作业暂不允许提交");
         }
-        if (!courseAuthorizationService.hasActiveMemberRole(
-                principal.getUserId(),
-                assignment.getOfferingId(),
-                assignment.getTeachingClassId(),
-                CourseMemberRole.STUDENT)) {
+        if (!courseMemberAccessPolicyService.hasActiveStudentMembership(
+                principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权提交该作业");
         }
     }

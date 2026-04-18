@@ -14,8 +14,7 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
-import com.aubb.server.modules.course.domain.member.CourseMemberRole;
+import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.judge.application.JudgeArtifactStorageService;
@@ -69,8 +68,8 @@ public class ProgrammingSampleRunApplicationService {
     private final SubmissionArtifactMapper submissionArtifactMapper;
     private final ProgrammingWorkspaceMapper programmingWorkspaceMapper;
     private final ProgrammingWorkspaceRevisionMapper programmingWorkspaceRevisionMapper;
-    private final CourseAuthorizationService courseAuthorizationService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
+    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final JudgeExecutionService judgeExecutionService;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
@@ -92,8 +91,8 @@ public class ProgrammingSampleRunApplicationService {
             Long workspaceRevisionId,
             AuthenticatedUserPrincipal principal) {
         OffsetDateTime now = OffsetDateTime.now();
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
-        requireRunnableAssignment(context.assignment(), principal, now);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.run");
 
         ProgrammingSampleRunInputMode inputMode =
                 resolveInputMode(stdinText, expectedStdout, context.question().config());
@@ -211,7 +210,7 @@ public class ProgrammingSampleRunApplicationService {
     @Transactional(readOnly = true)
     public List<ProgrammingSampleRunView> listMySampleRuns(
             Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
-        requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         return programmingSampleRunMapper
                 .selectList(Wrappers.<ProgrammingSampleRunEntity>lambdaQuery()
                         .eq(ProgrammingSampleRunEntity::getAssignmentId, assignmentId)
@@ -227,7 +226,7 @@ public class ProgrammingSampleRunApplicationService {
     @Transactional(readOnly = true)
     public ProgrammingSampleRunView getMySampleRun(
             Long assignmentId, Long questionId, Long sampleRunId, AuthenticatedUserPrincipal principal) {
-        requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         ProgrammingSampleRunEntity entity = programmingSampleRunMapper.selectById(sampleRunId);
         if (entity == null
                 || !Objects.equals(entity.getAssignmentId(), assignmentId)
@@ -295,15 +294,22 @@ public class ProgrammingSampleRunApplicationService {
     }
 
     private ProgrammingQuestionContext requireVisibleProgrammingQuestion(
-            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
+            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal, String permissionCode) {
         AssignmentEntity assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
+        boolean activeStudentMembership = courseMemberAccessPolicyService.hasActiveStudentMembership(
+                principal.getUserId(), assignment.getOfferingId(), assignment.getTeachingClassId());
+        boolean hasScopedTaskRead = readPathAuthorizationService.hasScopedAccess(
+                principal, "task.read", assignment.getOfferingId(), assignment.getTeachingClassId());
+        boolean hasScopedIdeAccess = readPathAuthorizationService.hasScopedAccess(
+                principal, permissionCode, assignment.getOfferingId(), assignment.getTeachingClassId());
         if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || (!readPathAuthorizationService.canReadAssignment(principal, "task.read", assignment)
-                        && !courseAuthorizationService.canViewAssignment(
-                                principal, assignment.getOfferingId(), assignment.getTeachingClassId()))) {
+                || (!readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
+                        && !(activeStudentMembership && hasScopedTaskRead))
+                || (!readPathAuthorizationService.canAccessAssignmentResource(principal, permissionCode, assignment)
+                        && !(activeStudentMembership && hasScopedIdeAccess))) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题试运行");
         }
         AssignmentQuestionSnapshot question =
@@ -319,23 +325,6 @@ public class ProgrammingSampleRunApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_CONFIG_MISSING", "当前编程题缺少运行配置");
         }
         return new ProgrammingQuestionContext(assignment, question);
-    }
-
-    private void requireRunnableAssignment(
-            AssignmentEntity assignment, AuthenticatedUserPrincipal principal, OffsetDateTime now) {
-        if (!AssignmentStatus.PUBLISHED.name().equals(assignment.getStatus())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ASSIGNMENT_UNAVAILABLE", "当前作业暂不允许试运行");
-        }
-        if (!courseAuthorizationService.hasActiveMemberRole(
-                principal.getUserId(),
-                assignment.getOfferingId(),
-                assignment.getTeachingClassId(),
-                CourseMemberRole.STUDENT)) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权执行该编程题试运行");
-        }
-        if (now.isBefore(assignment.getOpenAt()) || now.isAfter(assignment.getDueAt())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_WINDOW_INVALID", "当前不在作业开放提交时间内");
-        }
     }
 
     private ProgrammingSampleRunInputMode resolveInputMode(

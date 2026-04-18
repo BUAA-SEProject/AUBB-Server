@@ -3,6 +3,10 @@ package com.aubb.server.modules.identityaccess.application.authz;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.identityaccess.application.auth.AuthSessionApplicationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationContext;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.authz.view.AuthzGroupMemberView;
 import com.aubb.server.modules.identityaccess.application.authz.view.AuthzGroupView;
 import com.aubb.server.modules.identityaccess.domain.authz.AuthorizationScopeType;
@@ -31,8 +35,7 @@ public class AuthzGroupApplicationService {
     private final AuthGroupMapper authGroupMapper;
     private final AuthGroupMemberMapper authGroupMemberMapper;
     private final UserMapper userMapper;
-    private final AuthorizationService authorizationService;
-    private final AuthzScopeResolutionService authzScopeResolutionService;
+    private final PermissionAuthorizationService permissionAuthorizationService;
     private final AuthSessionApplicationService authSessionApplicationService;
 
     @Transactional
@@ -147,9 +150,10 @@ public class AuthzGroupApplicationService {
             AuthorizationScopeType scopeType,
             Long scopeRefId,
             String message) {
-        ScopeRef scope = authzScopeResolutionService.resolveScope(scopeType, scopeRefId);
-        if (!authorizationService
-                .decide(AuthorizationRequest.forPermission(principal, permission, scope))
+        AuthorizationResourceRef resourceRef =
+                new AuthorizationResourceRef(AuthorizationResourceType.valueOf(scopeType.name()), scopeRefId);
+        if (!permissionAuthorizationService
+                .authorize(principal, permission.code(), resourceRef, AuthorizationContext.of(OffsetDateTime.now()))
                 .allowed()) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
         }

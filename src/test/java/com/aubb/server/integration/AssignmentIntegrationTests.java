@@ -296,6 +296,31 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void activeStudentWithoutRoleBindingsCannotReadMyAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(teacherToken, offeringId, classAId, "角色绑定收口任务");
+        publishAssignment(teacherToken, assignmentId);
+
+        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 4L);
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
         jdbcTemplate.update(
                 """

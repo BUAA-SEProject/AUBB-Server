@@ -209,12 +209,10 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageJudgeProfiles(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "judge.config",
                 offeringResource(offeringId),
-                PermissionCode.JUDGE_PROFILE_MANAGE,
-                resolveOfferingScope(offeringId),
                 "当前用户无权管理评测环境",
                 AuditAction.JUDGE_CONFIG_CHANGE);
     }
@@ -336,12 +334,10 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanGradeSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "submission.grade",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.SUBMISSION_GRADE,
-                resolveSubmissionScope(offeringId, teachingClassId),
                 "当前用户无权批改该提交",
                 null);
     }
@@ -387,12 +383,10 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanRejudgeSubmission(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "judge.rejudge",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.SUBMISSION_REJUDGE,
-                resolveSubmissionScope(offeringId, teachingClassId),
                 "当前用户无权重判该提交",
                 AuditAction.JUDGE_REJUDGE);
     }
@@ -462,36 +456,30 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanPublishGrades(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "grade.publish",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.GRADE_PUBLISH,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权发布成绩",
                 AuditAction.GRADE_PUBLISH);
     }
 
     @Transactional(readOnly = true)
     public void assertCanImportGrades(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "grade.import",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.SUBMISSION_GRADE,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权导入成绩",
                 AuditAction.ASSIGNMENT_GRADES_IMPORTED);
     }
 
     @Transactional(readOnly = true)
     public void assertCanOverrideGrade(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithFallback(
+        assertPermissionWithoutFallback(
                 principal,
                 "grade.override",
                 teachingResource(offeringId, teachingClassId),
-                PermissionCode.GRADE_OVERRIDE,
-                resolveAssignmentScope(offeringId, teachingClassId),
                 "当前用户无权覆盖成绩",
                 AuditAction.GRADE_OVERRIDE);
     }
@@ -872,6 +860,21 @@ public class CourseAuthorizationService {
         if (canFallbackToLegacyAuthorization(principal)
                 && legacyPermission != null
                 && hasPermission(principal, legacyPermission, legacyScope)) {
+            return;
+        }
+        recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+    }
+
+    private void assertPermissionWithoutFallback(
+            AuthenticatedUserPrincipal principal,
+            String permissionCode,
+            AuthorizationResourceRef resourceRef,
+            String message,
+            AuditAction deniedAuditAction) {
+        AuthorizationResult result =
+                permissionAuthorizationService.authorize(principal, permissionCode, resourceRef, currentContext());
+        if (result.allowed()) {
             return;
         }
         recordDeniedAudit(principal, deniedAuditAction, permissionCode, resourceRef, result);

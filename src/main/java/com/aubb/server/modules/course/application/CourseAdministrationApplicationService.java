@@ -76,6 +76,7 @@ public class CourseAdministrationApplicationService {
     private final OrganizationApplicationService organizationApplicationService;
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
+    private final CourseMemberRoleBindingSyncService courseMemberRoleBindingSyncService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final CacheService cacheService;
 
@@ -380,6 +381,7 @@ public class CourseAdministrationApplicationService {
             member.setSourceType(CourseMemberSourceType.MANUAL.name());
             member.setJoinedAt(OffsetDateTime.now());
             courseMemberMapper.insert(member);
+            courseMemberRoleBindingSyncService.sync(member);
             userOrgMembershipApplicationService.upsertMembership(
                     instructorUserId,
                     offering.getOrgCourseUnitId(),

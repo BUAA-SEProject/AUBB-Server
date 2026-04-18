@@ -20,6 +20,7 @@ import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
@@ -60,6 +61,7 @@ public class AssignmentApplicationService {
     private final AssignmentJudgeCaseMapper assignmentJudgeCaseMapper;
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
+    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final CourseAuthorizationService courseAuthorizationService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
     private final PermissionAuthorizationService permissionAuthorizationService;
@@ -384,10 +386,16 @@ public class AssignmentApplicationService {
     @Transactional(readOnly = true)
     public AssignmentView getMyAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
+        boolean readableByActiveStudentState = courseMemberAccessPolicyService.hasActiveStudentMembership(
+                        principal.getUserId(), entity.getOfferingId(), entity.getTeachingClassId())
+                && readPathAuthorizationService.hasScopedAccess(
+                        principal, "task.read", entity.getOfferingId(), entity.getTeachingClassId());
+        boolean readableByHistoricalStudentState = courseMemberAccessPolicyService.hasHistoricalReadableStudentMembership(
+                principal.getUserId(), entity.getOfferingId(), entity.getTeachingClassId());
         if (AssignmentStatus.DRAFT.name().equals(entity.getStatus())
-                || (!readPathAuthorizationService.canReadAssignment(principal, "task.read", entity)
-                        && !courseAuthorizationService.hasReadableStudentMembership(
-                                principal.getUserId(), entity.getOfferingId(), entity.getTeachingClassId()))) {
+                || (!readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", entity)
+                        && !readableByActiveStudentState
+                        && !readableByHistoricalStudentState)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
         }
         CourseOfferingEntity offering = requireOffering(entity.getOfferingId());

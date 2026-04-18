@@ -14,7 +14,6 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
@@ -61,7 +60,6 @@ public class ProgrammingWorkspaceApplicationService {
     private final AssignmentMapper assignmentMapper;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final SubmissionArtifactMapper submissionArtifactMapper;
-    private final CourseAuthorizationService courseAuthorizationService;
     private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectMapper objectMapper;
@@ -69,7 +67,8 @@ public class ProgrammingWorkspaceApplicationService {
     @Transactional(readOnly = true)
     public ProgrammingWorkspaceView getMyWorkspace(
             Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         WorkspaceState workspaceState = loadWorkspaceState(context, principal.getUserId());
         return toWorkspaceView(context.assignment(), context.question(), workspaceState);
     }
@@ -88,7 +87,8 @@ public class ProgrammingWorkspaceApplicationService {
             ProgrammingWorkspaceSaveKind saveKind,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
         List<Long> normalizedArtifactIds = normalizeArtifactIds(artifactIds);
         List<SubmissionArtifactEntity> artifacts =
@@ -127,7 +127,8 @@ public class ProgrammingWorkspaceApplicationService {
             String lastStdinText,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         if (operations == null || operations.isEmpty()) {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "PROGRAMMING_WORKSPACE_OPERATIONS_REQUIRED", "工作区操作不能为空");
@@ -162,7 +163,8 @@ public class ProgrammingWorkspaceApplicationService {
     @Transactional(readOnly = true)
     public List<ProgrammingWorkspaceRevisionSummaryView> listMyWorkspaceRevisions(
             Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         ProgrammingWorkspaceEntity entity = loadWorkspaceEntity(questionId, principal.getUserId());
         if (entity == null) {
             return List.of();
@@ -182,7 +184,8 @@ public class ProgrammingWorkspaceApplicationService {
     @Transactional(readOnly = true)
     public ProgrammingWorkspaceRevisionView getMyWorkspaceRevision(
             Long assignmentId, Long questionId, Long revisionId, AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         ProgrammingWorkspaceRevisionEntity revision =
                 requireWorkspaceRevision(assignmentId, questionId, revisionId, principal.getUserId());
         return toRevisionView(context.assignment(), context.question(), revision);
@@ -195,7 +198,8 @@ public class ProgrammingWorkspaceApplicationService {
             Long revisionId,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
         ProgrammingWorkspaceRevisionEntity revision =
                 requireWorkspaceRevision(assignmentId, questionId, revisionId, principal.getUserId());
@@ -229,7 +233,8 @@ public class ProgrammingWorkspaceApplicationService {
             ProgrammingLanguage programmingLanguage,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
         WorkspaceDraft templateDraft = buildTemplateDraft(
                 context.question().config(),
@@ -503,15 +508,14 @@ public class ProgrammingWorkspaceApplicationService {
     }
 
     private ProgrammingQuestionContext requireVisibleProgrammingQuestion(
-            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
+            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal, String permissionCode) {
         AssignmentEntity assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
         if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || (!readPathAuthorizationService.canReadAssignment(principal, "task.read", assignment)
-                        && !courseAuthorizationService.canViewAssignment(
-                                principal, assignment.getOfferingId(), assignment.getTeachingClassId()))) {
+                || !readPathAuthorizationService.canAccessAssignmentResource(principal, "task.read", assignment)
+                || !readPathAuthorizationService.canAccessAssignmentResource(principal, permissionCode, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题工作区");
         }
         AssignmentQuestionSnapshot question =

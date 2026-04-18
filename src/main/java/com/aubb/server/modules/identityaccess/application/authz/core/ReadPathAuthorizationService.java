@@ -142,6 +142,26 @@ public class ReadPathAuthorizationService {
     }
 
     @Transactional(readOnly = true)
+    public void assertCanAccessAssignmentResource(
+            AuthenticatedUserPrincipal principal, String permissionCode, AssignmentEntity assignment, String message) {
+        if (!canAccessAssignmentResource(principal, permissionCode, assignment)) {
+            throw forbidden(message);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canAccessAssignmentResource(
+            AuthenticatedUserPrincipal principal, String permissionCode, AssignmentEntity assignment) {
+        return permissionAuthorizationService
+                .authorize(
+                        principal,
+                        permissionCode,
+                        new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignment.getId()),
+                        currentContext())
+                .allowed();
+    }
+
+    @Transactional(readOnly = true)
     public boolean canReadAssignment(
             AuthenticatedUserPrincipal principal, String permissionCode, AssignmentEntity assignment) {
         TeachingReadScope scope = resolveTeachingReadScope(principal, permissionCode, assignment.getOfferingId());
@@ -157,6 +177,18 @@ public class ReadPathAuthorizationService {
         if (!canReadSubmission(principal, permissionCode, submission)) {
             throw forbidden(message);
         }
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canAccessSubmissionResource(
+            AuthenticatedUserPrincipal principal, String permissionCode, SubmissionEntity submission) {
+        return permissionAuthorizationService
+                .authorize(
+                        principal,
+                        permissionCode,
+                        new AuthorizationResourceRef(AuthorizationResourceType.SUBMISSION, submission.getId()),
+                        currentContext())
+                .allowed();
     }
 
     @Transactional(readOnly = true)
@@ -226,6 +258,32 @@ public class ReadPathAuthorizationService {
         if (!hasActiveMemberInClasses(studentUserId, offeringId, scope.classIds())) {
             throw forbidden(message);
         }
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasScopedAccess(
+            AuthenticatedUserPrincipal principal, String permissionCode, Long offeringId, Long teachingClassId) {
+        List<AuthorizationScopeFilterClause> clauses = loadClauses(principal, permissionCode);
+        if (clauses.isEmpty()) {
+            return false;
+        }
+        if (teachingClassId != null) {
+            return isAnyClauseCovered(clauses, AuthorizationScopeType.CLASS, teachingClassId);
+        }
+        if (offeringId == null) {
+            return clauses.stream().anyMatch(clause -> clause.scope().type() == AuthorizationScopeType.PLATFORM);
+        }
+        ScopeRef offeringScope = authzScopeResolutionService.resolveScope(AuthorizationScopeType.OFFERING, offeringId);
+        if (clauses.stream().anyMatch(clause -> isCoveredBy(offeringScope, clause.scope()))) {
+            return true;
+        }
+        return teachingClassMapper
+                        .selectList(Wrappers.<TeachingClassEntity>lambdaQuery()
+                                .select(TeachingClassEntity::getId)
+                                .eq(TeachingClassEntity::getOfferingId, offeringId))
+                        .stream()
+                        .map(TeachingClassEntity::getId)
+                        .anyMatch(classId -> isAnyClauseCovered(clauses, AuthorizationScopeType.CLASS, classId));
     }
 
     private List<AuthorizationScopeFilterClause> loadClauses(

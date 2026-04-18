@@ -135,6 +135,74 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
+    void assertCanOverrideGradeShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("grade.override"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), true));
+
+        assertThatThrownBy(() -> service.assertCanOverrideGrade(principal, 12L, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权覆盖成绩");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
+    void assertCanManageJudgeProfilesShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(permissionAuthorizationService.authorize(eq(principal), eq("judge.config"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), true));
+
+        assertThatThrownBy(() -> service.assertCanManageJudgeProfiles(principal, 12L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权管理评测环境");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
     void loadsFullAssignmentAccessOfferingIdsFromAdminInstructorAndOfferingTaScopes() {
         when(governanceAuthorizationService.loadManageableOrgUnitIds(any())).thenReturn(Set.of(20L, 30L));
         when(courseOfferingMapper.selectList(any())).thenReturn(List.of(offering(7L, 20L, 99L)));

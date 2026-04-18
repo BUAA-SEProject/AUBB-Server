@@ -479,6 +479,45 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void activeStudentWithoutRoleBindingsCannotReadOwnSubmissionHistory() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-HIS", "历史班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classAId,
+                "当前学生提交历史",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                2);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "当前学生提交正文");
+
+        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 4L);
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void transferredStudentCanReadOwnHistoryButCannotSubmitNewAttempt() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -755,6 +794,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, assignmentId);
 
         Long submissionId = createSubmission(studentAToken, assignmentId, "这次提交不参与自动评测");
+        teacherToken = login("teacher-main", "Password123");
 
         mockMvc.perform(get("/api/v1/me/submissions/{submissionId}/judge-jobs", submissionId)
                         .header("Authorization", "Bearer " + studentAToken))

@@ -7,6 +7,7 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.course.application.CourseMemberAccessPolicyService;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.grading.application.GradingApplicationService;
 import com.aubb.server.modules.grading.application.GradingMetricsRecorder;
@@ -15,6 +16,7 @@ import com.aubb.server.modules.grading.domain.appeal.GradeAppealStatus;
 import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
 import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.notification.application.NotificationDispatchService;
@@ -46,7 +48,9 @@ public class GradeAppealApplicationService {
     private final SubmissionAnswerMapper submissionAnswerMapper;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
     private final UserMapper userMapper;
+    private final CourseMemberAccessPolicyService courseMemberAccessPolicyService;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final GradingApplicationService gradingApplicationService;
     private final GradingMetricsRecorder gradingMetricsRecorder;
     private final AuditLogApplicationService auditLogApplicationService;
@@ -60,8 +64,9 @@ public class GradeAppealApplicationService {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权发起该成绩申诉");
         }
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), submission.getTeachingClassId())) {
+        if (!readPathAuthorizationService.canAccessSubmissionResource(principal, "submission.read", submission)
+                && !courseMemberAccessPolicyService.hasHistoricalReadableStudentMembership(
+                        principal.getUserId(), assignment.getOfferingId(), submission.getTeachingClassId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权发起该成绩申诉");
         }
         if (assignment.getGradePublishedAt() == null) {
@@ -126,7 +131,9 @@ public class GradeAppealApplicationService {
 
     @Transactional(readOnly = true)
     public List<GradeAppealView> listMyAppeals(Long offeringId, String status, AuthenticatedUserPrincipal principal) {
-        if (!courseAuthorizationService.isActiveCourseMember(principal.getUserId(), offeringId)) {
+        if (!readPathAuthorizationService.hasScopedAccess(principal, "appeal.read", offeringId, null)
+                && !courseMemberAccessPolicyService.hasHistoricalReadableStudentMembership(
+                        principal.getUserId(), offeringId, null)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看成绩申诉");
         }
         GradeAppealStatus statusFilter = parseStatus(status);

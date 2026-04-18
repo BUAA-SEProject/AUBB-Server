@@ -81,6 +81,7 @@ public class CourseTeachingApplicationService {
     private final OrganizationApplicationService organizationApplicationService;
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
+    private final CourseMemberRoleBindingSyncService courseMemberRoleBindingSyncService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final AuthSessionApplicationService authSessionApplicationService;
     private final CacheService cacheService;
@@ -612,6 +613,7 @@ public class CourseTeachingApplicationService {
         } else {
             courseMemberMapper.updateById(entity);
         }
+        courseMemberRoleBindingSyncService.sync(entity);
 
         Long membershipOrgUnitId =
                 teachingClass == null ? offering.getOrgCourseUnitId() : teachingClass.getOrgClassUnitId();
@@ -774,6 +776,7 @@ public class CourseTeachingApplicationService {
             member.setLeftAt(now);
         }
         courseMemberMapper.updateById(member);
+        courseMemberRoleBindingSyncService.sync(member);
 
         TeachingClassEntity teachingClass =
                 member.getTeachingClassId() == null ? null : requireTeachingClass(member.getTeachingClassId());
