@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthzScopeResolutionService;
+import com.aubb.server.modules.identityaccess.application.authz.ScopeRef;
 import com.aubb.server.modules.identityaccess.application.authz.core.rule.ArchivedAbacRule;
 import com.aubb.server.modules.identityaccess.application.authz.core.rule.OwnerAbacRule;
 import com.aubb.server.modules.identityaccess.application.authz.core.rule.PublishedAbacRule;
@@ -38,6 +40,9 @@ class PermissionAuthorizationServiceTests {
     @Mock
     private ResourceOwnershipResolutionService resourceOwnershipResolutionService;
 
+    @Mock
+    private AuthzScopeResolutionService authzScopeResolutionService;
+
     private PermissionAuthorizationService authorizationService;
 
     private final AuthenticatedUserPrincipal principal =
@@ -48,6 +53,7 @@ class PermissionAuthorizationServiceTests {
         authorizationService = new PermissionAuthorizationService(
                 roleBindingGrantQueryMapper,
                 resourceOwnershipResolutionService,
+                authzScopeResolutionService,
                 new DefaultRolePermissionConstraintResolver(),
                 List.of(
                         new TeachingScopeAbacRule(),
@@ -85,6 +91,35 @@ class PermissionAuthorizationServiceTests {
         assertThat(result.matchedRoles()).containsExactly("offering_teacher");
         assertThat(result.matchedScopes()).containsExactly(AuthorizationScope.of(AuthorizationScopeType.OFFERING, 12L));
         assertThat(result.needAudit()).isTrue();
+    }
+
+    @Test
+    void authorizeShouldAllowSharedOfferingAssignmentViaClassScopedGrant() {
+        AuthorizationResourceRef resourceRef = new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, 301L);
+        when(roleBindingGrantQueryMapper.selectActiveGrantRowsByUserIdAndPermissionCode(eq(1L), eq("task.read"), any()))
+                .thenReturn(List.of(row("student", AuthorizationScopeType.CLASS, 101L, "task.read", false, "{}")));
+        when(resourceOwnershipResolutionService.resolve(resourceRef))
+                .thenReturn(new ResolvedAuthorizationResource(
+                        resourceRef,
+                        AuthorizationScopePath.forOffering(1L, 2L, 3L, 12L),
+                        1L,
+                        true,
+                        false,
+                        NOW.minusHours(1),
+                        NOW.plusDays(1),
+                        false));
+        when(authzScopeResolutionService.resolveScope(AuthorizationScopeType.CLASS, 101L))
+                .thenReturn(new ScopeRef(
+                        AuthorizationScopeType.CLASS,
+                        101L,
+                        List.of(new ScopeRef(AuthorizationScopeType.OFFERING, 12L))));
+
+        AuthorizationResult result =
+                authorizationService.authorize(principal, "task.read", resourceRef, AuthorizationContext.of(NOW));
+
+        assertThat(result.allowed()).isTrue();
+        assertThat(result.reasonCode()).isEqualTo("ALLOW_SHARED_OFFERING_CLASS_SCOPE_COMPAT");
+        assertThat(result.matchedScopes()).containsExactly(AuthorizationScope.of(AuthorizationScopeType.CLASS, 101L));
     }
 
     @Test

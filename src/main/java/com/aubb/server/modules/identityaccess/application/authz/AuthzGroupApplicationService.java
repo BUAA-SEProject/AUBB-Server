@@ -6,6 +6,7 @@ import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUser
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationContext;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResult;
 import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.authz.view.AuthzGroupMemberView;
 import com.aubb.server.modules.identityaccess.application.authz.view.AuthzGroupView;
@@ -36,6 +37,7 @@ public class AuthzGroupApplicationService {
     private final AuthGroupMemberMapper authGroupMemberMapper;
     private final UserMapper userMapper;
     private final PermissionAuthorizationService permissionAuthorizationService;
+    private final AuthzScopeResolutionService authzScopeResolutionService;
     private final AuthSessionApplicationService authSessionApplicationService;
 
     @Transactional
@@ -150,13 +152,15 @@ public class AuthzGroupApplicationService {
             AuthorizationScopeType scopeType,
             Long scopeRefId,
             String message) {
+        ScopeRef scope = authzScopeResolutionService.resolveScope(scopeType, scopeRefId);
         AuthorizationResourceRef resourceRef =
                 new AuthorizationResourceRef(AuthorizationResourceType.valueOf(scopeType.name()), scopeRefId);
-        if (!permissionAuthorizationService
-                .authorize(principal, permission.code(), resourceRef, AuthorizationContext.of(OffsetDateTime.now()))
-                .allowed()) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+        AuthorizationResult result = permissionAuthorizationService.authorize(
+                principal, permission.code(), resourceRef, AuthorizationContext.of(OffsetDateTime.now()));
+        if (result.allowed()) {
+            return;
         }
+        throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
     }
 
     private void assertValidExpiresAt(OffsetDateTime expiresAt) {

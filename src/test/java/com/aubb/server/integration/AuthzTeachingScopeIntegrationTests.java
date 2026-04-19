@@ -17,7 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzTeachingScopeIntegrationTests extends AbstractIntegrationTest {
+class AuthzTeachingScopeIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -211,6 +211,7 @@ class AuthzTeachingScopeIntegrationTests extends AbstractIntegrationTest {
         Long termId = createTerm(schoolAdminToken);
         Long catalogId = createCatalog(engAdminToken);
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        teacherToken = login("teacher-main", "Password123");
         Long a1ClassId = createTeachingClass(teacherToken, offeringId, "A1", "A1班", 2024);
         Long a2ClassId = createTeachingClass(teacherToken, offeringId, "A2", "A2班", 2024);
 

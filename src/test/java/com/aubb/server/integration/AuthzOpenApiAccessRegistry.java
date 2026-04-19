@@ -138,7 +138,10 @@ final class AuthzOpenApiAccessRegistry {
             rule("PUT", "^/api/v1/teacher/assignments/\\{[^/]+}/paper$", "assignment.update"),
             rule("POST", "^/api/v1/teacher/assignments/\\{[^/]+}/publish$", "assignment.publish"),
             rule("POST", "^/api/v1/teacher/assignments/\\{[^/]+}/close$", "assignment.close"),
-            rule("POST", "^/api/v1/teacher/course-offerings/\\{[^/]+}/question-bank/questions$", "question_bank.manage"),
+            rule(
+                    "POST",
+                    "^/api/v1/teacher/course-offerings/\\{[^/]+}/question-bank/questions$",
+                    "question_bank.manage"),
             rule("GET", "^/api/v1/teacher/course-offerings/\\{[^/]+}/question-bank/questions$", "question.read"),
             rule("GET", "^/api/v1/teacher/course-offerings/\\{[^/]+}/question-bank/categories$", "question.read"),
             rule("GET", "^/api/v1/teacher/course-offerings/\\{[^/]+}/question-bank/tags$", "question.read"),

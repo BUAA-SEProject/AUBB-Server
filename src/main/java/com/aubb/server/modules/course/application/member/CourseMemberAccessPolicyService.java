@@ -1,4 +1,4 @@
-package com.aubb.server.modules.course.application;
+package com.aubb.server.modules.course.application.member;
 
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
@@ -31,11 +31,7 @@ public class CourseMemberAccessPolicyService {
     @Transactional(readOnly = true)
     public boolean hasHistoricalReadableStudentMembership(Long userId, Long offeringId, Long teachingClassId) {
         return hasMemberRoleWithStatuses(
-                userId,
-                offeringId,
-                teachingClassId,
-                CourseMemberRole.STUDENT,
-                HISTORY_READABLE_STUDENT_STATUSES);
+                userId, offeringId, teachingClassId, CourseMemberRole.STUDENT, HISTORY_READABLE_STUDENT_STATUSES);
     }
 
     @Transactional(readOnly = true)

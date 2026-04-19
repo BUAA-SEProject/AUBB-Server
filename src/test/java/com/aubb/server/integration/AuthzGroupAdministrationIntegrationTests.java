@@ -18,7 +18,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzGroupAdministrationIntegrationTests extends AbstractIntegrationTest {
+class AuthzGroupAdministrationIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -34,6 +34,7 @@ class AuthzGroupAdministrationIntegrationTests extends AbstractIntegrationTest {
                 TRUNCATE TABLE
                     audit_logs,
                     auth_sessions,
+                    role_bindings,
                     auth_group_members,
                     auth_groups,
                     course_members,
@@ -211,6 +212,45 @@ class AuthzGroupAdministrationIntegrationTests extends AbstractIntegrationTest {
                         .header("Authorization", "Bearer " + groupedAdminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.offeringCode").value("CS201-2026SP-01"));
+    }
+
+    @Test
+    void schoolAdminWithoutRoleBindingsShouldBeForbiddenToCreateGroupAndExplainPermission() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(schoolAdminToken);
+        Long offeringId = createOffering(schoolAdminToken, catalogId, termId);
+
+        jdbcTemplate.update("""
+                DELETE FROM role_bindings
+                WHERE user_id = (SELECT id FROM users WHERE username = 'school-admin')
+                """);
+
+        String driftedToken = login("school-admin", "Password123");
+
+        mockMvc.perform(post("/api/v1/admin/auth/groups")
+                        .header("Authorization", "Bearer " + driftedToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "templateCode":"grade-corrector",
+                                  "scopeType":"OFFERING",
+                                  "scopeRefId":%s,
+                                  "displayName":"失效管理员纠错组"
+                                }
+                                """.formatted(offeringId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/api/v1/admin/auth/explain")
+                        .header("Authorization", "Bearer " + driftedToken)
+                        .param("userId", "2")
+                        .param("permission", "GRADE_OVERRIDE")
+                        .param("scopeType", "OFFERING")
+                        .param("scopeRefId", String.valueOf(offeringId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test

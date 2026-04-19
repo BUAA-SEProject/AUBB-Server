@@ -43,8 +43,6 @@ public class RedisEnhancementProperties {
 
     private RateLimit rateLimit = new RateLimit();
 
-    private Realtime realtime = new Realtime();
-
     @AssertTrue(message = "启用 Redis 时 aubb.redis.host 不能为空")
     public boolean isHostValidWhenEnabled() {
         return !enabled || StringUtils.hasText(host);
@@ -94,12 +92,5 @@ public class RedisEnhancementProperties {
         private int limit = 10;
 
         private Duration window = Duration.ofMinutes(1);
-    }
-
-    @Getter
-    @Setter
-    public static class Realtime {
-
-        private boolean enabled = true;
     }
 }

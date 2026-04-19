@@ -32,7 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
-class CourseResourceIntegrationTests extends AbstractIntegrationTest {
+class CourseResourceIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DockerImageName MINIO_IMAGE =
@@ -57,6 +57,8 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private ObjectStorageService objectStorageService;
+
+    private String latestTeacherToken;
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
@@ -117,6 +119,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -141,7 +144,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
         Long classResourceId = uploadResource(teacherToken, offeringId, classAId, "class-a.zip", "A 班样例代码");
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/resources", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items[*].title", containsInAnyOrder("课程大纲", "A 班样例代码")));
@@ -191,7 +194,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
         Long offeringResourceId = uploadResource(teacherToken, offeringId, null, "syllabus.pdf", "课程大纲");
 
         mockMvc.perform(put("/api/v1/teacher/course-classes/{teachingClassId}/features", classAId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -219,7 +222,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
                         .file(file)
                         .param("title", "关闭后资源")
                         .param("teachingClassId", String.valueOf(classAId))
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isForbidden());
     }
 
@@ -254,7 +257,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
                         .file(file)
                         .param("title", title)
                         .param("teachingClassId", teachingClassId == null ? "" : String.valueOf(teachingClassId))
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
@@ -262,7 +265,7 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
 
     private void addStudent(String token, Long offeringId, Long userId, Long teachingClassId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -335,13 +338,14 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -371,5 +375,9 @@ class CourseResourceIntegrationTests extends AbstractIntegrationTest {
     private Long readLong(MvcResult result, String expression) throws Exception {
         Object value = JsonPath.read(result.getResponse().getContentAsString(), expression);
         return value instanceof Integer integer ? integer.longValue() : Long.parseLong(String.valueOf(value));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 }

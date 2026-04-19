@@ -21,7 +21,6 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapp
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
-import com.aubb.server.modules.identityaccess.application.authz.AuthorizationDecision;
 import com.aubb.server.modules.identityaccess.application.authz.AuthorizationService;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResult;
 import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
@@ -610,6 +609,41 @@ class CourseAuthorizationServiceTests {
     }
 
     @Test
+    void assertCanViewLabShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
+        CourseAuthorizationService service = new CourseAuthorizationService(
+                authorizationService,
+                permissionAuthorizationService,
+                sensitiveOperationAuditService,
+                governanceAuthorizationService,
+                courseOfferingMapper,
+                courseOfferingCollegeMapMapper,
+                courseMemberMapper,
+                teachingClassMapper,
+                orgUnitMapper);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "teacher-main",
+                "Teacher Main",
+                20L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        when(teachingClassMapper.selectById(34L)).thenReturn(teachingClass(34L, 12L, true));
+        when(permissionAuthorizationService.authorize(eq(principal), eq("lab.read"), any(), any()))
+                .thenReturn(AuthorizationResult.deny("DENY_NO_ROLE_BINDING", List.of(), List.of(), false));
+
+        assertThatThrownBy(() -> service.assertCanViewLab(principal, 12L, 34L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前用户无权查看该实验");
+        verify(authorizationService, never()).decide(any());
+    }
+
+    @Test
     void assertCanManageAnnouncementsShouldUseModernPermissionBridgeForRoleBindingSnapshotPrincipal() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,
@@ -679,7 +713,6 @@ class CourseAuthorizationServiceTests {
         verify(authorizationService, never()).decide(any());
     }
 
-    @Test
     void assertCanManageLabsShouldNotFallbackToLegacyWhenPrincipalHasNoRoleBindingSnapshot() {
         CourseAuthorizationService service = new CourseAuthorizationService(
                 authorizationService,

@@ -15,7 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzOpenApiPermissionCoverageTests extends AbstractIntegrationTest {
+class AuthzOpenApiPermissionCoverageTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final Set<String> HTTP_METHODS = Set.of("GET", "POST", "PUT", "PATCH", "DELETE");
 

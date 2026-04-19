@@ -1,6 +1,8 @@
 package com.aubb.server.modules.identityaccess.application.authz.core;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthzScopeResolutionService;
+import com.aubb.server.modules.identityaccess.application.authz.ScopeRef;
 import com.aubb.server.modules.identityaccess.domain.authz.AuthorizationScopeType;
 import com.aubb.server.modules.identityaccess.infrastructure.permission.RoleBindingGrantQueryMapper;
 import com.aubb.server.modules.identityaccess.infrastructure.permission.RoleBindingGrantRow;
@@ -14,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -26,9 +29,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class PermissionAuthorizationService {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final Set<String> SHARED_OFFERING_ASSIGNMENT_CLASS_SCOPE_PERMISSION_CODES =
+            Set.of("task.read", "ide.read", "ide.save", "ide.run", "ide.submit");
 
     private final RoleBindingGrantQueryMapper roleBindingGrantQueryMapper;
     private final ResourceOwnershipResolutionService resourceOwnershipResolutionService;
+    private final AuthzScopeResolutionService authzScopeResolutionService;
     private final DefaultRolePermissionConstraintResolver defaultRolePermissionConstraintResolver;
     private final List<AuthorizationAbacRule> authorizationAbacRules;
     private final Clock clock;
@@ -38,11 +44,13 @@ public class PermissionAuthorizationService {
     public PermissionAuthorizationService(
             RoleBindingGrantQueryMapper roleBindingGrantQueryMapper,
             ResourceOwnershipResolutionService resourceOwnershipResolutionService,
+            AuthzScopeResolutionService authzScopeResolutionService,
             DefaultRolePermissionConstraintResolver defaultRolePermissionConstraintResolver,
             List<AuthorizationAbacRule> authorizationAbacRules) {
         this(
                 roleBindingGrantQueryMapper,
                 resourceOwnershipResolutionService,
+                authzScopeResolutionService,
                 defaultRolePermissionConstraintResolver,
                 authorizationAbacRules,
                 Clock.systemUTC());
@@ -51,11 +59,13 @@ public class PermissionAuthorizationService {
     PermissionAuthorizationService(
             RoleBindingGrantQueryMapper roleBindingGrantQueryMapper,
             ResourceOwnershipResolutionService resourceOwnershipResolutionService,
+            AuthzScopeResolutionService authzScopeResolutionService,
             DefaultRolePermissionConstraintResolver defaultRolePermissionConstraintResolver,
             List<AuthorizationAbacRule> authorizationAbacRules,
             Clock clock) {
         this.roleBindingGrantQueryMapper = roleBindingGrantQueryMapper;
         this.resourceOwnershipResolutionService = resourceOwnershipResolutionService;
+        this.authzScopeResolutionService = authzScopeResolutionService;
         this.defaultRolePermissionConstraintResolver = defaultRolePermissionConstraintResolver;
         this.authorizationAbacRules = List.copyOf(authorizationAbacRules);
         this.clock = clock;
@@ -76,17 +86,22 @@ public class PermissionAuthorizationService {
         List<RoleBindingGrant> scopeMatchedGrants = grants.stream()
                 .filter(grant -> resource.scopePath().isCoveredBy(grant.scope()))
                 .toList();
-        if (scopeMatchedGrants.isEmpty()) {
+        List<RoleBindingGrant> matchedGrants = scopeMatchedGrants.isEmpty()
+                ? resolveSharedOfferingAssignmentClassScopeGrants(grants, permissionCode, resource)
+                : scopeMatchedGrants;
+        if (matchedGrants.isEmpty()) {
             return AuthorizationResult.deny(
                     "DENY_SCOPE_MISMATCH", roleCodes(grants), scopes(grants), needsAudit(grants, context, resource));
         }
         List<String> denyReasons = new ArrayList<>();
-        for (RoleBindingGrant grant : scopeMatchedGrants) {
+        String allowReasonCode =
+                scopeMatchedGrants.isEmpty() ? "ALLOW_SHARED_OFFERING_CLASS_SCOPE_COMPAT" : "ALLOW_BY_SCOPE_ROLE";
+        for (RoleBindingGrant grant : matchedGrants) {
             RoleBindingConstraints constraints = mergeConstraints(grant);
             Optional<String> denyReason = evaluateRules(principal, grant, resource, context, constraints);
             if (denyReason.isEmpty()) {
                 return AuthorizationResult.allow(
-                        "ALLOW_BY_SCOPE_ROLE",
+                        allowReasonCode,
                         List.of(grant.role().code()),
                         List.of(grant.scope()),
                         needsAudit(List.of(grant), context, resource));
@@ -95,9 +110,9 @@ public class PermissionAuthorizationService {
         }
         return AuthorizationResult.deny(
                 denyReasons.stream().findFirst().orElse("DENY_RULES_NOT_SATISFIED"),
-                roleCodes(scopeMatchedGrants),
-                scopes(scopeMatchedGrants),
-                needsAudit(scopeMatchedGrants, context, resource));
+                roleCodes(matchedGrants),
+                scopes(matchedGrants),
+                needsAudit(matchedGrants, context, resource));
     }
 
     @Transactional(readOnly = true)
@@ -210,6 +225,39 @@ public class PermissionAuthorizationService {
         LinkedHashSet<AuthorizationScope> scopes = new LinkedHashSet<>();
         grants.forEach(grant -> scopes.add(grant.scope()));
         return List.copyOf(scopes);
+    }
+
+    private List<RoleBindingGrant> resolveSharedOfferingAssignmentClassScopeGrants(
+            List<RoleBindingGrant> grants, String permissionCode, ResolvedAuthorizationResource resource) {
+        if (!supportsSharedOfferingAssignmentClassScope(permissionCode, resource)
+                || authzScopeResolutionService == null) {
+            return List.of();
+        }
+        Long offeringId = resource.scopePath().offeringId();
+        return grants.stream()
+                .filter(grant -> isSharedOfferingAssignmentClassScopeGrant(grant, offeringId))
+                .toList();
+    }
+
+    private boolean supportsSharedOfferingAssignmentClassScope(
+            String permissionCode, ResolvedAuthorizationResource resource) {
+        return resource.resourceRef().type() == AuthorizationResourceType.ASSIGNMENT
+                && resource.scopePath().offeringId() != null
+                && resource.scopePath().classId() == null
+                && SHARED_OFFERING_ASSIGNMENT_CLASS_SCOPE_PERMISSION_CODES.contains(permissionCode);
+    }
+
+    private boolean isSharedOfferingAssignmentClassScopeGrant(RoleBindingGrant grant, Long offeringId) {
+        if (grant == null
+                || grant.scope().type() != AuthorizationScopeType.CLASS
+                || grant.scope().id() == null) {
+            return false;
+        }
+        ScopeRef classScope = authzScopeResolutionService.resolveScope(
+                AuthorizationScopeType.CLASS, grant.scope().id());
+        return classScope.ancestors().stream()
+                .anyMatch(ancestor -> ancestor.type() == AuthorizationScopeType.OFFERING
+                        && Objects.equals(ancestor.refId(), offeringId));
     }
 
     private boolean needsAudit(

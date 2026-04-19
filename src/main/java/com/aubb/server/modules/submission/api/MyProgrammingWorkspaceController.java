@@ -50,6 +50,7 @@ public class MyProgrammingWorkspaceController {
         return programmingWorkspaceApplicationService.saveMyWorkspace(
                 assignmentId,
                 questionId,
+                request.baseRevisionId(),
                 request.codeText(),
                 request.artifactIds(),
                 request.programmingLanguage(),
@@ -72,6 +73,7 @@ public class MyProgrammingWorkspaceController {
         return programmingWorkspaceApplicationService.applyMyWorkspaceOperations(
                 assignmentId,
                 questionId,
+                request.baseRevisionId(),
                 request.operations(),
                 request.lastStdinText(),
                 request.revisionMessage(),
@@ -107,7 +109,7 @@ public class MyProgrammingWorkspaceController {
             @Valid @RequestBody RestoreWorkspaceRevisionRequest request,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return programmingWorkspaceApplicationService.restoreMyWorkspaceRevision(
-                assignmentId, questionId, revisionId, request.revisionMessage(), principal);
+                assignmentId, questionId, revisionId, request.baseRevisionId(), request.revisionMessage(), principal);
     }
 
     @PostMapping("/workspace/reset-to-template")
@@ -118,10 +120,16 @@ public class MyProgrammingWorkspaceController {
             @Valid @RequestBody ResetWorkspaceToTemplateRequest request,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return programmingWorkspaceApplicationService.resetMyWorkspaceToTemplate(
-                assignmentId, questionId, request.programmingLanguage(), request.revisionMessage(), principal);
+                assignmentId,
+                questionId,
+                request.baseRevisionId(),
+                request.programmingLanguage(),
+                request.revisionMessage(),
+                principal);
     }
 
     public record SaveWorkspaceRequest(
+            Long baseRevisionId,
             String codeText,
             List<Long> artifactIds,
             ProgrammingLanguage programmingLanguage,
@@ -133,9 +141,13 @@ public class MyProgrammingWorkspaceController {
             String revisionMessage) {}
 
     public record ApplyWorkspaceOperationsRequest(
-            List<ProgrammingWorkspaceOperationInput> operations, String lastStdinText, String revisionMessage) {}
+            Long baseRevisionId,
+            List<ProgrammingWorkspaceOperationInput> operations,
+            String lastStdinText,
+            String revisionMessage) {}
 
-    public record RestoreWorkspaceRevisionRequest(String revisionMessage) {}
+    public record RestoreWorkspaceRevisionRequest(Long baseRevisionId, String revisionMessage) {}
 
-    public record ResetWorkspaceToTemplateRequest(ProgrammingLanguage programmingLanguage, String revisionMessage) {}
+    public record ResetWorkspaceToTemplateRequest(
+            Long baseRevisionId, ProgrammingLanguage programmingLanguage, String revisionMessage) {}
 }

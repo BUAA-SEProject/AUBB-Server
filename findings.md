@@ -1,5 +1,140 @@
 # 发现与决策
 
+## 2026-04-19 仓库级逐文件代码审查
+
+- 当前轮最终确认的剩余生产阻塞不是 judge 业务本体，而是 `role_bindings.effective_from` 的激活容忍窗口不足：
+  - 更严格的 `CourseSystemIntegrationTests#initialInstructorGrantShouldAuthorizeWithinClockSkewTolerance` 在旧实现下稳定失败，错误为 `DENY_NO_ROLE_BINDING`
+  - 根因点同时存在于应用层成员同步、授权查询 SQL 和数据库 `legacy_binding_effective_from(...)` 函数
+  - 最小修复为把三处容忍窗口统一从 `1 second` 提升到 `3 seconds`
+  - 新增 `V47__expand_legacy_binding_activation_tolerance_window.sql` 后，时钟抖动回归和 `StructuredProgrammingJudgeIntegrationTests#programmingAnswerSupportsCompileAndRunArgsAndExposesDetailedReport` 均已转绿
+
+- 过程文档当前不能直接当真：`task_plan.md`、`findings.md`、`progress.md`、`docs/exec-plans/completed/**` 仍停留在前一轮“在线 IDE / Redis 去留已收口”的叙事，但代码现实已经出现新的漂移。
+- 当前最先被证实的高风险漂移正是用户点名的 Redis：
+  - `README.md`、`ARCHITECTURE.md` 沿用“Redis 已移出基线”的说法
+  - `pom.xml` 仍保留 `spring-boot-starter-data-redis`
+  - `application.yaml` 仍保留 `spring.data.redis`、`aubb.redis.*` 和 `management.health.redis.enabled=false`
+  - `compose.yaml` 仍编排 `redis` 服务，并把 Redis 环境变量注入 `app` / `judge-worker`
+  - `deploy/compose.yaml` 与 `.github/workflows/deploy.yml` 仍渲染 Redis 部署变量
+  - 结论：Redis 去留尚未收口，属于正式缺陷而不是文档误差
+- `docs/generated/db-schema.md` 当前也明显过时：
+  - 迁移清单只列到 `V37__permission_system_data_layer_foundation.sql`
+  - 当前仓库真实 migration 已到 `V46__legacy_binding_activation_tolerance.sql`
+  - 结论：数据库参考文档不可信，需要在完成 schema 审查后重建
+- 原 `todo.md` 已被旧任务文本污染，无法承担当前代码审查的缺陷主清单职责；本轮已先重建结构，再逐模块填充真实问题。
+- 全局工程基线继续下钻后的新结论：
+  - `deploy/compose.yaml` 的容器 `healthcheck` 仍调用 `/actuator/health`，而根 `compose.yaml`、deploy workflow 和长期文档都把 `/actuator/health/readiness` 当作依赖就绪事实入口；这是发布资产没有跟上健康检查收口，不是文档措辞问题。
+  - `RedisRateLimitService` 在 Redis 异常时会记录 `fallback` 指标后直接 `allowed()`；结合当前已接到 `@RateLimited` 的登录、refresh、sample-run、submission create/upload、lab 附件上传接口，Redis 故障时这些真实保护会整体失效。
+  - `ARCHITECTURE.md` 仍写“Redis 已从当前运行时基线移除”，但 `README.md`、`docs/reliability.md`、`docs/deployment.md`、`docs/redis.md`、`DeliveryPipelineAssetsTests` 和实际代码都在承认 Redis 缓存/限流增强存在；当前问题不是“Redis 是否完全无用”，而是“能力边界、部署口径和历史完成记录同时漂移”。
+  - `pom.xml` 的 Java 基线内部矛盾：顶层声明 Java 25 / `release=${java.version}`，`maven-compiler-plugin` 却仍显式保留 `source/target=8`。当前构建能过，说明旧配置大概率被覆盖或未真正生效，但它已经构成构建认知噪音。
+  - `Dockerfile` runtime stage 继续使用 Maven 镜像，不是功能 bug，但对生产镜像基线来说仍属明显收口缺口。
+- 共享层继续下钻后的新结论：
+  - `CacheService` 不是假抽象，已经被 `identityaccess`、`course`、`assignment`、`judge`、`notification` 真实使用；Redis 这部分不能再按“只有依赖残留”叙事处理。
+  - `RealtimeCoordinationService` 则相反：当前只有 `RedisEnhancementConfiguration` 和 `common/realtime/**` 自身持有它，业务模块没有任何引用，属于未接线预留能力。
+- `RequestContextSupport.clientIp()` 只记录 `request.getRemoteAddr()`，而 `RateLimitAspect` 已对 `X-Forwarded-For` 做了代理友好解析；当前审计日志与限流主体在反向代理场景下会记录成两套不同的客户端 IP。
+- `course` 模块首轮逐文件审查已收敛出 4 个正式问题和 1 个残留项：
+  - `GET /api/v1/admin/course-catalogs` 对 `COLLEGE_ADMIN` 缺少组织范围过滤；`departmentUnitId` 为空时会直接全量返回 `course_catalogs`。
+  - `CourseAuthorizationService` 仍同时持有 deprecated `AuthorizationService` 与 `PermissionAuthorizationService`，并在 `DENY_NO_ROLE_BINDING && !roleBindingSnapshot` 时对教学读权限和桥接权限做 legacy fallback。
+  - `AuthzLegacyCompatibilityIntegrationTests` 当前仍显式要求“legacy instructor 能通过旧授权读 submission”，说明兼容路径不是历史残留，而是被测试锁定的运行态能力。
+  - `listTerms / listCatalogs` 继续全表拉取后内存过滤、分页；`listOfferings -> toOfferingView` 仍有 catalog/term/college/member/instructor 的 `N+1` 组装。
+  - `createOffering(...)` 漏掉了 `startAt/endAt` 反向时间范围校验。
+- `CourseMemberAccessPolicyService` 当前已经没有业务引用，等价状态判断散落在 `CourseAuthorizationService` 与 `ReadPathAuthorizationService`，属于典型迁移残留。
+- `assignment` 模块首轮逐文件审查确认了一个正式权限一致性缺陷：
+  - `AssignmentApplicationService.listMyAssignments(...)` 仍通过 `AssignmentMapper.countVisibleAssignmentsForUser/selectVisibleAssignmentsForUserPage(...)` 直接按 `course_members` 过滤。
+  - 该 SQL 把 `ACTIVE / DROPPED / TRANSFERRED / COMPLETED` 都视为可读状态，没有要求 `role_bindings` 或 `roleBindingSnapshot=true`。
+  - `AssignmentApplicationService.getMyAssignment(...)` 却已经改走 `ReadPathAuthorizationService.canReadMyAssignmentHistory(...)`；现有测试 `activeStudentWithoutRoleBindingsCannotReadMyAssignment()` 已证明删除 `role_bindings` 后详情会 `403`。
+  - 结论：当前“我的作业”列表与详情的授权源已经分裂，活跃学生缺失 role binding 时可能出现“列表还能看到标题，详情却 403”的生产级权限收敛问题。
+- `submission` 模块首轮逐文件审查确认了一个正式读路径缺陷：
+  - `SubmissionApplicationService.listTeacherSubmissions(...)` 及其 `latestOnly` 分支都依赖 `SubmissionMapper` 的 SQL 过滤。
+  - 当前 SQL 对 class-scoped reader 的约束是“submitter 当前在 `course_members` 中存在 `member_status='ACTIVE'` 且班级属于授权班级”，没有使用 `submissions.teaching_class_id` 这个已经固化在资源上的历史边界。
+  - `getTeacherSubmission(...)` 详情又走 `ReadPathAuthorizationService.canReadSubmission(...)`，class-scoped 提交会直接按 `submission.teaching_class_id` 判定。
+  - 结论：学生退课或转班后，旧提交可能仍可按详情打开，却会从教师列表、`latestOnly` 统计和后续导出入口中消失；教师列表与详情再次发生权限 / 历史边界分裂。
+- `grading` 模块首轮逐文件审查确认了一个成绩读模型缺陷：
+  - 教师成绩册 / 报表 / 导出依赖 `GradebookQuerySql.rosterCtes()`，当前只纳入 `course_members.member_status='ACTIVE'` 的学生。
+  - 学生自助成绩册虽然放宽到 `ACTIVE / DROPPED / TRANSFERRED / COMPLETED`，但 `GradebookApplicationService.loadRoster(...)` 只是按班级 id / 记录 id 选第一条非空班级，没有优先当前 `ACTIVE` 或最新历史记录。
+  - 结果是：退课学生的历史成绩可能从教师成绩册、报表和导出中直接消失；转班学生则可能被错误地挂到旧班，导致 class-scoped 作业 applicability、排名和汇总失真。
+- `judge` 模块首轮逐文件审查确认了一个高风险权限缺陷：
+  - `JudgeApplicationService.getTeacherJudgeJobReport(...)` / `downloadTeacherJudgeJobReport(...)` 只根据 `submission.read_source` 选择 `FULL` 还是 `MASKED` 报告。
+  - `judge.view_hidden` 这个专门的敏感权限虽然已经建模，但 judge 报告读取链路没有实际使用它。
+  - migration 明确内建教学角色默认不含 `judge.view_hidden`，但现有集成测试已经证明普通教师仍能看到 `expectedStdout`、`runCommand` 等隐藏测试细节。
+  - 该链路当前也没有为“查看/下载隐藏评测报告”写专门的敏感审计，和 `judge.rejudge`、`judge.config` 的高风险操作基线不一致。
+- `identityaccess` 模块继续审查后的关键结论：
+  - 认证、refresh、revoke、会话强制失效主链当前没有新的独立 P0/P1；`AuthzJwtSessionIntegrationTests` 和 `PlatformGovernanceApiIntegrationTests` 证明主闭环仍可工作。
+  - 但 `AuthenticatedPrincipalLoader`、`AuthzExplainApplicationService`、`AuthzGroupApplicationService` 仍在运行态回退 legacy 授权来源，deprecated `AuthorizationService` 也还在 bean 图里；这说明权限迁移并未真正从 principal 快照和 admin authz 工具上收口。
+  - `AuthzLegacyCompatibilityIntegrationTests` 仍把 legacy instructor / governance 行为保留为测试契约，因此这不是“忘删代码”，而是当前被允许继续发生的运行态能力。
+- `organization / platformconfig / audit` 模块完成后，没有新增独立 P0/P1：
+  - `organization` 的组织树创建、层级校验和治理范围创建权限已有集成测试闭环；`getTree(...)` 仍是全量树加载 + 内存裁剪，但当前更像可观察的性能债而非生产阻塞。
+  - `platformconfig` 当前的 singleton 约束由数据库唯一索引保证，bootstrap 主链也未发现新的内部缺口。
+  - `audit` 模块内部的 `REQUIRES_NEW` 审计写入和管理员分页检索没有新增高危缺陷，主要风险仍来自共享层客户端 IP 解析分裂。
+- `lab` 模块继续审查后的关键结论：
+  - 权限边界、附件对象存储与实验报告生命周期闭环基本成立，`LabReportIntegrationTests` 已覆盖教师/学生主链。
+  - 但 `listTeacherLabs(...)`、`listMyLabs(...)`、`listTeacherReports(...)` 仍全部采用 `selectList -> stream/filter/slice`，没有数据库侧 count/page/filter，且 `isLabFeatureEnabled(...)` 还会为每条实验再次读取教学班，属于典型的生产列表性能债。
+- `notification` 模块继续审查后的关键结论：
+  - 列表、未读数、单条已读、全部已读与“通知不存在式越权拒绝”主链没有发现新的对象级越权问题。
+  - `/api/v1/me/notifications/stream` 当前是单节点内存 `SseEmitter` best-effort 实现；它既没有多实例分发保障，也没有真实 fanout 集成测试。
+  - `docs/product-specs/notification-center.md` 明确写当前不承载实时推送协议，但 `docs/stable-api.md` 却把 `/stream` 列为稳定接口，形成新的代码-文档-部署契约漂移。
+- 当前仓库级审查已经完成首轮全量覆盖：
+  - 全局与工程基线、共享层、平台治理域、教学主链路、lab、notification 和横切能力都已经过一遍。
+  - `todo.md` 现已成为可信缺陷主清单；后续应按优先级进入修复闭环，而不是继续扩展扫描范围。
+
+## 2026-04-19 在线 IDE 后端继续完善盘点
+
+- 已按 TDD 落地的 P0/P1 改动：
+  - 工作区写入接口新增可选 `baseRevisionId`，冲突时返回 `409 PROGRAMMING_WORKSPACE_CONFLICT`
+  - `AUTO_SAVE` 在工作区无变更时不再追加新 revision
+  - `GET /workspace` 追加 `latestRevisionKind / editable / editBlockedReasonCode / runnable / runBlockedReasonCode`
+  - 工作区与样例试运行显式快照统一补齐大小写冲突校验
+  - 工作区目录重命名到自身子路径时返回 `PROGRAMMING_PATH_RENAME_DESCENDANT_INVALID`
+  - 样例试运行详情在对象存储详细报告缺失时不再抛 500，而是回退为摘要视图并返回 `detailReportUnavailableReasonCode`
+- 已验证事实：
+  - `ProgrammingWorkspaceIntegrationTests` 新增 4 个场景已全部通过
+  - `JudgeIntegrationTests`、`StructuredProgrammingJudgeIntegrationTests` 交叉链路通过
+  - 运行日志中已看到样例试运行详细报告缺失时的回退告警，而非未处理异常
+- 新发现的阻塞不属于本轮 IDE 改动调用链：
+  - `SubmissionIntegrationTests.plainSubmissionDoesNotCreateJudgeJobsWithoutJudgeConfig`
+  - `SubmissionIntegrationTests.studentCannotSubmitOutsideAssignmentWindow`
+  - 两者都在 `publishAssignment` 或随后的正式提交路径上返回 403，指向现有分支中的 assignment publish 授权回归，而非 `workspace/sample-run` 读写语义
+- 进一步定位后确认，跨 `judge / submission / workspace` 套件暴露的 403 根因不是 `PermissionAuthorizationService` 本身，而是 `course_members` 同步出的 `role_bindings.effective_from` 过于贴近 `joined_at`：
+  - 成员创建后紧接着登录或发起写请求时，`AuthenticatedPrincipalLoader.selectActiveGrantRowsByUserId(...)` 可能暂时读不到刚同步的 role binding，导致 token 退回 `roleBindingSnapshot=false`
+  - 旧兼容路径还能靠 legacy course-member binding 勉强继续读，但 `task.create` 这类已经收口到新权限系统的写路径会直接 403
+  - 该问题同时影响教师与学生：教师新开课后建作业、学生/教师成员变更后重新登录拿实时权限快照都会受影响
+- 本轮修复策略保持最小破坏：
+  - 不回退到大面积 legacy fallback
+  - 只在 `CourseMemberRoleBindingSyncService` 中为 ACTIVE 成员的 `effective_from` 引入 1 秒容忍窗口，避免跨请求时钟/精度抖动造成短暂未生效
+  - 新增 `CourseSystemIntegrationTests` 固定“教师开课后登录 / 学生入班后登录都应进入 `roleBindingSnapshot=true` 路径”的回归约束
+- 全量验证继续暴露出的最后一个不稳定点不在业务代码，而在测试夹具长期缓存教师 token：
+  - `AssignmentIntegrationTests` 在开课和成员变更后沿用旧 `latestTeacherToken`，导致后续成员管理 / 作业创建链路拿不到新快照权限
+  - `GradebookIntegrationTests` 在批量加成员后继续复用旧 token，也会把 role-binding 已生效的场景误判成 403
+  - 最小修复是在测试侧按必需权限刷新 token，并显式等待 `roleBindingSnapshot=true` 与权限集齐备，而不是继续放宽业务 fallback
+- 修复后的交叉验证结果：
+  - `JudgeIntegrationTests.syntaxErrorBecomesSuccessfulJudgeJobWithCompileFailureSummary` 通过
+  - `SubmissionIntegrationTests.classScopedStudentCanReadOwnSubmissionHistoryForOfferingWideAssignment` 通过
+  - `ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests,SubmissionIntegrationTests,JudgeIntegrationTests` 共 54 个测试全部通过
+  - `AssignmentIntegrationTests` 17/17 通过
+  - `GradebookIntegrationTests` 11/11 通过
+  - 全量 `test` 313/313 通过
+  - 全量 `verify` 313/313 通过
+
+- 当前在线 IDE 后端已经真实落地的能力，不是文档口径而是代码 / 测试事实：
+  - `submission` 模块已提供模板工作区加载、完整目录树快照保存、`CREATE_FILE / UPDATE_FILE / CREATE_DIRECTORY / RENAME_PATH / DELETE_PATH` 目录操作、工作区修订历史、修订详情、历史恢复、模板重置。
+  - 工作区状态当前保存在 `programming_workspaces`，修订历史保存在 `programming_workspace_revisions`，并兼容 legacy `codeText`。
+  - 工作区返回体已经包含 `programmingLanguage / entryFilePath / files / directories / artifactIds / artifacts / lastStdinText / latestRevisionId / latestRevisionNo / updatedAt`，可支撑基础断线恢复。
+  - `judge` 模块已提供三种样例试运行源码来源：显式源码快照、当前工作区快照、历史工作区修订；详情报告优先对象化存储，列表接口不会为详情对象缺失而回读大对象。
+  - 真实 go-judge 集成测试已经覆盖 `PYTHON3 / JAVA21 / CPP17 / GO122`、`compileArgs / runArgs`、题目级 `executionEnvironment`、自定义 stdin、模板工作区与工作区修订复用。
+  - IDE 读写和试运行已经接入新权限系统中的 `ide.read / ide.save / ide.run`，并通过 `ReadPathAuthorizationService` 与 assignment 可见性、成员状态、时间窗、归档只读规则联动。
+- 本轮起始盘点时，最影响真实浏览器 IDE 联调的后端缺口不是“没有工作区”，而是“缺少生产级写入语义”：
+  - 当前保存 / 目录操作链路没有 `baseRevisionId` 或等价版本前提，多标签页 / 多设备会直接最后写入覆盖，无法稳定检测 stale write。
+  - `ProgrammingWorkspaceSaveKind.AUTO` 目前只影响 `revisionKind`，不会做去重、幂等或冲突保护；自动保存若高频触发，会持续膨胀 `programming_workspace_revisions`。
+  - 工作区读取接口虽然能返回源码快照，但不会明确告诉前端“当前是否可编辑 / 可运行，以及为什么不行”，前端只能等 403 或 400 才知道状态。
+  - 路径安全已覆盖绝对路径、`..`、双斜杠、反斜杠等，但仍未覆盖大小写冲突和“目录重命名到自身子路径”这类真实 IDE 易踩边界。
+  - 样例试运行详细报告对象缺失时，详情链路当前会落成未处理异常，缺少可被前端消费的稳定业务错误码。
+- 当前需要后端补齐、但不属于本仓库前端 UI 范畴的内容：
+  - 工作区冲突检测、自动保存去噪、恢复元信息、稳定错误码、试运行详情缺失兼容、OpenAPI / 文档同步。
+  - 不在本仓库实现：Monaco、目录树组件、终端 UI、协同编辑、格式化、语法高亮、补全。
+- 本轮优先级判断：
+  - `P0`：工作区冲突检测、自动保存去噪、可编辑/可运行元信息、路径安全硬边界。
+  - `P1`：样例试运行详情缺失错误模型、前端最小联调契约、文档 / OpenAPI 同步。
+  - `P2`：更细的运行历史摘要、保存 / 试运行限流与 metrics 进一步增强。
+
 ## 2026-04-17 Redis 去留收口发现
 
 - 仓库全文审计确认：Redis 只有 `pom.xml` 依赖、`compose.yaml` / deploy 变量、`application.yaml` 里的健康检查开关和文档口径残留，没有任何生产代码调用 `RedisTemplate`、`StringRedisTemplate`、Spring Cache Redis 或 Redis repository。
@@ -591,3 +726,19 @@
   - `CLASS_ADMIN` 不能创建组织节点，`POST /api/v1/admin/org-units` 返回 `403`
   - `CLASS_ADMIN` 也不会自动获得教师域能力；访问班级成绩册和班级功能开关接口均返回 `403`
 - 结论：当前系统里的 `CLASS_ADMIN` 是“班级组织治理角色”，而不是“班级教学运营角色”；班级级治理边界已被真实验证，不再属于未测风险。
+
+## 2026-04-19 judge hidden 权限收口发现
+
+- `JudgeApplicationService` 的 teacher report 读链路虽然早就有 `ReadPathAuthorizationService.canReadHiddenJudgeFields(...)` 可用，但实际 `FULL/MASKED` 字段模式仍然绑在 `submission.read_source`，导致普通教师默认可见 `expectedStdout`、`runCommand` 等隐藏评测细节。
+- `permission-system.md` 与 `judge-system.md` 之前已经发生文档漂移：
+  - 权限规格明确要求只有 `judge_admin` 或显式拥有 `judge.view_hidden` 的教学人员才能查看隐藏测试
+  - judge 规格和 README 却仍写成“教师侧可见隐藏测试输入输出”
+- 最小正确修复不是新增 endpoint，而是继续复用现有 teacher report API：
+  - teacher report 仍可读
+  - 默认返回 `MASKED`
+  - 只有显式具备 `judge.view_hidden` 时才升级为 `FULL`
+  - 源码全文/附件下载继续独立依赖 `submission.read_source`
+- “查看隐藏测试必须审计”在当前 API 形态下，最合理的实现是：只有当 teacher report 实际返回 `FULL` 隐藏字段时，才记录一次 `judge.view_hidden` 的敏感审计；默认脱敏读取不写 denied 审计，避免把普通报告访问误记为敏感越权。
+- 新暴露的测试基线问题：
+  - `StructuredProgrammingJudgeIntegrationTests` 整类在真实限流开启后会因重复登录触发 `429`
+  - 这说明 real-judge 集成测试当前仍应该走非限流基线，后续全量回归前需要把这组测试切到 `AbstractNonRateLimitedIntegrationTest` 或等价禁用策略

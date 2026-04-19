@@ -16,7 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
+class CourseAnnouncementIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -25,6 +25,8 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private String latestTeacherToken;
 
     @BeforeEach
     void setUp() {
@@ -73,6 +75,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -104,7 +107,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
                                 """), 3);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/announcements", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items[*].title", containsInAnyOrder("开课说明", "A 班加课提醒")));
@@ -144,7 +147,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
         Long announcementId = createAnnouncement(teacherToken, offeringId, null, "开课说明", "课程公告默认可见。");
 
         mockMvc.perform(put("/api/v1/teacher/course-classes/{teachingClassId}/features", classAId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -167,7 +170,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/announcements", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -205,7 +208,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
             throws Exception {
         MvcResult result = mockMvc.perform(post(
                                 "/api/v1/teacher/course-offerings/{offeringId}/announcements", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -221,7 +224,7 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
 
     private void addStudent(String token, Long offeringId, Long userId, Long teachingClassId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -294,13 +297,14 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -334,5 +338,9 @@ class CourseAnnouncementIntegrationTests extends AbstractIntegrationTest {
 
     private int queryForCount(String sql) {
         return jdbcTemplate.queryForObject(sql, Integer.class);
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 }

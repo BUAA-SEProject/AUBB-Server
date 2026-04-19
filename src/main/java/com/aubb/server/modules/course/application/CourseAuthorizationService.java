@@ -99,21 +99,12 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanManageOffering(AuthenticatedUserPrincipal principal, Long offeringId) {
         assertPermissionWithoutFallback(
-                principal,
-                "offering.manage",
-                offeringResource(offeringId),
-                "当前用户无权管理该课程",
-                null);
+                principal, "offering.manage", offeringResource(offeringId), "当前用户无权管理该课程", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageMembers(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithoutFallback(
-                principal,
-                "member.manage",
-                offeringResource(offeringId),
-                "当前用户无权管理课程成员",
-                null);
+        assertPermissionWithoutFallback(principal, "member.manage", offeringResource(offeringId), "当前用户无权管理课程成员", null);
     }
 
     @Transactional(readOnly = true)
@@ -135,12 +126,7 @@ public class CourseAuthorizationService {
 
     @Transactional(readOnly = true)
     public void assertCanManageAssignments(AuthenticatedUserPrincipal principal, Long offeringId) {
-        assertPermissionWithoutFallback(
-                principal,
-                "task.edit",
-                offeringResource(offeringId),
-                "当前用户无权管理该课程作业",
-                null);
+        assertPermissionWithoutFallback(principal, "task.edit", offeringResource(offeringId), "当前用户无权管理该课程作业", null);
     }
 
     @Transactional(readOnly = true)
@@ -155,52 +141,32 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanCreateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "task.create",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权创建该课程作业",
-                null);
+                principal, "task.create", teachingResource(offeringId, teachingClassId), "当前用户无权创建该课程作业", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanUpdateAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "task.edit",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权编辑该课程作业",
-                null);
+                principal, "task.edit", teachingResource(offeringId, teachingClassId), "当前用户无权编辑该课程作业", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanPublishAssignment(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "task.publish",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权发布该课程作业",
-                null);
+                principal, "task.publish", teachingResource(offeringId, teachingClassId), "当前用户无权发布该课程作业", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanCloseAssignment(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "task.close",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权关闭该课程作业",
-                null);
+                principal, "task.close", teachingResource(offeringId, teachingClassId), "当前用户无权关闭该课程作业", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanManageQuestionBank(AuthenticatedUserPrincipal principal, Long offeringId) {
         assertPermissionWithoutFallback(
-                principal,
-                "question_bank.manage",
-                offeringResource(offeringId),
-                "当前用户无权管理题库",
-                null);
+                principal, "question_bank.manage", offeringResource(offeringId), "当前用户无权管理题库", null);
     }
 
     @Transactional(readOnly = true)
@@ -229,8 +195,7 @@ public class CourseAuthorizationService {
     public void assertCanViewAnnouncementsForClass(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertAnnouncementFeatureEnabled(offeringId, teachingClassId);
-        assertTeachingClassReadPermission(
-                principal, "announcement.read", offeringId, teachingClassId, "当前用户无权查看该课程公告");
+        assertTeachingClassReadPermission(principal, "announcement.read", offeringId, teachingClassId, "当前用户无权查看该课程公告");
     }
 
     @Transactional(readOnly = true)
@@ -260,8 +225,7 @@ public class CourseAuthorizationService {
     public void assertCanViewResourcesForClass(
             AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertResourceFeatureEnabled(offeringId, teachingClassId);
-        assertTeachingClassReadPermission(
-                principal, "resource.read", offeringId, teachingClassId, "当前用户无权查看该课程资源");
+        assertTeachingClassReadPermission(principal, "resource.read", offeringId, teachingClassId, "当前用户无权查看该课程资源");
     }
 
     @Transactional(readOnly = true)
@@ -312,32 +276,20 @@ public class CourseAuthorizationService {
     public void assertCanManageLabs(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertLabFeatureEnabled(offeringId, teachingClassId);
         assertPermissionWithoutFallback(
-                principal,
-                "lab.manage",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权管理该实验",
-                null);
+                principal, "lab.manage", teachingResource(offeringId, teachingClassId), "当前用户无权管理该实验", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanReviewLabReports(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertLabFeatureEnabled(offeringId, teachingClassId);
         assertPermissionWithoutFallback(
-                principal,
-                "lab.report.review",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权评阅该实验报告",
-                null);
+                principal, "lab.report.review", teachingResource(offeringId, teachingClassId), "当前用户无权评阅该实验报告", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanGradeSubmission(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "submission.grade",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权批改该提交",
-                null);
+                principal, "submission.grade", teachingResource(offeringId, teachingClassId), "当前用户无权批改该提交", null);
     }
 
     @Transactional(readOnly = true)
@@ -393,11 +345,7 @@ public class CourseAuthorizationService {
     public void assertCanManageClassFeatures(AuthenticatedUserPrincipal principal, Long teachingClassId) {
         requireTeachingClass(teachingClassId);
         assertPermissionWithoutFallback(
-                principal,
-                "class.manage",
-                classResource(teachingClassId),
-                "当前用户无权管理该教学班",
-                null);
+                principal, "class.manage", classResource(teachingClassId), "当前用户无权管理该教学班", null);
     }
 
     @Transactional(readOnly = true)
@@ -483,21 +431,13 @@ public class CourseAuthorizationService {
     @Transactional(readOnly = true)
     public void assertCanReadAppeals(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "appeal.read",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权查看成绩申诉",
-                null);
+                principal, "appeal.read", teachingResource(offeringId, teachingClassId), "当前用户无权查看成绩申诉", null);
     }
 
     @Transactional(readOnly = true)
     public void assertCanReviewAppeal(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
         assertPermissionWithoutFallback(
-                principal,
-                "appeal.review",
-                teachingResource(offeringId, teachingClassId),
-                "当前用户无权处理成绩申诉",
-                null);
+                principal, "appeal.review", teachingResource(offeringId, teachingClassId), "当前用户无权处理成绩申诉", null);
     }
 
     @Transactional(readOnly = true)
@@ -728,14 +668,9 @@ public class CourseAuthorizationService {
             Long offeringId,
             Long teachingClassId,
             String message) {
-        AuthorizationResult result =
-                permissionAuthorizationService.authorize(principal, permissionCode, classResource(teachingClassId), currentContext());
+        AuthorizationResult result = permissionAuthorizationService.authorize(
+                principal, permissionCode, classResource(teachingClassId), currentContext());
         if (result.allowed()) {
-            return;
-        }
-        if ("DENY_NO_ROLE_BINDING".equals(result.reasonCode())
-                && canFallbackToLegacyAuthorization(principal)
-                && canAccessTeachingClassLegacy(principal, offeringId, teachingClassId)) {
             return;
         }
         throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
@@ -764,19 +699,6 @@ public class CourseAuthorizationService {
             return;
         }
 
-        if (canFallbackToLegacyAuthorization(principal)) {
-            if (canManageOfferingAsAdmin(principal, offeringId) || isInstructor(principal.getUserId(), offeringId)) {
-                return;
-            }
-            if (!isActiveCourseMember(principal.getUserId(), offeringId)) {
-                throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", forbiddenMessage);
-            }
-            if (activeClasses.isEmpty() || anyEnabledClass) {
-                return;
-            }
-            throw new BusinessException(HttpStatus.FORBIDDEN, disabledCode, disabledMessage);
-        }
-
         if (!activeClasses.isEmpty() && !anyEnabledClass) {
             throw new BusinessException(HttpStatus.FORBIDDEN, disabledCode, disabledMessage);
         }
@@ -785,7 +707,8 @@ public class CourseAuthorizationService {
 
     private boolean hasScopedPermission(
             AuthenticatedUserPrincipal principal, String permissionCode, AuthorizationResourceRef resourceRef) {
-        return permissionAuthorizationService.authorize(principal, permissionCode, resourceRef, currentContext())
+        return permissionAuthorizationService
+                .authorize(principal, permissionCode, resourceRef, currentContext())
                 .allowed();
     }
 
@@ -849,14 +772,7 @@ public class CourseAuthorizationService {
     private boolean hasPermission(AuthenticatedUserPrincipal principal, PermissionCode permission, ScopeRef scope) {
         AuthorizationResult modernResult = authorizeMappedPermission(principal, permission, scope);
         if (modernResult != null) {
-            if (modernResult.allowed()) {
-                return true;
-            }
-            if (!"DENY_NO_ROLE_BINDING".equals(modernResult.reasonCode())
-                    || !canFallbackToLegacyAuthorization(principal)
-                    || LEGACY_FALLBACK_DISABLED_PERMISSIONS.contains(permission)) {
-                return false;
-            }
+            return modernResult.allowed();
         }
         return authorizationService
                 .decide(AuthorizationRequest.forPermission(principal, permission, scope))
@@ -866,14 +782,6 @@ public class CourseAuthorizationService {
     private boolean hasAnyPermission(
             AuthenticatedUserPrincipal principal, List<PermissionCode> permissions, ScopeRef scope) {
         return permissions.stream().anyMatch(permission -> hasPermission(principal, permission, scope));
-    }
-
-    /**
-     * 仅当当前会话尚未基于 role_bindings 构建权限快照时才允许旧矩阵兜底。
-     * 否则会把已经迁移到新权限核心的用户重新混回旧治理/成员解析链，造成新旧权限混用。
-     */
-    private boolean canFallbackToLegacyAuthorization(AuthenticatedUserPrincipal principal) {
-        return principal != null && !principal.isRoleBindingSnapshot();
     }
 
     private AuthorizationResult authorizeMappedPermission(

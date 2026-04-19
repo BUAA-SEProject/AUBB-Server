@@ -9,7 +9,7 @@
 - 服务能够在 Java 25 上启动
 - 服务暴露 `/actuator/health`
 - 仓库采用模块优先、模块内分层的结构，后续功能继续挂到 `modules.<module>`
-- PostgreSQL + Flyway 已承接真实业务持久化；RabbitMQ 已承接 judge 队列；MinIO 已提供共享对象存储接入；Redis 已从当前运行时基线移除
+- PostgreSQL + Flyway 已承接真实业务持久化；RabbitMQ 已承接 judge 队列；MinIO 已提供共享对象存储接入；Redis 当前保留为可选增强组件，用于缓存与分布式限流，关闭时限流需安全降级到单实例本地窗口
 - 仓库文档、执行计划和数据库结构说明能够支撑持续开发
 - `mvnd verify` 可作为统一验证入口；当前仓库在 Unix 环境下可稳定使用 `bash ./mvnw verify`
 

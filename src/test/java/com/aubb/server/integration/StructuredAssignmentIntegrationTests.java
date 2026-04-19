@@ -19,7 +19,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
+class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -28,6 +28,8 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private String latestTeacherToken;
 
     @DynamicPropertySource
     static void redisProperties(DynamicPropertyRegistry registry) {
@@ -42,6 +44,8 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    role_bindings,
+                    auth_sessions,
                     judge_jobs,
                     submission_artifacts,
                     submissions,
@@ -83,6 +87,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -128,7 +133,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("questionType", "SINGLE_CHOICE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
@@ -138,7 +143,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, assignmentId);
 
         mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paper.sectionCount").value(3))
                 .andExpect(jsonPath("$.paper.questionCount").value(5))
@@ -288,7 +293,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         Long submissionId = readLong(submissionResult, "$.id");
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scoreSummary.autoScoredScore").value(30))
                 .andExpect(jsonPath("$.answers[2].answerText").value("二叉堆插入时需要上滤以维持堆序性。"));
@@ -338,7 +343,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", bankQuestionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("更新后的链表单选"))
                 .andExpect(jsonPath("$.defaultScore").value(12))
@@ -346,7 +351,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.options[1].correct").value(true));
 
         mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paper.sections[0].questions[0].sourceQuestionId")
                         .value(bankQuestionId))
@@ -357,19 +362,19 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         archiveQuestionBankQuestion(teacherToken, bankQuestionId);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("includeArchived", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].archived").value(true));
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -422,7 +427,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         Long assignmentId = createStructuredAssignment(teacherToken, offeringId, classId, bankQuestionId);
 
         mockMvc.perform(put("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -483,7 +488,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, assignmentId);
 
         mockMvc.perform(put("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -537,7 +542,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("tag", "graph"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
@@ -546,14 +551,14 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].tags[1]").value("search"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("tag", "graph", "search"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(graphQuestionId));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("tag", "graph", "tree"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
@@ -573,20 +578,20 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", graphQuestionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("图搜索单选（更新）"))
                 .andExpect(jsonPath("$.tags[0]").value("bfs"))
                 .andExpect(jsonPath("$.tags[1]").value("graph"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("tag", "search"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("tag", "bfs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
@@ -628,7 +633,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("category", "图论"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
@@ -636,7 +641,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].categoryName").value("图论"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[?(@.name == '图论')].activeQuestionCount").value(contains(1)))
@@ -653,26 +658,26 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", graphQuestionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("图搜索题（更新）"))
                 .andExpect(jsonPath("$.categoryName").value("搜索算法"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("category", "图论"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("category", "搜索算法"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(graphQuestionId));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.name == '图论')].activeQuestionCount").value(contains(0)))
                 .andExpect(
@@ -715,7 +720,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("keyword", "graph")
                         .param("page", "1")
                         .param("pageSize", "1"))
@@ -726,7 +731,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         Long assignmentId = createSingleQuestionAssignment(teacherToken, offeringId, classId, treeQuestionId);
 
         mockMvc.perform(put("/api/v1/teacher/assignments/{assignmentId}/paper", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -778,13 +783,13 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].name").value("图论"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/tags", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].name").value("bfs"));
@@ -799,13 +804,13 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """, offeringId, "graph", 3L);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].name").value("图论"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/tags", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].name").value("bfs"));
@@ -827,7 +832,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
         MvcResult categoriesResult = mockMvc.perform(
                         get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
-                                .header("Authorization", "Bearer " + teacherToken))
+                                .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andReturn();
@@ -837,7 +842,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
         MvcResult tagsResult = mockMvc.perform(
                         get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/tags", offeringId)
-                                .header("Authorization", "Bearer " + teacherToken))
+                                .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andReturn();
@@ -889,7 +894,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 """);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("programmingLanguage", "JAVA21"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
@@ -898,7 +903,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$[0].executionEnvironment.profileScope").value("OFFERING"));
 
         mockMvc.perform(put("/api/v1/teacher/judge-environment-profiles/{profileId}", profileId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -953,7 +958,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
         Long assignmentId = createSingleQuestionAssignment(teacherToken, offeringId, classId, bankQuestionId);
 
         mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(
                                 "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].programmingLanguage")
@@ -972,24 +977,24 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                         .value(1500));
 
         mockMvc.perform(post("/api/v1/teacher/judge-environment-profiles/{profileId}/archive", profileId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.archivedAt").isNotEmpty());
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("includeArchived", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].archivedAt").isNotEmpty());
 
         mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(
                                 "$.paper.sections[0].questions[0].config.languageExecutionEnvironments[0].executionEnvironment.profileCode")
@@ -1068,7 +1073,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private Long createTerm(String token) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/academic-terms")
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1082,12 +1087,13 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createCatalog(String token) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/course-catalogs")
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1107,7 +1113,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private Long createOffering(String token, Long catalogId, Long termId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/course-offerings")
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1127,13 +1133,14 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        refreshTeacherToken("class.manage", "member.manage");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1151,7 +1158,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1188,7 +1195,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     private Long createQuestionBankQuestion(String token, Long offeringId, String body) throws Exception {
         MvcResult result = mockMvc.perform(
                         post("/api/v1/teacher/course-offerings/{offeringId}/question-bank/questions", offeringId)
-                                .header("Authorization", "Bearer " + token)
+                                .header("Authorization", "Bearer " + resolveTeacherToken(token))
                                 .contentType("application/json")
                                 .content(body))
                 .andExpect(status().isCreated())
@@ -1198,7 +1205,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private void updateQuestionBankQuestion(String token, Long questionId, String body) throws Exception {
         mockMvc.perform(put("/api/v1/teacher/question-bank/questions/{questionId}", questionId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content(body))
                 .andExpect(status().isOk());
@@ -1206,14 +1213,14 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private void archiveQuestionBankQuestion(String token, Long questionId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/question-bank/questions/{questionId}/archive", questionId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk());
     }
 
     private Long createJudgeEnvironmentProfile(String token, Long offeringId, String body) throws Exception {
         MvcResult result = mockMvc.perform(
                         post("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
-                                .header("Authorization", "Bearer " + token)
+                                .header("Authorization", "Bearer " + resolveTeacherToken(token))
                                 .contentType("application/json")
                                 .content(body))
                 .andExpect(status().isCreated())
@@ -1224,7 +1231,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     private Long createStructuredAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1317,7 +1324,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     private Long createSingleQuestionAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1347,7 +1354,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
     private Long createScorableStructuredAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1399,7 +1406,7 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
     }
@@ -1428,5 +1435,66 @@ class StructuredAssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private int queryForCount(String sql) {
         return jdbcTemplate.queryForObject(sql, Integer.class);
+    }
+
+    private String resolveTeacherToken(String token) {
+        if (latestTeacherToken == null) {
+            return token;
+        }
+        String[] segments = token.split("\\.");
+        if (segments.length < 2) {
+            return token;
+        }
+        String payload = new String(
+                java.util.Base64.getUrlDecoder().decode(segments[1]), java.nio.charset.StandardCharsets.UTF_8);
+        String subject = JsonPath.read(payload, "$.sub");
+        return "teacher-main".equals(subject) ? latestTeacherToken : token;
+    }
+
+    private void refreshTeacherToken(String... expectedPermissionCodes) throws Exception {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(3).toNanos();
+        while (true) {
+            String candidate = login("teacher-main", "Password123");
+            if (isRoleBindingSnapshotReady(candidate)
+                    && tokenContainsAllPermissions(candidate, expectedPermissionCodes)) {
+                latestTeacherToken = candidate;
+                return;
+            }
+            if (System.nanoTime() >= deadline) {
+                latestTeacherToken = candidate;
+                assertThat(isRoleBindingSnapshotReady(candidate)).isTrue();
+                assertThat(readPermissionCodes(candidate)).contains(expectedPermissionCodes);
+                return;
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("等待教师权限快照收敛时被中断", exception);
+            }
+        }
+    }
+
+    private boolean isRoleBindingSnapshotReady(String token) {
+        return Boolean.TRUE.equals(readTokenClaim(token, "$.roleBindingSnapshot"));
+    }
+
+    private boolean tokenContainsAllPermissions(String token, String... expectedPermissionCodes) {
+        return readPermissionCodes(token).containsAll(java.util.List.of(expectedPermissionCodes));
+    }
+
+    private java.util.List<String> readPermissionCodes(String token) {
+        java.util.List<String> permissionCodes = readTokenClaim(token, "$.permissionCodes");
+        return permissionCodes == null ? java.util.List.of() : permissionCodes;
+    }
+
+    private <T> T readTokenClaim(String token, String path) {
+        String[] segments = token.split("\\.");
+        if (segments.length < 2) {
+            return null;
+        }
+        String payload = new String(
+                java.util.Base64.getUrlDecoder().decode(segments[1]), java.nio.charset.StandardCharsets.UTF_8);
+        return JsonPath.read(payload, path);
     }
 }

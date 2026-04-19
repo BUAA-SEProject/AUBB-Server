@@ -168,26 +168,30 @@ public class JudgeApplicationService {
     public JudgeJobReportView getTeacherJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
         if (!canReadTeacherSubmission(principal, submission)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
         }
-        ReportFieldMode fieldMode = canReadSensitiveTeacherSubmission(principal, submission)
-                ? ReportFieldMode.FULL
-                : ReportFieldMode.MASKED;
-        return toMaybeCachedReportView(judgeJob, fieldMode);
+        ReportFieldMode fieldMode =
+                canReadHiddenTeacherJudgeFields(principal, assignment) ? ReportFieldMode.FULL : ReportFieldMode.MASKED;
+        JudgeJobReportView reportView = toMaybeCachedReportView(judgeJob, fieldMode);
+        recordHiddenJudgeReadAuditIfNeeded(principal, judgeJob, submission, assignment, fieldMode, "view");
+        return reportView;
     }
 
     @Transactional(readOnly = true)
     public JudgeJobReportDownload downloadTeacherJudgeJobReport(Long judgeJobId, AuthenticatedUserPrincipal principal) {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
         if (!canReadTeacherSubmission(principal, submission)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该评测报告");
         }
-        ReportFieldMode fieldMode = canReadSensitiveTeacherSubmission(principal, submission)
-                ? ReportFieldMode.FULL
-                : ReportFieldMode.MASKED;
-        return toReportDownload(judgeJob, fieldMode);
+        ReportFieldMode fieldMode =
+                canReadHiddenTeacherJudgeFields(principal, assignment) ? ReportFieldMode.FULL : ReportFieldMode.MASKED;
+        JudgeJobReportDownload download = toReportDownload(judgeJob, fieldMode);
+        recordHiddenJudgeReadAuditIfNeeded(principal, judgeJob, submission, assignment, fieldMode, "download");
+        return download;
     }
 
     @Transactional
@@ -588,9 +592,34 @@ public class JudgeApplicationService {
         return readPathAuthorizationService.canReadSubmission(principal, "submission.read", submission);
     }
 
-    private boolean canReadSensitiveTeacherSubmission(
-            AuthenticatedUserPrincipal principal, SubmissionEntity submission) {
-        return readPathAuthorizationService.canReadSensitiveSubmission(principal, submission);
+    private boolean canReadHiddenTeacherJudgeFields(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
+        return readPathAuthorizationService.canReadHiddenJudgeFields(principal, assignment);
+    }
+
+    private void recordHiddenJudgeReadAuditIfNeeded(
+            AuthenticatedUserPrincipal principal,
+            JudgeJobEntity judgeJob,
+            SubmissionEntity submission,
+            AssignmentEntity assignment,
+            ReportFieldMode fieldMode,
+            String channel) {
+        if (fieldMode != ReportFieldMode.FULL) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("channel", channel);
+        metadata.put("judgeJobId", judgeJob.getId());
+        metadata.put("submissionId", submission.getId());
+        metadata.put("assignmentId", assignment.getId());
+        if (judgeJob.getSubmissionAnswerId() != null) {
+            metadata.put("submissionAnswerId", judgeJob.getSubmissionAnswerId());
+        }
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.JUDGE_HIDDEN_READ,
+                "judge.view_hidden",
+                new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignment.getId()),
+                metadata);
     }
 
     private enum ReportFieldMode {

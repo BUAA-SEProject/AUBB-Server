@@ -17,7 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
+class AuthzRoleBindingEnforcementIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -27,6 +27,8 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private String latestTeacherToken;
 
     @BeforeEach
     void setUp() {
@@ -46,6 +48,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
                     user_org_memberships,
                     academic_profiles,
                     user_scope_roles,
+                    auth_sessions,
                     auth_group_members,
                     auth_groups,
                     platform_configs,
@@ -76,10 +79,11 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
-    void legacyInstructorShouldStillReadSubmissionThroughAuthzService() throws Exception {
+    void legacyInstructorShouldBeForbiddenToReadSubmissionWhenRoleBindingsAreMissing() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
         String teacherToken = login("teacher-main", "Password123");
@@ -103,11 +107,16 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
         publishAssignment(teacherToken, assignmentId);
         Long submissionId = createSubmission(studentToken, assignmentId, "legacy submission");
 
+        jdbcTemplate.update("""
+                DELETE FROM role_bindings
+                WHERE user_id = (SELECT id FROM users WHERE username = 'teacher-main')
+                """);
+        String teacherWithoutBindingsToken = login("teacher-main", "Password123");
+
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(submissionId))
-                .andExpect(jsonPath("$.submitterUserId").value(4));
+                        .header("Authorization", "Bearer " + teacherWithoutBindingsToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -226,13 +235,14 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -250,7 +260,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -273,7 +283,7 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
             int maxSubmissions)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -297,9 +307,13 @@ class AuthzLegacyCompatibilityIntegrationTests extends AbstractIntegrationTest {
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 
     private Long createSubmission(String token, Long assignmentId, String contentText) throws Exception {

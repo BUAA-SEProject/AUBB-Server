@@ -16,7 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
+class CourseDiscussionIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -25,6 +25,8 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private String latestTeacherToken;
 
     @BeforeEach
     void setUp() {
@@ -74,6 +76,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -108,7 +111,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
                         """), 5);
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/discussions", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items[*].title", containsInAnyOrder("课程问答", "A 班实验讨论")));
@@ -154,7 +157,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
         Long offeringDiscussionId = createTeacherDiscussion(teacherToken, offeringId, null, "课程问答", "统一讨论区");
 
         mockMvc.perform(put("/api/v1/teacher/discussions/{discussionId}/lock-state", offeringDiscussionId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {"locked":true}
@@ -171,7 +174,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
 
         mockMvc.perform(put("/api/v1/teacher/course-classes/{teachingClassId}/features", classAId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -227,7 +230,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
     private Long createTeacherDiscussion(String token, Long offeringId, Long teachingClassId, String title, String body)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/discussions", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {"teachingClassId":%s,"title":"%s","body":"%s"}
@@ -252,7 +255,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
 
     private void createTeacherReply(String token, Long discussionId, String body) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/discussions/{discussionId}/replies", discussionId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {"body":"%s"}
@@ -272,7 +275,7 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
 
     private void addStudent(String token, Long offeringId, Long userId, Long teachingClassId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {"members":[{"userId":%s,"memberRole":"STUDENT","teachingClassId":%s,"remark":"测试学生"}]}
@@ -313,13 +316,14 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {"classCode":"%s","className":"%s","entryYear":2026,"capacity":60,"scheduleSummary":"周二 1-2 节"}
@@ -347,5 +351,9 @@ class CourseDiscussionIntegrationTests extends AbstractIntegrationTest {
     private Long readLong(MvcResult result, String expression) throws Exception {
         Object value = JsonPath.read(result.getResponse().getContentAsString(), expression);
         return value instanceof Integer integer ? integer.longValue() : Long.parseLong(String.valueOf(value));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 }

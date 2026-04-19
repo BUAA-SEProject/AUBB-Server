@@ -9,6 +9,7 @@
 - 持久化通知内容
 - 支持未读 / 已读
 - 支持未读数
+- 提供可选的 HTTP SSE 增强订阅入口
 - 支持关键教学事件触发
 
 ## 覆盖范围
@@ -17,6 +18,7 @@
 
 - 用户分页查看自己的站内通知
 - 用户查看自己的未读通知数
+- 用户以 HTTP SSE 方式订阅自己的通知增量事件
 - 用户将单条通知标记为已读
 - 用户将全部通知标记为已读
 - 业务事件触发通知 fan-out
@@ -36,7 +38,8 @@
 
 ### 不在范围
 
-- 不做 WebSocket 实时推送
+- 不做 WebSocket 实时推送主链路
+- 不做多节点可靠推送、跨节点会话协调或 exactly-once 投递保证
 - 不做 Redis 推送通道或消息总线前置依赖
 - 不做系统公告中心
 - 不做短信、邮件、企业微信等多渠道通知
@@ -44,10 +47,10 @@
 
 ## 为什么当前先做轮询 + 未读数
 
-1. 站内通知的核心问题是“通知内容 + 收件人 + 已读状态”的持久化，而不是推送协议。
+1. 站内通知的核心问题是“通知内容 + 收件人 + 已读状态”的持久化，而不是先选某种推送协议。
 2. 当前仓库还没有稳定的 Redis / WebSocket 运行基线；如果先把实时推送前置，会把最关键的持久化和补拉问题后置。
-3. `GET /api/v1/me/notifications` + `GET /api/v1/me/notifications/unread-count` 已经足够支撑前端轮询、角标更新和列表回放。
-4. 后续若需要 v1.1 实时能力，应在不改变 `notifications / notification_receipts` 语义的前提下，额外增加 WebSocket 推送层，而不是重新设计通知模型。
+3. `GET /api/v1/me/notifications` + `GET /api/v1/me/notifications/unread-count` 已经足够支撑前端轮询、角标更新和列表回放；当前 `/stream` 只是增强通道，不是唯一事实来源。
+4. 后续若需要 v1.1 实时能力，应在不改变 `notifications / notification_receipts` 语义的前提下，演进当前 SSE 或额外增加 WebSocket 推送层，而不是重新设计通知模型。
 
 ## 核心业务规则
 
@@ -83,12 +86,17 @@
 
 - `GET /api/v1/me/notifications`
 - `GET /api/v1/me/notifications/unread-count`
+- `GET /api/v1/me/notifications/stream`
 - `POST /api/v1/me/notifications/{id}/read`
 - `POST /api/v1/me/notifications/read-all`
 
 ## 当前实现边界
 
-- 当前只做站内通知，不承载公告正文或实时推送协议。
+- 当前只做站内通知，不承载公告正文、多渠道消息中心或独立实时总线。
 - 当前通知正文由后端按事件类型直接生成，不引入通知模板中心。
 - 当前只按用户收件箱维度查询，不支持课程、类型、是否已读等更复杂过滤。
 - 当前通知 fan-out 仍在业务事务内同步入库；如果后续事件量继续扩大，再考虑事件总线或异步派发。
+- `GET /api/v1/me/notifications/stream` 当前已经存在，但仅提供单实例内存态 HTTP SSE best-effort 推送：
+  - 不保证多节点会话迁移后的无缝续传
+  - 不保证断线期间事件逐条补发
+  - 客户端断连或 stream 不可用时必须回退 `GET /api/v1/me/notifications` 与 `GET /api/v1/me/notifications/unread-count`

@@ -148,6 +148,13 @@
 - `PUT /api/v1/teacher/judge-environment-profiles/{profileId}`
 - `POST /api/v1/teacher/judge-environment-profiles/{profileId}/archive`
 
+工作区与样例试运行当前还有以下稳定契约约束：
+
+- `PUT /workspace`、`POST /workspace/operations`、`POST /workspace/revisions/{revisionId}/restore`、`POST /workspace/reset-to-template` 均支持可选 `baseRevisionId`；若客户端基于旧修订写入，会返回 `409 PROGRAMMING_WORKSPACE_CONFLICT`
+- `GET /workspace` 返回 `latestRevisionKind / editable / editBlockedReasonCode / runnable / runBlockedReasonCode`，前端可直接用于初始化 IDE 状态
+- `saveKind=AUTO` 且工作区无变更时不会新增新修订，返回体会继续回放当前 `latestRevisionId / latestRevisionNo / latestRevisionKind`
+- `GET /sample-runs/{sampleRunId}` 在详细报告对象缺失时不再返回 500，而是返回摘要字段，并附带 `detailReportUnavailableReasonCode`
+
 ### 批改、成绩册与申诉
 
 - `POST /api/v1/teacher/submissions/{submissionId}/answers/{answerId}/grade`
@@ -198,6 +205,11 @@
 - `GET /api/v1/me/notifications/stream`
 - `POST /api/v1/me/notifications/{notificationId}/read`
 - `POST /api/v1/me/notifications/read-all`
+
+通知实时增强当前还有以下稳定约束：
+
+- `GET /api/v1/me/notifications/stream` 是 HTTP SSE 单实例 best-effort 通道，不承诺跨节点续传、断线补发或消息总线级可靠性
+- 客户端在 SSE 不可用、断线或超时后，必须回退 `GET /api/v1/me/notifications` 与 `GET /api/v1/me/notifications/unread-count`
 
 ## 当前未纳入稳定承诺的范围
 

@@ -1,5 +1,216 @@
 # 进度日志
 
+## Session: 2026-04-19 仓库级生产收口修复
+
+### Phase 56：修复启动与依赖重排
+
+- **Status:** in_progress
+- **Started:** 2026-04-19
+- Actions taken:
+  - 基于最新 `todo.md` 收敛修复顺序，确认先处理全局 `P0 / P1` 与会导致后续返工的跨模块基线问题
+  - 复核当前代码事实，确认以下问题仍真实存在：
+    - `pom.xml` 仍保留 `spring-boot-starter-data-redis` 与 `source/target=8`
+    - `application.yaml`、`compose.yaml`、`deploy/compose.yaml` 仍保留 Redis 接线
+    - `deploy/compose.yaml` healthcheck 仍调用 `/actuator/health`
+    - `RedisRateLimitService` 仍在 Redis 异常时 `fallback -> allowed()`
+    - `RequestContextSupport.clientIp()` 与 `RateLimitAspect` 的客户端 IP 解析仍不一致
+  - 确认 Redis 不是“可直接删除”的纯残留：`CacheService` 已被 `identityaccess / course / assignment / judge / notification` 真实使用
+  - 初步决策：
+    - Redis 作为真实增强能力保留，但必须把限流从 fail-open 改成安全降级
+    - 全局基线第一段以 `Redis / rate limit / readiness / build/runtime / request-context` 为主
+  - 继续处理 `AUDIT-P0-019`：
+    - 先把 `JudgeIntegrationTests` 与 `StructuredProgrammingJudgeIntegrationTests` 改成新契约，锁定“普通教师默认脱敏，显式授予 `judge.view_hidden` 才能看到隐藏测试字段/运行命令”
+    - 复现结果确认 root cause 仍在 `JudgeApplicationService`：teacher report 的 `FULL/MASKED` 选择继续绑在 `submission.read_source`
+    - 在 `JudgeApplicationService` 中把 teacher report 字段模式切到 `ReadPathAuthorizationService.canReadHiddenJudgeFields(...)`
+    - 新增 `AuditAction.JUDGE_HIDDEN_READ`，并在真正返回完整隐藏字段的 teacher report 查看 / 下载场景写入 `judge.view_hidden` 敏感审计
+    - 同步 `README.md` 与 `docs/product-specs/judge-system.md`，修正文档里“教师默认可见隐藏测试输入输出”的漂移表述
+  - 额外发现新的验证基线问题：
+    - 整类执行 `StructuredProgrammingJudgeIntegrationTests` 时会命中真实登录限流，说明 real-judge 集成测试仍未切到非限流基线，后续全量 `test/verify` 前需要单独收口
+  - 当前轮继续关闭最后一个真实阻塞：
+    - 将 `CourseSystemIntegrationTests#initialInstructorGrantShouldAuthorizeWithinClockSkewTolerance` 改成更严格的时钟抖动用例，旧实现下稳定失败并返回 `DENY_NO_ROLE_BINDING`
+    - 在 `CourseMemberRoleBindingSyncService` 与 `RoleBindingGrantQueryMapper` 中把激活容忍窗口统一提升到 `3 seconds`
+    - 新增 `V47__expand_legacy_binding_activation_tolerance_window.sql`，让数据库函数 `legacy_binding_effective_from(...)` 与应用层/查询层口径一致
+    - 定向验证通过后重新执行 fresh 全量 `bash ./mvnw test`，结果 `326/326` 通过，`BUILD SUCCESS`
+- Verification:
+  - `rg -n "spring-boot-starter-data-redis|management\\.health\\.redis|SPRING_DATA_REDIS|redis:" pom.xml src/main/resources/application.yaml compose.yaml deploy/compose.yaml .github/workflows -S`
+  - `rg -n "health/readiness|/actuator/health\\b" compose.yaml deploy/compose.yaml .github/workflows docs/deployment.md docs/reliability.md -S`
+  - `rg -n "<source>8</source>|<target>8</target>|maven.compiler.release|<java.version>" pom.xml -S`
+  - `rg -n "CacheService|@RateLimited" src/main/java/com/aubb/server/modules -S`
+  - `bash ./mvnw -Dtest=JudgeIntegrationTests,StructuredProgrammingJudgeIntegrationTests test`
+    - 结果：定向新契约先失败在 `JudgeApplicationService`，同时暴露 `StructuredProgrammingJudgeIntegrationTests` 整类在真实限流下会返回 `429`
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -Dtest='JudgeIntegrationTests#legacyJudgeJobReportMasksHiddenFieldsForTeacherWithoutGrant+explicitJudgeViewHiddenGrantCanReadSensitiveTeacherJudgeReportAndWritesAudit,StructuredProgrammingJudgeIntegrationTests#programmingAnswerSupportsCompileAndRunArgsAndExposesDetailedReport' test`
+    - 结果：3/3 通过
+  - `bash ./mvnw -Dtest='CourseSystemIntegrationTests#initialInstructorGrantShouldAuthorizeWithinClockSkewTolerance' test`
+    - 结果：先失败后修复，当前通过
+  - `bash ./mvnw -Dtest='StructuredProgrammingJudgeIntegrationTests#programmingAnswerSupportsCompileAndRunArgsAndExposesDetailedReport' test`
+    - 结果：通过
+  - `bash ./mvnw test`
+    - 结果：`326/326` 通过，`BUILD SUCCESS`
+  - `bash ./mvnw verify`
+    - 结果：`326/326` 通过，打包成功，`BUILD SUCCESS`
+  - `docker build -f Dockerfile .`
+    - 结果：构建成功，runtime 基线为 `eclipse-temurin:25-jre`
+  - `docker compose config`
+    - 结果：通过
+  - `docker compose -f deploy/compose.yaml --env-file deploy/.env.production.example config`
+    - 结果：通过
+  - `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7`
+    - 结果：通过
+
+## Session: 2026-04-19 仓库级逐文件代码审查
+
+### Phase 55：审查启动与台账重建
+
+- **Status:** completed
+- **Started:** 2026-04-19
+- Actions taken:
+  - 读取 `AGENTS.md`、`README.md`、`ARCHITECTURE.md`、`docs/repository-structure.md`、`docs/development-workflow.md`、`docs/project-skills.md`
+  - 读取 `docs/stable-api.md`、`docs/generated/db-schema.md`、`pom.xml`、`src/main/resources/application.yaml`、`compose.yaml`、`deploy/compose.yaml`、`.github/workflows/*.yml`
+  - 使用 `planning-with-files`、`springboot-patterns`、`springboot-security`、`springboot-verification`、`tech-debt`、`documentation-writer`
+  - 激活 Serena 项目上下文并读取项目记忆
+  - 发现并确认首批全局漂移：
+    - 文档声称 Redis 已移除，但代码、compose、deploy、workflow 仍保留 Redis 依赖与接线
+    - `docs/generated/db-schema.md` 只列到 V37，而当前迁移已到 V46
+    - 原 `todo.md` 已被旧任务说明污染，无法继续作为可信缺陷主清单
+  - 重建 `todo.md` 结构，创建 `Global blockers`、模块 section 与横切 section
+- Verification:
+  - `rg -n "redis|AUBB_REDIS|Redis" README.md ARCHITECTURE.md pom.xml src/main/resources/application.yaml compose.yaml deploy/compose.yaml .github/workflows/*.yml`
+  - `rg -n "V4[0-9]__|V37__permission_system_data_layer_foundation" docs/generated/db-schema.md`
+  - 当前结果：
+    - Redis 去留口径存在真实代码-文档漂移
+    - `db-schema.md` 与 Flyway 版本存在真实漂移
+    - `todo.md` 已完成结构重建，后续按模块持续补充
+  - 继续审查全局工程基线、deploy 资产与共享层：
+    - 逐项核对 `Dockerfile`、`.dockerignore`、`deploy/compose.yaml`、三套 deploy env example、`application.yaml`、`SecurityConfig`、Redis/metrics/health 相关实现
+    - 确认 `deploy/compose.yaml` 的容器 healthcheck 仍调用 `/actuator/health`，而根 compose、deploy workflow 和文档已切到 `/actuator/health/readiness`
+    - 确认 `RedisRateLimitService` 在 Redis 异常时会 `fallback -> allowed()`，但登录、refresh、sample-run、submission create/upload、lab upload 等真实接口都已接上 `@RateLimited`
+    - 确认 `CacheService` 已被多个业务模块真实使用，Redis 不是“仅剩依赖残留”；同时 `RealtimeCoordinationService` 目前没有任何业务接线
+    - 确认 `RequestContextSupport.clientIp()` 与 `RateLimitAspect` 的代理 IP 解析口径不一致，当前 audit log 与 rate limit 在反向代理场景会记成不同来源
+    - 确认 `pom.xml` 仍同时声明 Java 25 和 `source/target=8`，`Dockerfile` runtime stage 仍使用 Maven 镜像
+  - 已同步：
+    - `todo.md`：补充 `AUDIT-P1-004`、`AUDIT-P1-005`、`AUDIT-P2-006`、`AUDIT-P2-007`、`AUDIT-P2-008`、`AUDIT-P3-009`、`AUDIT-P2-010`
+    - `findings.md`：补充 deploy healthcheck、Redis fail-open、共享层引用与请求上下文口径结论
+  - 继续完成 `course` 模块逐文件审查：
+    - 读取 `CourseAuthorizationService`、`CourseTeachingApplicationService`、`CourseAdministrationApplicationService`、`CourseMemberMapper`、`CourseMemberRoleBindingSyncService`、`CourseMemberAccessPolicyService`
+    - 读取 `CourseCatalogAdminController`、`CourseOfferingAdminController`、`AcademicTermAdminController`、`CourseTeachingController`、`MyCoursesController`
+    - 复核 `CourseAuthorizationServiceTests`、`CourseSystemIntegrationTests`、`AuthzLegacyCompatibilityIntegrationTests`
+    - 确认 `GET /api/v1/admin/course-catalogs` 在 `departmentUnitId` 为空时没有任何治理范围裁剪，学院管理员会看到全量课程模板
+    - 确认 `CourseAuthorizationService` 仍在 `DENY_NO_ROLE_BINDING && !roleBindingSnapshot` 条件下对教学读路径回退 legacy 授权，且兼容集成测试仍把 legacy instructor 读提交当作当前行为契约
+    - 确认课程治理读路径存在明显性能债：`listTerms/listCatalogs` 全表内存过滤、`listOfferings -> toOfferingView` `N+1`
+    - 确认 `createOffering(...)` 缺失 `startAt/endAt` 合法性校验
+  - 已同步：
+    - `todo.md`：补充 `AUDIT-P1-011`、`AUDIT-P1-012`、`AUDIT-P2-013`、`AUDIT-P2-014`、`AUDIT-P3-015`
+    - `findings.md`：补充课程模板列表越权、旧授权混用、课程治理读性能债与未接线成员访问策略抽象
+    - `docs/exec-plans/active/2026-04-19-repo-audit-production-readiness.md`：将 `course` 标记为已完成首轮审查
+    - `task_plan.md`：更新 Phase 55 子进度，标记 `course` 已完成
+  - 继续完成 `assignment` 模块首轮逐文件审查：
+    - 读取 `AssignmentApplicationService`、`AssignmentMapper`、`MyAssignmentsController`、`AssignmentTeacherController`、`QuestionBankApplicationService`
+    - 复核 `AssignmentIntegrationTests` 中学生列表 / 详情与角色绑定收口场景
+    - 确认 `listMyAssignments(...)` 仍通过 `AssignmentMapper.countVisibleAssignmentsForUser/selectVisibleAssignmentsForUserPage(...)` 直接按 `course_members` 过滤，并把 `ACTIVE / DROPPED / TRANSFERRED / COMPLETED` 一并视为可读状态
+    - 确认 `getMyAssignment(...)` 已改走 `ReadPathAuthorizationService.canReadMyAssignmentHistory(...)`，而现有 `activeStudentWithoutRoleBindingsCannotReadMyAssignment` 已证明删除 `role_bindings` 后详情会 `403`
+    - 结论：当前“我的作业”列表与详情存在权限源分裂，活跃学生缺失 role binding 时可能出现“列表还能看到标题，详情却 403”
+  - 已同步：
+    - `todo.md`：补充 `AUDIT-P1-016`
+    - `findings.md`：补充 assignment 模块列表 / 详情权限源不一致结论
+  - 继续完成 `submission` 模块首轮逐文件审查：
+    - 读取 `SubmissionApplicationService`、`SubmissionMapper`、`MySubmissionController`、`TeacherSubmissionController`
+    - 复核 `SubmissionIntegrationTests` 中 own-history、源码下载审计、转班/退课历史读取与 `latestOnly` 场景
+    - 确认学生自读路径 `listMySubmissions/getMySubmission/downloadMyArtifact` 已统一依赖 `canReadOwnSubmissionHistory(...)`
+    - 确认教师详情 `getTeacherSubmission(...)` 走 `ReadPathAuthorizationService.canReadSubmission(...)`，class-scoped 提交按 `submission.teaching_class_id` 判定
+    - 确认教师列表与 `latestOnly` 统计仍依赖 `SubmissionMapper` SQL，class-scoped reader 只按 submitter 当前 `course_members.member_status='ACTIVE'` 和当前班级过滤，没有使用 `submissions.teaching_class_id`
+    - 结论：学生退课/转班后，旧提交可能仍能按详情读取，却会从教师列表、`latestOnly` 计数与后续导出入口中消失
+  - 已同步：
+    - `todo.md`：补充 `AUDIT-P1-017`
+    - `findings.md`：补充 submission 模块教师列表 / 详情历史边界不一致结论
+  - 继续完成 `grading` 模块首轮逐文件审查：
+    - 读取 `GradebookApplicationService`、`GradebookQueryRepository`、`GradebookQuerySql`、`GradeAppealApplicationService`、`GradingApplicationService`
+    - 复核 `GradebookIntegrationTests` 与 `GradingIntegrationTests` 中的 grade export、appeal、role binding 收口与高风险审计场景
+    - 确认 gradebook/export/report 已通过 `ReadPathAuthorizationService` 与 `SensitiveOperationAuditService` 收口高风险导出审计
+    - 确认 `GradebookQuerySql.rosterCtes()` 仍只纳入 `course_members.member_status='ACTIVE'` 的学生，教师 gradebook/report/export 会在退课/转班后直接丢失历史成绩
+    - 确认学生自助 gradebook 的 `loadRoster(..., allowHistoricalMembership = true)` 虽接受历史状态，但只按班级 id / 记录 id 选第一条非空班级，没有优先当前 `ACTIVE` 或最新历史记录，转班学生可能被挂到旧班
+    - 结论：成绩册读模型当前仍把 roster 近似成“当前 active 学生 + 任意一个班级归属”，会扭曲历史成绩、rank 与 applicable 计算
+  - 已同步：
+    - `todo.md`：补充 `AUDIT-P1-018`
+    - `findings.md`：补充 grading 模块 roster 历史规则缺陷
+  - 继续完成 `judge` 模块首轮逐文件审查：
+    - 读取 `JudgeApplicationService`、`ProgrammingSampleRunApplicationService`、相关 `JudgeIntegrationTests` / `StructuredProgrammingJudgeIntegrationTests`
+    - 确认正式评测与样例试运行读路径大体已经统一走 `ReadPathAuthorizationService`，样例试运行也沿用自己的 assignment/ide 可见性判定
+    - 确认 `judge.rejudge`、`judge.config` 已通过 `SensitiveOperationAuditService` 写高风险审计
+    - 确认教师评测报告 `getTeacherJudgeJobReport/downloadTeacherJudgeJobReport` 仍只根据 `submission.read_source` 决定 `FULL/MASKED`
+    - 确认 `buildReportView(...)` 在 `FULL` 模式下直接返回完整 hidden case 字段，而 judge 报告链路没有使用 `judge.view_hidden`
+    - 复核 migration 与结构化 judge 集成测试，确认普通教师默认没有 `judge.view_hidden`，但仍能在测试中读取 `expectedStdout`、`runCommand` 等隐藏细节
+    - 结论：当前 judge 报告隐藏字段存在明确越权泄露面，且缺少对应的敏感审计
+  - 已同步：
+    - `todo.md`：补充 `AUDIT-P0-019`
+    - `findings.md`：补充 judge 模块隐藏评测报告权限/审计缺陷
+  - 继续完成 `identityaccess / organization / platformconfig / audit / lab / notification` 审查收口：
+    - 读取 `AuthenticatedPrincipalLoader`、`AuthzExplainApplicationService`、`AuthzGroupApplicationService`、`AuthorizationService`、`AuthSessionApplicationService`、`AuthenticationApplicationService` 与 `AuthzLegacyCompatibilityIntegrationTests` / `AuthzJwtSessionIntegrationTests` / `AuthzGroupAdministrationIntegrationTests`
+    - 确认 `identityaccess` 的认证主链整体可用，但 deprecated 兼容授权链仍在 principal 快照与 admin authz 工具运行态存活，新增 `AUDIT-P1-020`
+    - 读取 `OrganizationApplicationService`、`OrganizationAdminController`、`PlatformConfigApplicationService`、`PlatformBootstrapApplicationService`、`AuditLogApplicationService` 与相关治理集成测试，确认 `organization / platformconfig / audit` 当前未新增独立 P0/P1
+    - 读取 `LabApplicationService`、`MyLabController`、`LabTeacherController`、`LabReportIntegrationTests`，确认实验列表与报告列表仍是全量拉取后内存过滤 / 分页，新增 `AUDIT-P2-021`
+    - 读取 `NotificationApplicationService`、`NotificationRealtimeService`、`NotificationDispatchService`、`MyNotificationController`、`NotificationCenterIntegrationTests`，确认读写越权未见新增缺口，但 `/stream` 为单节点内存 SSE，且与产品规格 / stable-api 口径漂移，新增 `AUDIT-P2-022`
+  - 已同步：
+    - `todo.md`：更新全部模块状态为已审完，补充 `AUDIT-P1-020`、`AUDIT-P2-021`、`AUDIT-P2-022`，并收口 Cross-cutting / Docs / Deploy / Observability / Security / Performance 结论
+    - `findings.md`：补充 `identityaccess / organization / platformconfig / audit / lab / notification` 审查结论与全仓审查完成状态
+    - `task_plan.md`：将 Phase 55 全部子项标记为已完成
+    - `docs/exec-plans/active/2026-04-19-repo-audit-production-readiness.md`：同步全部阶段完成、补充新增问题与最终状态
+  - 当前结果：
+    - 仓库级逐文件代码审查已完成首轮全量覆盖
+    - `todo.md` 已收敛为可信、可执行、可排序的缺陷清单
+    - 当前最高优先级阻塞项聚焦于 Redis 运行基线 / 限流 fail-open、deploy readiness 口径、旧授权兼容运行态残留、历史状态读路径分裂与 judge 隐藏字段越权
+
+## Session: 2026-04-19 在线 IDE 后端继续完善
+
+### Phase 54：盘点与实施准备
+
+- **Status:** in_progress
+- **Started:** 2026-04-19
+- Actions taken:
+  - 读取 `AGENTS.md`、`README.md`、`ARCHITECTURE.md`、`docs/repository-structure.md`、`docs/development-workflow.md`、`docs/project-skills.md`、`docs/stable-api.md`、`docs/product-specs/{assignment-system,submission-system,judge-system}.md`、`src/main/resources/application.yaml`
+  - 读取并按任务使用 `planning-with-files`、`springboot-patterns`、`springboot-tdd`、`springboot-security`、`springboot-verification`、`documentation-writer`、`api-design-principles`、`postgresql-table-design` 技能说明
+  - 审计 `MyProgrammingWorkspaceController`、`ProgrammingWorkspaceApplicationService`、`MyProgrammingSampleRunController`、`ProgrammingSampleRunApplicationService`、相关 migration / entity / integration tests
+  - 核对现有 IDE 后端事实：模板工作区、目录树快照、目录操作、修订历史 / 恢复、模板重置、显式 / 工作区 / 历史修订三种样例试运行来源、对象存储详细报告、`PYTHON3 / JAVA21 / CPP17 / GO122`
+  - 识别当前最关键缺口：缺少基于 revision 的冲突检测、自动保存去噪、可编辑/可运行初始化元信息、路径大小写 / 自身子路径边界保护、样例试运行详情缺失对象时的稳定错误模型
+  - 新增 active exec plan：`docs/exec-plans/active/2026-04-19-online-ide-backend-phase2.md`
+  - 同步 `task_plan.md`、`findings.md`、`todo.md`
+  - 在 `ReadPathAuthorizationService`、`ProgrammingWorkspaceApplicationService`、`ProgrammingSampleRunApplicationService`、`MyProgrammingWorkspaceController`、对应 view records 上完成最小追加式实现
+  - 补齐工作区 `baseRevisionId` 冲突检测、`AUTO_SAVE` 无变更去噪、初始化元信息字段、路径大小写冲突 / 目录自包含重命名边界、样例试运行详情对象缺失回退
+  - 同步 `docs/stable-api.md`、`docs/product-specs/submission-system.md`、`docs/product-specs/judge-system.md` 与 active exec plan
+  - 在 `AssignmentIntegrationTests` 引入按权限集刷新教师 token 的辅助方法，避免开课与成员变更后继续使用旧快照 token
+  - 在 `GradebookIntegrationTests` 的成员变更链路后刷新教师 token，收口全量 `test/verify` 下的 role-binding 快照时序抖动
+- Verification:
+  - `bash ./mvnw spotless:apply`
+  - `bash ./mvnw -q -DskipTests compile`
+  - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests test`
+  - `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests,SubmissionIntegrationTests,JudgeIntegrationTests test`
+  - 当前结果：
+    - `ProgrammingWorkspaceIntegrationTests` 15/15 通过
+    - `JudgeIntegrationTests` 10/10 通过
+    - `StructuredProgrammingJudgeIntegrationTests` 11/11 通过
+    - `SubmissionIntegrationTests` 暴露 2 个现存失败，表现为 assignment publish / submit 路径 403，已记录为当前分支的跨域授权回归阻塞
+  - 继续定位后，确认根因是 `CourseMemberRoleBindingSyncService` 把 ACTIVE 成员同步成 role binding 时，`effective_from=joined_at` 导致“刚创建成员后立即登录/发请求”存在短暂未生效窗口
+  - 在 `CourseMemberRoleBindingSyncService` 中为 ACTIVE 成员引入 `effective_from` 容忍窗口，并在 `CourseSystemIntegrationTests` 新增教师/学生登录应进入 `roleBindingSnapshot=true` 的回归测试
+  - 执行 `bash ./mvnw -Dtest=CourseSystemIntegrationTests#loginAfterOfferingCreationShouldUseInstructorRoleBindingSnapshot+loginAfterClassMemberAddedShouldUseStudentRoleBindingSnapshot,JudgeIntegrationTests#syntaxErrorBecomesSuccessfulJudgeJobWithCompileFailureSummary,SubmissionIntegrationTests#classScopedStudentCanReadOwnSubmissionHistoryForOfferingWideAssignment test`
+  - 执行 `bash ./mvnw -Dtest=ProgrammingWorkspaceIntegrationTests,StructuredProgrammingJudgeIntegrationTests,SubmissionIntegrationTests,JudgeIntegrationTests test`
+  - 当前结果更新：
+    - 新增 2 个 role-binding snapshot 回归测试通过
+    - `JudgeIntegrationTests` 10/10 通过
+    - `StructuredProgrammingJudgeIntegrationTests` 11/11 通过
+    - `SubmissionIntegrationTests` 18/18 通过
+    - `ProgrammingWorkspaceIntegrationTests` 15/15 通过
+    - 四套交叉回归共 54/54 通过
+  - 执行 `bash ./mvnw -Dtest=AssignmentIntegrationTests test`
+  - 执行 `bash ./mvnw -Dtest=GradebookIntegrationTests test`
+  - 执行 `bash ./mvnw -Dtest=AssignmentIntegrationTests,GradebookIntegrationTests test`
+  - 执行 `bash ./mvnw test`
+  - 执行 `bash ./mvnw verify`
+  - 当前结果最终更新：
+    - `AssignmentIntegrationTests` 17/17 通过
+    - `GradebookIntegrationTests` 11/11 通过
+    - 全量 `test` 313/313 通过，`BUILD SUCCESS`
+    - 全量 `verify` 313/313 通过，`BUILD SUCCESS`
+
 ## Session: 2026-04-17 状态台账与最终交付结论
 
 ### Phase 53：Step 7 最终交接收口

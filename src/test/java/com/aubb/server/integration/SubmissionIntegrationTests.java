@@ -44,7 +44,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
-class SubmissionIntegrationTests extends AbstractIntegrationTest {
+class SubmissionIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -71,6 +71,8 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
     @Autowired
     private SubmissionApplicationService submissionApplicationService;
 
+    private String latestTeacherToken;
+
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         registry.add("aubb.storage.minio.enabled", () -> "true");
@@ -85,10 +87,12 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
                     auth_sessions,
+                    role_bindings,
                     auth_group_members,
                     auth_groups,
                     judge_jobs,
@@ -125,6 +129,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         insertUser(2L, "student-a", "Student A", "student-a@example.com");
         insertUser(2L, "student-b", "Student B", "student-b@example.com");
         insertUser(2L, "ta-user", "Ta User", "ta-user@example.com");
+        latestTeacherToken = null;
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -177,7 +182,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status").value("SUBMITTED"));
 
         mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].submitterUserId").value(4))
@@ -310,13 +315,13 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.artifacts[0].sizeBytes").value(14));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.artifacts.length()").value(1))
                 .andExpect(jsonPath("$.artifacts[0].originalFilename").value("answer.py"));
 
         mockMvc.perform(get("/api/v1/teacher/submission-artifacts/{artifactId}/download", artifactId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Disposition", containsString("answer.py")))
                 .andExpect(content().bytes("print('AUBB')\n".getBytes(StandardCharsets.UTF_8)));
@@ -594,7 +599,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                                 "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/transfer",
                                 offeringId,
                                 memberId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {"targetTeachingClassId":%s,"remark":"转班到新班"}
@@ -683,7 +688,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                                 "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/status",
                                 offeringId,
                                 memberId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {"memberStatus":"DROPPED","remark":"退课处理"}
@@ -847,12 +852,12 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(0));
 
         mockMvc.perform(post("/api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ASSIGNMENT_JUDGE_NOT_CONFIGURED"));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}/judge-jobs", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
 
@@ -992,7 +997,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.submitterUserId").value(4))
                 .andExpect(jsonPath("$.contentText").value("学生A提交"));
@@ -1033,12 +1038,94 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
                         .param("submitterUserId", "4")
                         .param("latestOnly", "true")
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].submitterUserId").value(4))
                 .andExpect(jsonPath("$.items[0].attemptNo").value(2))
                 .andExpect(jsonPath("$.items[0].contentText").value("学生A第二次"));
+    }
+
+    @Test
+    void classScopedTaListsHistoricalOfferingSubmissionBySubmissionClassInsteadOfCurrentMembership() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        Long classBId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2025);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        addMember(teacherToken, offeringId, 6L, "TA", classAId);
+        addMember(teacherToken, offeringId, 5L, "TA", classBId);
+        studentAToken = login("student-a", "Password123");
+        String classATaToken = login("ta-user", "Password123");
+        String classBTaToken = login("student-b", "Password123");
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                null,
+                "公共作业历史班级边界",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3),
+                3);
+        publishAssignment(teacherToken, assignmentId);
+
+        Long submissionId = createSubmission(studentAToken, assignmentId, "转班前公共作业提交");
+
+        Long memberId = findMemberId(offeringId, 4L, "STUDENT");
+        mockMvc.perform(post(
+                                "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/transfer",
+                                offeringId,
+                                memberId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
+                        .contentType("application/json")
+                        .content("""
+                                {"targetTeachingClassId":%s,"remark":"转班到B班"}
+                                """.formatted(classBId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.teachingClassId").value(classBId))
+                .andExpect(jsonPath("$.memberStatus").value("ACTIVE"));
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + classATaToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(submissionId));
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + classATaToken)
+                        .param("latestOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(submissionId));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + classATaToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(submissionId));
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + classBTaToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
+
+        mockMvc.perform(get("/api/v1/teacher/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + classBTaToken)
+                        .param("latestOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + classBTaToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -1188,13 +1275,14 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1245,7 +1333,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1281,7 +1369,7 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
             throws Exception {
         String teachingClassField = teachingClassId == null ? "null" : String.valueOf(teachingClassId);
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1306,9 +1394,13 @@ class SubmissionIntegrationTests extends AbstractIntegrationTest {
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 
     private Long createSubmission(String token, Long assignmentId, String contentText, Long... artifactIds)

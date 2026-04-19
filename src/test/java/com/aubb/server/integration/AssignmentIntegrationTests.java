@@ -15,7 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AssignmentIntegrationTests extends AbstractIntegrationTest {
+class AssignmentIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -25,11 +25,15 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    private String latestTeacherToken;
+
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    role_bindings,
+                    auth_sessions,
                     assignments,
                     course_members,
                     teaching_classes,
@@ -70,6 +74,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -86,19 +91,19 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         Long assignmentId = createAssignment(teacherToken, offeringId, classId, "链表实验一");
 
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"))
                 .andExpect(jsonPath("$.publishedAt").isNotEmpty());
 
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/close", assignmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CLOSED"))
                 .andExpect(jsonPath("$.closedAt").isNotEmpty());
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].title").value("链表实验一"))
@@ -128,7 +133,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
         Long assignmentIdB = createAssignment(teacherToken, offeringId, classId, "链表实验二");
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items.length()").value(2))
@@ -269,7 +274,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].title").value("A班任务一"));
 
         mockMvc.perform(get("/api/v1/me/assignments")
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("offeringId", String.valueOf(otherOfferingId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
@@ -325,10 +330,51 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
 
         jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 4L);
 
+        mockMvc.perform(get("/api/v1/me/assignments").header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.items.length()").value(0));
+
         mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
                         .header("Authorization", "Bearer " + studentAToken))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void historicalStudentWithoutRoleBindingsCanStillListAndReadOwnAssignment() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentAToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classAId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classAId);
+        studentAToken = login("student-a", "Password123");
+
+        Long assignmentId = createAssignment(teacherToken, offeringId, classAId, "历史作业可读任务");
+        publishAssignment(teacherToken, assignmentId);
+
+        jdbcTemplate.update(
+                "UPDATE course_members SET member_status = 'DROPPED' WHERE user_id = ? AND offering_id = ?",
+                4L,
+                offeringId);
+        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 4L);
+
+        mockMvc.perform(get("/api/v1/me/assignments").header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(assignmentId))
+                .andExpect(jsonPath("$.items[0].title").value("历史作业可读任务"));
+
+        mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(assignmentId))
+                .andExpect(jsonPath("$.title").value("历史作业可读任务"));
     }
 
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
@@ -419,13 +465,14 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId, offeringCode, offeringName)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        refreshTeacherToken("class.manage", "member.manage", "task.create");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -443,7 +490,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -459,7 +506,7 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
     private Long createAssignment(String token, Long offeringId, Long teachingClassId, String title) throws Exception {
         String teachingClassField = teachingClassId == null ? "null" : String.valueOf(teachingClassId);
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -479,9 +526,23 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        if (latestTeacherToken == null) {
+            return token;
+        }
+        String[] segments = token.split("\\.");
+        if (segments.length < 2) {
+            return token;
+        }
+        String payload = new String(
+                java.util.Base64.getUrlDecoder().decode(segments[1]), java.nio.charset.StandardCharsets.UTF_8);
+        String subject = JsonPath.read(payload, "$.sub");
+        return "teacher-main".equals(subject) ? latestTeacherToken : token;
     }
 
     private String login(String username, String password) throws Exception {
@@ -508,5 +569,52 @@ class AssignmentIntegrationTests extends AbstractIntegrationTest {
 
     private int queryForCount(String sql) {
         return jdbcTemplate.queryForObject(sql, Integer.class);
+    }
+
+    private void refreshTeacherToken(String... expectedPermissionCodes) throws Exception {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(3).toNanos();
+        while (true) {
+            String candidate = login("teacher-main", "Password123");
+            if (isRoleBindingSnapshotReady(candidate)
+                    && tokenContainsAllPermissions(candidate, expectedPermissionCodes)) {
+                latestTeacherToken = candidate;
+                return;
+            }
+            if (System.nanoTime() >= deadline) {
+                latestTeacherToken = candidate;
+                assertThat(isRoleBindingSnapshotReady(candidate)).isTrue();
+                assertThat(readPermissionCodes(candidate)).contains(expectedPermissionCodes);
+                return;
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("等待教师权限快照收敛时被中断", exception);
+            }
+        }
+    }
+
+    private boolean isRoleBindingSnapshotReady(String token) {
+        return Boolean.TRUE.equals(readTokenClaim(token, "$.roleBindingSnapshot"));
+    }
+
+    private boolean tokenContainsAllPermissions(String token, String... expectedPermissionCodes) {
+        return readPermissionCodes(token).containsAll(java.util.List.of(expectedPermissionCodes));
+    }
+
+    private java.util.List<String> readPermissionCodes(String token) {
+        java.util.List<String> permissionCodes = readTokenClaim(token, "$.permissionCodes");
+        return permissionCodes == null ? java.util.List.of() : permissionCodes;
+    }
+
+    private <T> T readTokenClaim(String token, String path) {
+        String[] segments = token.split("\\.");
+        if (segments.length < 2) {
+            return null;
+        }
+        String payload = new String(
+                java.util.Base64.getUrlDecoder().decode(segments[1]), java.nio.charset.StandardCharsets.UTF_8);
+        return JsonPath.read(payload, path);
     }
 }

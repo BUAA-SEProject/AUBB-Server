@@ -129,7 +129,8 @@ public class CourseResourceApplicationService {
     @Transactional(readOnly = true)
     public CourseResourceDownload downloadTeacherResource(Long resourceId, AuthenticatedUserPrincipal principal) {
         CourseResourceEntity entity = requireResource(resourceId);
-        courseAuthorizationService.assertCanManageResources(principal, entity.getOfferingId(), entity.getTeachingClassId());
+        courseAuthorizationService.assertCanManageResources(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         return readResource(entity);
     }
 

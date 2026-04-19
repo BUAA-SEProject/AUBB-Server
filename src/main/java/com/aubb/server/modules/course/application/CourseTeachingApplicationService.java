@@ -10,6 +10,7 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.command.CourseMemberCommand;
+import com.aubb.server.modules.course.application.member.CourseMemberRoleBindingSyncService;
 import com.aubb.server.modules.course.application.result.CourseMemberBatchError;
 import com.aubb.server.modules.course.application.result.CourseMemberBatchResult;
 import com.aubb.server.modules.course.application.result.CourseMemberImportResult;

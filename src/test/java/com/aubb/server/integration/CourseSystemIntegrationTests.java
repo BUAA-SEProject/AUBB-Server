@@ -20,18 +20,21 @@ import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.jayway.jsonpath.JsonPath;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class CourseSystemIntegrationTests extends AbstractIntegrationTest {
+class CourseSystemIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -43,6 +46,11 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private PermissionAuthorizationService permissionAuthorizationService;
+
+    @Autowired
+    private JwtDecoder jwtDecoder;
+
+    private String latestTeacherToken;
 
     @DynamicPropertySource
     static void redisProperties(DynamicPropertyRegistry registry) {
@@ -57,6 +65,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         jdbcTemplate.execute("""
                 TRUNCATE TABLE
                     audit_logs,
+                    auth_sessions,
+                    role_bindings,
                     course_members,
                     teaching_classes,
                     course_offering_college_maps,
@@ -93,6 +103,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         insertUser(2L, "student-24", "Student 24", "student-24@example.com");
         insertUser(2L, "student-25", "Student 25", "student-25@example.com");
         insertUser(2L, "student-import", "Student Import", "student-import@example.com");
+        latestTeacherToken = null;
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -192,6 +203,37 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void collegeAdminListingCatalogsWithoutDepartmentFilterShouldOnlySeeOwnCollege() throws Exception {
+        String engAdminToken = login("eng-admin", "Password123");
+        String bizAdminToken = login("biz-admin", "Password123");
+
+        createCatalog(engAdminToken);
+        mockMvc.perform(post("/api/v1/admin/course-catalogs")
+                        .header("Authorization", "Bearer " + bizAdminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "courseCode":"BUS101",
+                                  "courseName":"管理学原理",
+                                  "courseType":"ELECTIVE",
+                                  "credit":2.0,
+                                  "totalHours":32,
+                                  "departmentUnitId":3,
+                                  "description":"商学院课程"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.department.id").value(3));
+
+        mockMvc.perform(get("/api/v1/admin/course-catalogs").header("Authorization", "Bearer " + bizAdminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].courseCode").value("BUS101"))
+                .andExpect(jsonPath("$.items[0].department.id").value(3));
+    }
+
+    @Test
     void initialInstructorRoleBindingShouldExposeMemberManageGrant() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -200,8 +242,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long catalogId = createCatalog(engAdminToken);
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
 
-        Integer bindingCount = jdbcTemplate.queryForObject(
-                """
+        Integer bindingCount = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM role_bindings rb
                 JOIN roles r ON r.id = rb.role_id
@@ -210,11 +251,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                   AND rb.scope_id = ?
                   AND rb.status = 'ACTIVE'
                   AND r.code = 'offering_teacher'
-                """,
-                Integer.class,
-                offeringId);
-        Integer grantCount = jdbcTemplate.queryForObject(
-                """
+                """, Integer.class, offeringId);
+        Integer grantCount = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM role_bindings rb
                 JOIN roles r ON r.id = rb.role_id
@@ -226,9 +264,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                   AND rb.status = 'ACTIVE'
                   AND r.code = 'offering_teacher'
                   AND p.code = 'member.manage'
-                """,
-                Integer.class,
-                offeringId);
+                """, Integer.class, offeringId);
 
         assertThat(bindingCount).isEqualTo(1);
         assertThat(grantCount).isEqualTo(1);
@@ -243,8 +279,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long catalogId = createCatalog(engAdminToken);
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
 
-        Integer grantCount = jdbcTemplate.queryForObject(
-                """
+        Integer grantCount = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM role_bindings rb
                 JOIN roles r ON r.id = rb.role_id
@@ -256,11 +291,81 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                   AND rb.status = 'ACTIVE'
                   AND r.code = 'offering_teacher'
                   AND p.code = 'question_bank.manage'
-                """,
-                Integer.class,
-                offeringId);
+                """, Integer.class, offeringId);
 
         assertThat(grantCount).isEqualTo(1);
+    }
+
+    @Test
+    void loginAfterOfferingCreationShouldUseInstructorRoleBindingSnapshot() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+
+        String teacherToken = login("teacher-main", "Password123");
+        Jwt jwt = jwtDecoder.decode(teacherToken);
+
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("task.create", "member.manage");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.get("templateCode")).isEqualTo("offering-instructor");
+            assertThat(binding.get("scopeType")).isEqualTo("OFFERING");
+            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(offeringId);
+        });
+    }
+
+    @Test
+    void offeringCreationShouldInvalidateExistingInstructorSessions() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String staleTeacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        createOffering(engAdminToken, catalogId, termId);
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + staleTeacherToken))
+                .andExpect(status().isUnauthorized());
+
+        String refreshedTeacherToken = login("teacher-main", "Password123");
+        Jwt jwt = jwtDecoder.decode(refreshedTeacherToken);
+
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(
+                        queryForCount(
+                                "SELECT COUNT(*) FROM auth_sessions WHERE user_id = 4 AND revoked_reason = 'COURSE_OFFERING_INITIAL_INSTRUCTOR_GRANTED'"))
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void loginAfterClassMemberAddedShouldUseStudentRoleBindingSnapshot() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2024);
+        addCourseMember(teacherToken, offeringId, 6L, "STUDENT", classId, null);
+
+        String studentToken = login("student-24", "Password123");
+        Jwt jwt = jwtDecoder.decode(studentToken);
+
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("task.read", "submission.read");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.get("templateCode")).isEqualTo("student");
+            assertThat(binding.get("scopeType")).isEqualTo("CLASS");
+            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(classId);
+        });
     }
 
     @Test
@@ -326,6 +431,77 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void initialInstructorGrantShouldAuthorizeWithinClockSkewTolerance() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-SKEW", "时钟抖动班", 2026);
+        addCourseMember(teacherToken, offeringId, 6L, "STUDENT", classId, null);
+        jdbcTemplate.update("""
+                UPDATE role_bindings
+                SET effective_from = clock_timestamp() + interval '2500 milliseconds'
+                WHERE user_id = 4
+                  AND scope_type = 'offering'
+                  AND scope_id = ?
+                  AND status = 'ACTIVE'
+                """, offeringId);
+        OffsetDateTime effectiveFrom = jdbcTemplate.queryForObject("""
+                SELECT effective_from
+                FROM role_bindings
+                WHERE user_id = 4
+                  AND scope_type = 'offering'
+                  AND scope_id = ?
+                  AND status = 'ACTIVE'
+                ORDER BY id DESC
+                LIMIT 1
+                """, OffsetDateTime.class, offeringId);
+
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                4L,
+                "teacher-main",
+                "Teacher Main",
+                2L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(),
+                java.util.Set.of(),
+                null,
+                false);
+        AuthorizationContext skewedContext = AuthorizationContext.of(effectiveFrom.minusSeconds(2));
+        AuthorizationResult gradeResult = permissionAuthorizationService.authorize(
+                principal,
+                "submission.grade",
+                new AuthorizationResourceRef(AuthorizationResourceType.CLASS, classId),
+                skewedContext);
+        AuthorizationResult publishResult = permissionAuthorizationService.authorize(
+                principal,
+                "grade.publish",
+                new AuthorizationResourceRef(AuthorizationResourceType.CLASS, classId),
+                skewedContext);
+        AuthorizationResult manageMembersResult = permissionAuthorizationService.authorize(
+                principal,
+                "member.manage",
+                new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId),
+                skewedContext);
+
+        assertThat(gradeResult.allowed())
+                .withFailMessage(gradeResult.reasonCode())
+                .isTrue();
+        assertThat(publishResult.allowed())
+                .withFailMessage(publishResult.reasonCode())
+                .isTrue();
+        assertThat(manageMembersResult.allowed())
+                .withFailMessage(manageMembersResult.reasonCode())
+                .isTrue();
+    }
+
+    @Test
     void organizationWriteAuditShouldCaptureDecisionAndScope() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
 
@@ -376,7 +552,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.archivedAt").isNotEmpty());
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -403,7 +579,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -436,7 +612,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(put("/api/v1/teacher/course-classes/{teachingClassId}/features", class2024Id)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -452,7 +628,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.features.discussionEnabled").value(false));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[?(@.id == %s)].entryYear".formatted(class2024Id))
@@ -478,7 +654,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -499,7 +675,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                         """.getBytes());
         mockMvc.perform(multipart("/api/v1/teacher/course-offerings/{offeringId}/members/import", offeringId)
                         .file(file)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("importType", "csv"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
@@ -508,7 +684,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.errors[0].username").value("missing-user"));
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(4));
 
@@ -536,7 +712,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -604,7 +780,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-2024", "24级班", 2024);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -642,7 +818,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -660,7 +836,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         taToken = login("ta-mixed", "Password123");
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/members", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .param("memberRole", "STUDENT")
                         .param("keyword", "student")
                         .param("page", "2")
@@ -703,7 +879,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2024Id = createTeachingClass(teacherToken, offeringId, "CLS-DROP", "退课班", 2024);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -722,7 +898,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                                 "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/status",
                                 offeringId,
                                 memberId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {"memberStatus":"DROPPED","remark":"教师退课处理"}
@@ -767,7 +943,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -786,7 +962,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                                 "/api/v1/teacher/course-offerings/{offeringId}/members/{memberId}/transfer",
                                 offeringId,
                                 memberId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {"targetTeachingClassId":%s,"remark":"转入 25 级班"}
@@ -851,7 +1027,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -890,7 +1066,7 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long class2025Id = createTeachingClass(teacherToken, offeringId, "CLS-2025", "25级班", 2025);
 
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + teacherToken)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -925,8 +1101,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
         Long catalogId = createCatalog(engAdminToken);
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
 
-        MvcResult firstResult = mockMvc.perform(
-                        get("/api/v1/me/courses").header("Authorization", "Bearer " + teacherToken))
+        MvcResult firstResult = mockMvc.perform(get("/api/v1/me/courses")
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andReturn();
@@ -938,8 +1114,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 "数据结构（缓存未驱逐前）",
                 offeringId);
 
-        MvcResult cachedResult = mockMvc.perform(
-                        get("/api/v1/me/courses").header("Authorization", "Bearer " + teacherToken))
+        MvcResult cachedResult = mockMvc.perform(get("/api/v1/me/courses")
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andReturn();
@@ -948,8 +1124,8 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
 
         createOffering(engAdminToken, catalogId, termId, "CS101-2026SP-02", "数据结构（第二开课）");
 
-        MvcResult refreshedResult = mockMvc.perform(
-                        get("/api/v1/me/courses").header("Authorization", "Bearer " + teacherToken))
+        MvcResult refreshedResult = mockMvc.perform(get("/api/v1/me/courses")
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andReturn();
@@ -1068,13 +1244,14 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1090,6 +1267,30 @@ class CourseSystemIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.entryYear").value(entryYear))
                 .andReturn();
         return readLong(result, "$.id");
+    }
+
+    private void addCourseMember(
+            String token, Long offeringId, Long userId, String memberRole, Long teachingClassId, String remark)
+            throws Exception {
+        String teachingClassField = teachingClassId == null ? "null" : String.valueOf(teachingClassId);
+        String remarkField = remark == null ? "" : remark;
+        mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "members":[
+                                    {"userId":%s,"memberRole":"%s","teachingClassId":%s,"remark":"%s"}
+                                  ]
+                                }
+                                """.formatted(userId, memberRole, teachingClassField, remarkField)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.failCount").value(0));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 
     private String login(String username, String password) throws Exception {

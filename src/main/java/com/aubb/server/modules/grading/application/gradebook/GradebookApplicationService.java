@@ -30,6 +30,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -49,6 +50,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class GradebookApplicationService {
 
     private static final double PASS_SCORE_RATE = 0.6d;
+    private static final List<String> HISTORY_READABLE_ROSTER_STATUSES = List.of(
+            CourseMemberStatus.ACTIVE.name(),
+            CourseMemberStatus.DROPPED.name(),
+            CourseMemberStatus.TRANSFERRED.name(),
+            CourseMemberStatus.COMPLETED.name());
     private static final List<ScoreBandDefinition> SCORE_BAND_DEFINITIONS = List.of(
             new ScoreBandDefinition("EXCELLENT", "优秀", 90, null, 0.9, 1.0000001),
             new ScoreBandDefinition("GOOD", "良好", 80, 90, 0.8, 0.9),
@@ -168,7 +174,7 @@ public class GradebookApplicationService {
         readPathAuthorizationService.assertCanReadStudentInOffering(
                 principal, "grade.read", offeringId, studentUserId, "当前用户无权查看学生成绩册");
         return buildStudentGradebook(
-                offering, studentUserId, true, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中", true, false);
+                offering, studentUserId, true, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中", true, true);
     }
 
     private void assertCanReadGradebook(
@@ -303,7 +309,7 @@ public class GradebookApplicationService {
             CourseOfferingEntity offering, TeachingClassEntity teachingClass, Long studentUserId) {
         Long teachingClassId = teachingClass == null ? null : teachingClass.getId();
         List<AssignmentEntity> assignments = loadStructuredAssignments(offering.getId(), teachingClassId);
-        List<StudentRosterEntry> roster = loadRoster(offering.getId(), teachingClassId, studentUserId, false);
+        List<StudentRosterEntry> roster = loadRoster(offering.getId(), teachingClassId, studentUserId, true);
         Map<Long, Integer> assignmentMaxScores = loadAssignmentMaxScores(assignments);
         List<Long> studentUserIds =
                 roster.stream().map(entry -> entry.user().getId()).toList();
@@ -950,43 +956,52 @@ public class GradebookApplicationService {
     private List<StudentRosterEntry> loadRoster(
             Long offeringId, Long teachingClassId, Long studentUserId, boolean allowHistoricalMembership) {
         List<String> readableStatuses = allowHistoricalMembership
-                ? List.of(
-                        CourseMemberStatus.ACTIVE.name(),
-                        CourseMemberStatus.DROPPED.name(),
-                        CourseMemberStatus.TRANSFERRED.name(),
-                        CourseMemberStatus.COMPLETED.name())
+                ? HISTORY_READABLE_ROSTER_STATUSES
                 : List.of(CourseMemberStatus.ACTIVE.name());
         List<CourseMemberEntity> members = courseMemberMapper.selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                 .eq(CourseMemberEntity::getOfferingId, offeringId)
                 .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.STUDENT.name())
-                .in(CourseMemberEntity::getMemberStatus, readableStatuses)
-                .eq(teachingClassId != null, CourseMemberEntity::getTeachingClassId, teachingClassId));
+                .in(CourseMemberEntity::getMemberStatus, readableStatuses));
         if (members.isEmpty()) {
             return List.of();
         }
         members = members.stream()
-                .sorted(Comparator.comparing((CourseMemberEntity member) -> member.getTeachingClassId() == null ? 1 : 0)
-                        .thenComparing(member -> member.getTeachingClassId() == null ? 0L : member.getTeachingClassId())
-                        .thenComparing(CourseMemberEntity::getId))
+                .sorted(Comparator.comparing(GradebookApplicationService::isHistoricalRosterMember)
+                        .thenComparing(GradebookApplicationService::hasMissingTeachingClass, Comparator.naturalOrder())
+                        .thenComparing(
+                                GradebookApplicationService::rosterMembershipRecency,
+                                Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(CourseMemberEntity::getId, Comparator.reverseOrder()))
                 .toList();
         Map<Long, CourseMemberEntity> rosterByUserId = new LinkedHashMap<>();
         for (CourseMemberEntity member : members) {
             if (studentUserId != null && !Objects.equals(member.getUserId(), studentUserId)) {
                 continue;
             }
-            CourseMemberEntity existing = rosterByUserId.get(member.getUserId());
-            if (existing == null || (existing.getTeachingClassId() == null && member.getTeachingClassId() != null)) {
+            if (!rosterByUserId.containsKey(member.getUserId())) {
                 rosterByUserId.put(member.getUserId(), member);
             }
         }
         if (rosterByUserId.isEmpty()) {
             return List.of();
         }
-        Map<Long, UserEntity> userIndex = userMapper.selectByIds(rosterByUserId.keySet()).stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        UserEntity::getId, user -> user, (left, right) -> left, LinkedHashMap::new));
-        Map<Long, TeachingClassEntity> teachingClassIndex = loadTeachingClassIndex(rosterByUserId.values());
-        return rosterByUserId.values().stream()
+        List<CourseMemberEntity> rosterMembers = rosterByUserId.values().stream()
+                .filter(member ->
+                        teachingClassId == null || Objects.equals(member.getTeachingClassId(), teachingClassId))
+                .toList();
+        if (rosterMembers.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, UserEntity> userIndex =
+                userMapper
+                        .selectByIds(rosterMembers.stream()
+                                .map(CourseMemberEntity::getUserId)
+                                .toList())
+                        .stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                UserEntity::getId, user -> user, (left, right) -> left, LinkedHashMap::new));
+        Map<Long, TeachingClassEntity> teachingClassIndex = loadTeachingClassIndex(rosterMembers);
+        return rosterMembers.stream()
                 .map(member -> new StudentRosterEntry(userIndex.get(member.getUserId()), member.getTeachingClassId()))
                 .filter(entry -> entry.user() != null)
                 .sorted(Comparator.comparing((StudentRosterEntry entry) ->
@@ -994,6 +1009,24 @@ public class GradebookApplicationService {
                         .thenComparing(entry -> entry.user().getUsername())
                         .thenComparing(entry -> entry.user().getId()))
                 .toList();
+    }
+
+    private static boolean isHistoricalRosterMember(CourseMemberEntity member) {
+        return !CourseMemberStatus.ACTIVE.name().equals(member.getMemberStatus());
+    }
+
+    private static boolean hasMissingTeachingClass(CourseMemberEntity member) {
+        return member.getTeachingClassId() == null;
+    }
+
+    private static OffsetDateTime rosterMembershipRecency(CourseMemberEntity member) {
+        if (member.getLeftAt() != null) {
+            return member.getLeftAt();
+        }
+        if (member.getJoinedAt() != null) {
+            return member.getJoinedAt();
+        }
+        return member.getCreatedAt();
     }
 
     private Map<Long, TeachingClassEntity> loadTeachingClassIndex(

@@ -8,6 +8,7 @@ import com.aubb.server.modules.audit.application.AuditLogCommand;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.course.application.member.CourseMemberRoleBindingSyncService;
 import com.aubb.server.modules.course.application.view.AcademicTermView;
 import com.aubb.server.modules.course.application.view.CourseCatalogView;
 import com.aubb.server.modules.course.application.view.CourseOfferingView;
@@ -32,8 +33,10 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.term.AcademicTermEntity;
 import com.aubb.server.modules.course.infrastructure.term.AcademicTermMapper;
+import com.aubb.server.modules.identityaccess.application.auth.AuthSessionApplicationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
+import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.user.UserDirectoryApplicationService;
 import com.aubb.server.modules.identityaccess.application.user.UserOrgMembershipApplicationService;
 import com.aubb.server.modules.identityaccess.application.user.view.UserDirectoryEntryView;
@@ -76,6 +79,8 @@ public class CourseAdministrationApplicationService {
     private final OrganizationApplicationService organizationApplicationService;
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
+    private final AuthSessionApplicationService authSessionApplicationService;
+    private final GovernanceAuthorizationService governanceAuthorizationService;
     private final CourseMemberRoleBindingSyncService courseMemberRoleBindingSyncService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final CacheService cacheService;
@@ -187,12 +192,18 @@ public class CourseAdministrationApplicationService {
         if (departmentUnitId != null) {
             courseAuthorizationService.assertCanCreateCatalog(principal, departmentUnitId);
         }
+        Set<Long> manageableOrgUnitIds = departmentUnitId == null
+                ? governanceAuthorizationService.loadManageableOrgUnitIds(principal)
+                : Set.of();
         String normalizedKeyword = normalizeKeyword(keyword);
         List<CourseCatalogEntity> matched = courseCatalogMapper
                 .selectList(Wrappers.<CourseCatalogEntity>lambdaQuery().orderByAsc(CourseCatalogEntity::getCourseCode))
                 .stream()
                 .filter(catalog ->
                         departmentUnitId == null || Objects.equals(departmentUnitId, catalog.getDepartmentUnitId()))
+                .filter(catalog -> departmentUnitId != null
+                        || (!manageableOrgUnitIds.isEmpty()
+                                && manageableOrgUnitIds.contains(catalog.getDepartmentUnitId())))
                 .filter(catalog -> courseType == null || courseType.name().equals(catalog.getCourseType()))
                 .filter(catalog -> status == null || status.name().equals(catalog.getStatus()))
                 .filter(catalog -> matchesCatalog(catalog, normalizedKeyword))
@@ -393,6 +404,8 @@ public class CourseAdministrationApplicationService {
             cacheService.evict(
                     CourseTeachingApplicationService.MY_COURSES_CACHE_NAME,
                     CourseTeachingApplicationService.myCoursesCacheKey(instructorUserId));
+            authSessionApplicationService.invalidateAllSessionsForUser(
+                    instructorUserId, offering.getCreatedByUserId(), "COURSE_OFFERING_INITIAL_INSTRUCTOR_GRANTED");
         }
     }
 

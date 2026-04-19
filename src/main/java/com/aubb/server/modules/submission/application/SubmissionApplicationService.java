@@ -521,7 +521,9 @@ public class SubmissionApplicationService {
         if (!AssignmentStatus.PUBLISHED.name().equals(assignment.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ASSIGNMENT_UNAVAILABLE", "当前作业暂不允许提交");
         }
-        if (!readPathAuthorizationService.canAccessMyAssignmentCapability(principal, "ide.submit", assignment)) {
+        if (!readPathAuthorizationService
+                .authorizeMySubmissionCapability(principal, assignment)
+                .allowed()) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权提交该作业");
         }
     }

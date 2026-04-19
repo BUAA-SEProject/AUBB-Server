@@ -1,4 +1,4 @@
-package com.aubb.server.modules.course.application;
+package com.aubb.server.modules.course.application.member;
 
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
@@ -8,6 +8,7 @@ import com.aubb.server.modules.identityaccess.infrastructure.permission.RoleBind
 import com.aubb.server.modules.identityaccess.infrastructure.permission.RoleEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.permission.RoleMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class CourseMemberRoleBindingSyncService {
 
+    private static final long ACTIVATION_TOLERANCE_SECONDS = 3L;
     private static final String SOURCE_TYPE = "LEGACY_COURSE_MEMBER";
     private static final String ACTIVE_STATUS = "ACTIVE";
     private static final String INACTIVE_STATUS = "INACTIVE";
@@ -43,8 +45,9 @@ public class CourseMemberRoleBindingSyncService {
         target.setScopeType(resolveScopeType(member));
         target.setScopeId(scopeId);
         target.setConstraintsJson(Map.of());
-        target.setStatus(CourseMemberStatus.ACTIVE.name().equals(member.getMemberStatus()) ? ACTIVE_STATUS : INACTIVE_STATUS);
-        target.setEffectiveFrom(member.getJoinedAt());
+        target.setStatus(
+                CourseMemberStatus.ACTIVE.name().equals(member.getMemberStatus()) ? ACTIVE_STATUS : INACTIVE_STATUS);
+        target.setEffectiveFrom(resolveEffectiveFrom(member));
         target.setEffectiveTo(member.getLeftAt());
         target.setGrantedBy(null);
         target.setSourceType(SOURCE_TYPE);
@@ -54,6 +57,21 @@ public class CourseMemberRoleBindingSyncService {
             return;
         }
         roleBindingMapper.updateById(target);
+    }
+
+    private OffsetDateTime resolveEffectiveFrom(CourseMemberEntity member) {
+        OffsetDateTime joinedAt = member.getJoinedAt();
+        if (joinedAt == null) {
+            return null;
+        }
+        if (!CourseMemberStatus.ACTIVE.name().equals(member.getMemberStatus())) {
+            return joinedAt;
+        }
+        // 紧随成员创建后的登录/写请求应立即看见新绑定，避免 effective_from 精度或跨请求时钟抖动
+        // 造成短暂的 DENY_NO_ROLE_BINDING / legacy fallback 混用。
+        OffsetDateTime activationCutoff =
+                OffsetDateTime.now(joinedAt.getOffset()).minusSeconds(ACTIVATION_TOLERANCE_SECONDS);
+        return joinedAt.isAfter(activationCutoff) ? activationCutoff : joinedAt;
     }
 
     private RoleBindingEntity findExistingBinding(Long sourceRefId) {

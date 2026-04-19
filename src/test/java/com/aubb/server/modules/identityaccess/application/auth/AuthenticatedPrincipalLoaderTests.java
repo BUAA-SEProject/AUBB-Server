@@ -6,17 +6,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.identityaccess.application.authz.AuthzScopeResolutionService;
 import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
-import com.aubb.server.modules.identityaccess.application.authz.PermissionGrantResolver;
-import com.aubb.server.modules.identityaccess.application.authz.PermissionGrantView;
-import com.aubb.server.modules.identityaccess.application.authz.ScopeRef;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityService;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
-import com.aubb.server.modules.identityaccess.domain.authz.AuthorizationScopeType;
-import com.aubb.server.modules.identityaccess.domain.authz.PermissionCode;
 import com.aubb.server.modules.identityaccess.infrastructure.authz.AuthzGroupGrantRow;
 import com.aubb.server.modules.identityaccess.infrastructure.authz.AuthzGroupQueryMapper;
 import com.aubb.server.modules.identityaccess.infrastructure.permission.RoleBindingGrantQueryMapper;
@@ -41,9 +35,6 @@ class AuthenticatedPrincipalLoaderTests {
     private AcademicProfileMapper academicProfileMapper;
 
     @Mock
-    private CourseMemberMapper courseMemberMapper;
-
-    @Mock
     private ScopeIdentityService scopeIdentityService;
 
     @Mock
@@ -55,9 +46,6 @@ class AuthenticatedPrincipalLoaderTests {
     @Mock
     private RoleBindingGrantQueryMapper roleBindingGrantQueryMapper;
 
-    @Mock
-    private PermissionGrantResolver legacyPermissionGrantResolver;
-
     private AuthenticatedPrincipalLoader loader;
 
     @BeforeEach
@@ -65,12 +53,10 @@ class AuthenticatedPrincipalLoaderTests {
         loader = new AuthenticatedPrincipalLoader(
                 userMapper,
                 academicProfileMapper,
-                courseMemberMapper,
                 scopeIdentityService,
                 authzGroupQueryMapper,
                 authzScopeResolutionService,
-                roleBindingGrantQueryMapper,
-                List.of(legacyPermissionGrantResolver));
+                roleBindingGrantQueryMapper);
     }
 
     @Test
@@ -102,33 +88,25 @@ class AuthenticatedPrincipalLoaderTests {
         assertThat(principal.hasAuthority("CLASS_ADMIN")).isTrue();
         assertThat(principal.hasAuthority("SCHOOL_ADMIN")).isFalse();
         assertThat(principal.isRoleBindingSnapshot()).isTrue();
-        verifyNoInteractions(legacyPermissionGrantResolver);
     }
 
     @Test
-    void loadPrincipalShouldFallBackToLegacyResolversWhenRoleBindingsAreMissing() {
+    void loadPrincipalShouldNotReviveLegacyPermissionsWhenRoleBindingsAreMissing() {
         when(userMapper.selectById(2L)).thenReturn(activeUser(2L, "legacy-admin", "Legacy Admin"));
         when(scopeIdentityService.loadForUser(2L))
                 .thenReturn(List.of(new ScopeIdentityView("SCHOOL_ADMIN", 1L, "SCHOOL", "AUBB School")));
         when(roleBindingGrantQueryMapper.selectActiveGrantRowsByUserId(eq(2L), any()))
                 .thenReturn(List.of());
-        when(authzGroupQueryMapper.selectActiveBindingsByUserId(2L)).thenReturn(List.of());
-        when(courseMemberMapper.selectList(any())).thenReturn(List.of());
-        when(legacyPermissionGrantResolver.resolve(any()))
-                .thenReturn(List.of(PermissionGrantView.allow(
-                        PermissionCode.AUTH_GROUP_MANAGE,
-                        new ScopeRef(AuthorizationScopeType.SCHOOL, 1L),
-                        "LEGACY",
-                        "SCHOOL_ADMIN")));
+        when(authzGroupQueryMapper.selectActiveGrantRowsByUserId(2L)).thenReturn(List.of());
 
         AuthenticatedUserPrincipal principal = loader.loadPrincipal(2L);
 
         assertThat(principal).isNotNull();
-        assertThat(principal.getGroupBindings())
-                .containsExactly(new GroupBindingView("LEGACY_GOVERNANCE", "school-admin", "SCHOOL", 1L));
-        assertThat(principal.getPermissionCodes()).contains("auth.group.manage");
-        assertThat(principal.hasAuthority("SCHOOL_ADMIN")).isTrue();
+        assertThat(principal.getGroupBindings()).isEmpty();
+        assertThat(principal.getPermissionCodes()).isEmpty();
+        assertThat(principal.hasAuthority("SCHOOL_ADMIN")).isFalse();
         assertThat(principal.isRoleBindingSnapshot()).isFalse();
+        verifyNoInteractions(authzScopeResolutionService);
     }
 
     private UserEntity activeUser(Long userId, String username, String displayName) {

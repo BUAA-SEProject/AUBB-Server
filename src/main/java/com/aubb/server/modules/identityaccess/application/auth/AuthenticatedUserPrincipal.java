@@ -140,12 +140,7 @@ public class AuthenticatedUserPrincipal implements Serializable {
                 .filter(java.util.Optional::isPresent)
                 .map(java.util.Optional::get)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        LinkedHashSet<String> resolvedAuthorities = bindingAuthorities.isEmpty()
-                ? this.identities.stream()
-                        .map(ScopeIdentityView::roleCode)
-                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new))
-                : bindingAuthorities;
-        this.authorityCodes = Set.copyOf(resolvedAuthorities);
+        this.authorityCodes = Set.copyOf(bindingAuthorities);
     }
 
     public Collection<? extends GrantedAuthority> authorities() {

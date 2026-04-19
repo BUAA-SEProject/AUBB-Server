@@ -40,6 +40,8 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
     @Autowired
     private ObjectStorageService objectStorageService;
 
+    private String latestTeacherToken;
+
     @AfterAll
     static void stopServer() {
         // 真实 go-judge 与 MinIO 由 Testcontainers 生命周期管理。
@@ -47,9 +49,12 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
+                    auth_sessions,
+                    role_bindings,
                     judge_jobs,
                     submission_answers,
                     submission_artifacts,
@@ -90,6 +95,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         insertUser(2L, "eng-admin", "Engineering Admin", "eng-admin@example.com");
         insertUser(2L, "teacher-main", "Teacher Main", "teacher-main@example.com");
         insertUser(2L, "student-a", "Student A", "student-a@example.com");
+        latestTeacherToken = null;
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -192,7 +198,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$[0].caseResults[1].score").value(40));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
                 .andExpect(jsonPath("$.answers[0].entryFilePath").value("main.py"))
@@ -210,7 +216,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .isEqualTo(100);
 
         mockMvc.perform(post("/api/v1/teacher/submission-answers/{answerId}/judge-jobs/requeue", answerId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.submissionAnswerId").value(answerId))
                 .andExpect(jsonPath("$.status").value("PENDING"))
@@ -220,12 +226,13 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         waitForLatestAnswerJudgeJobTerminal(answerId);
 
         mockMvc.perform(get("/api/v1/teacher/submission-answers/{answerId}/judge-jobs", answerId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[*].triggerType",
-                        org.hamcrest.Matchers.containsInAnyOrder("MANUAL_REJUDGE", "AUTO")))
-                .andExpect(jsonPath("$[?(@.triggerType=='MANUAL_REJUDGE')].status").value("SUCCEEDED"));
+                .andExpect(jsonPath(
+                        "$[*].triggerType", org.hamcrest.Matchers.containsInAnyOrder("MANUAL_REJUDGE", "AUTO")))
+                .andExpect(
+                        jsonPath("$[?(@.triggerType=='MANUAL_REJUDGE')].status").value("SUCCEEDED"));
     }
 
     @Test
@@ -281,7 +288,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         waitForLatestAnswerJudgeJobTerminal(answerId);
 
         mockMvc.perform(post("/api/v1/teacher/submissions/{submissionId}/judge-jobs/requeue", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.submissionId").value(submissionId))
                 .andExpect(jsonPath("$.submissionAnswerId").value(answerId))
@@ -293,12 +300,13 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         waitForLatestAnswerJudgeJobTerminal(answerId);
 
         mockMvc.perform(get("/api/v1/teacher/submission-answers/{answerId}/judge-jobs", answerId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[*].triggerType",
-                        org.hamcrest.Matchers.containsInAnyOrder("MANUAL_REJUDGE", "AUTO")))
-                .andExpect(jsonPath("$[?(@.triggerType=='MANUAL_REJUDGE')].status").value("SUCCEEDED"));
+                .andExpect(jsonPath(
+                        "$[*].triggerType", org.hamcrest.Matchers.containsInAnyOrder("MANUAL_REJUDGE", "AUTO")))
+                .andExpect(
+                        jsonPath("$[?(@.triggerType=='MANUAL_REJUDGE')].status").value("SUCCEEDED"));
     }
 
     @Test
@@ -359,7 +367,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         waitForLatestAnswerJudgeJobTerminal(javaAnswerId);
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", javaSubmissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").value(100))
@@ -403,7 +411,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         waitForLatestAnswerJudgeJobTerminal(nestedJavaAnswerId);
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", nestedJavaSubmissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").value(100))
@@ -456,7 +464,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         waitForLatestAnswerJudgeJobTerminal(cppAnswerId);
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", cppSubmissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").value(100))
@@ -554,8 +562,10 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$.caseReports[0].stdoutText").value("42\n"))
                 .andExpect(jsonPath("$.caseReports[0].expectedStdout").doesNotExist());
 
+        grantTeacherHiddenJudgePermission(offeringId);
+
         mockMvc.perform(get("/api/v1/teacher/judge-jobs/{judgeJobId}/report", judgeJobId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.caseReports[0].expectedStdout").value("42\n"))
                 .andExpect(jsonPath("$.caseReports[0].compileCommand").isArray())
@@ -575,7 +585,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
         MvcResult teacherDownload = mockMvc.perform(
                         get("/api/v1/teacher/judge-jobs/{judgeJobId}/report/download", judgeJobId)
-                                .header("Authorization", "Bearer " + teacherToken))
+                                .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andReturn();
         assertThat(teacherDownload.getResponse().getContentAsString(StandardCharsets.UTF_8))
@@ -695,9 +705,11 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$.artifactTrace").doesNotExist())
                 .andExpect(jsonPath("$.caseReports[0].stdoutText").value("5\n"));
 
+        grantTeacherHiddenJudgePermission(offeringId);
+
         MvcResult teacherDownload = mockMvc.perform(
                         get("/api/v1/teacher/judge-jobs/{judgeJobId}/report/download", judgeJobId)
-                                .header("Authorization", "Bearer " + teacherToken))
+                                .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andReturn();
         assertThat(teacherDownload.getResponse().getContentAsString(StandardCharsets.UTF_8))
@@ -798,8 +810,10 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$.caseReports[0].stdoutText").value("42\n"))
                 .andExpect(jsonPath("$.caseReports[0].expectedStdout").doesNotExist());
 
+        grantTeacherHiddenJudgePermission(offeringId);
+
         mockMvc.perform(get("/api/v1/teacher/judge-jobs/{judgeJobId}/report", judgeJobId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.caseReports[0].expectedStdout").value("42\n"))
                 .andExpect(jsonPath("$.caseReports[0].runCommand[0]").value("./main"));
@@ -916,8 +930,10 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andReturn();
         Long judgeJobId = readLong(jobsResult, "$[0].id");
 
+        grantTeacherHiddenJudgePermission(offeringId);
+
         mockMvc.perform(get("/api/v1/teacher/judge-jobs/{judgeJobId}/report", judgeJobId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.executionMetadata.programmingLanguage").value("JAVA21"))
                 .andExpect(jsonPath("$.executionMetadata.executionEnvironment.profileId")
@@ -998,7 +1014,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$[0].caseResults[1].errorMessage").value("命中部分分规则"));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").value(70))
@@ -1071,7 +1087,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$[0].resultSummary").value("SYSTEM_ERROR，评测执行失败"));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGE_FAILED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").doesNotExist())
@@ -1125,6 +1141,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
         resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
+                    role_bindings,
                     judge_jobs,
                     submission_answers,
                     submission_artifacts,
@@ -1214,7 +1231,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 .andExpect(jsonPath("$[0].resultSummary").value(org.hamcrest.Matchers.containsString("超出时间限制")));
 
         mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answers[0].gradingStatus").value("PROGRAMMING_JUDGED"))
                 .andExpect(jsonPath("$.answers[0].autoScore").value(0))
@@ -1357,13 +1374,14 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1376,12 +1394,13 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                                 """.formatted(classCode, className, entryYear)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1392,6 +1411,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                                 """.formatted(userId, roleCode, classId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successCount").value(1));
+        latestTeacherToken = login("teacher-main", "Password123");
     }
 
     private Long createStructuredProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
@@ -1438,7 +1458,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
     private Long createCppArgsProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1496,7 +1516,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
     private Long createGoEnvironmentProgrammingAssignment(String token, Long offeringId, Long classId)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1572,7 +1592,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
     private Long createJudgeEnvironmentProfile(String token, Long offeringId, String body) throws Exception {
         MvcResult result = mockMvc.perform(
                         post("/api/v1/teacher/course-offerings/{offeringId}/judge-environment-profiles", offeringId)
-                                .header("Authorization", "Bearer " + token)
+                                .header("Authorization", "Bearer " + resolveTeacherToken(token))
                                 .contentType("application/json")
                                 .content(body))
                 .andExpect(status().isCreated())
@@ -1583,7 +1603,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
     private Long createLanguageProfileProgrammingAssignment(
             String token, Long offeringId, Long classId, Long javaProfileId, Long goProfileId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1665,7 +1685,7 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
                 ? "null"
                 : tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(customJudgeScript);
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1726,9 +1746,59 @@ class StructuredProgrammingJudgeIntegrationTests extends AbstractRealJudgeIntegr
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
+    }
+
+    private void grantTeacherHiddenJudgePermission(Long offeringId) throws Exception {
+        Integer roleCount = queryForInt("SELECT COUNT(*) FROM roles WHERE lower(code) = 'judge-hidden-reader'");
+        if (roleCount == null || roleCount == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO roles (code, name, description, role_category, scope_type, is_builtin, status)
+                    VALUES ('judge-hidden-reader', '隐藏评测查看者', '允许查看隐藏测试详情', 'TEACHING', 'offering', FALSE, 'ACTIVE')
+                    """);
+        }
+        Long hiddenRoleId =
+                jdbcTemplate.queryForObject("SELECT id FROM roles WHERE code = 'judge-hidden-reader'", Long.class);
+        Integer permissionBindingCount = queryForInt(
+                "SELECT COUNT(*) FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id WHERE rp.role_id = ? AND p.code = 'judge.view_hidden'",
+                hiddenRoleId);
+        if (permissionBindingCount == null || permissionBindingCount == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO role_permissions (role_id, permission_id)
+                    SELECT ?, id
+                    FROM permissions
+                    WHERE code = 'judge.view_hidden'
+                    """, hiddenRoleId);
+        }
+        Integer roleBindingCount = queryForInt(
+                "SELECT COUNT(*) FROM role_bindings WHERE user_id = ? AND role_id = ? AND scope_type = 'offering' AND scope_id = ? AND status = 'ACTIVE'",
+                3L,
+                hiddenRoleId,
+                offeringId);
+        if (roleBindingCount == null || roleBindingCount == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO role_bindings (
+                        user_id,
+                        role_id,
+                        scope_type,
+                        scope_id,
+                        constraints_json,
+                        status,
+                        effective_from,
+                        effective_to,
+                        granted_by,
+                        source_type,
+                        source_ref_id
+                    ) VALUES (?, ?, 'offering', ?, '{}'::jsonb, 'ACTIVE', now(), NULL, NULL, 'MANUAL', 0)
+                    """, 3L, hiddenRoleId, offeringId);
+        }
+        latestTeacherToken = login("teacher-main", "Password123");
     }
 
     private String login(String username, String password) throws Exception {

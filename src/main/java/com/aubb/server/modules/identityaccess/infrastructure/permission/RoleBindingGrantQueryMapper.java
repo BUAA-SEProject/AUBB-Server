@@ -42,7 +42,7 @@ public interface RoleBindingGrantQueryMapper extends BaseMapper<RoleBindingEntit
         "WHERE rb.user_id = #{userId}",
         "  AND rb.status = 'ACTIVE'",
         "  AND r.status = 'ACTIVE'",
-        "  AND (rb.effective_from IS NULL OR rb.effective_from <= #{asOf})",
+        "  AND (rb.effective_from IS NULL OR rb.effective_from <= (#{asOf} + interval '3 seconds'))",
         "  AND (rb.effective_to IS NULL OR rb.effective_to >= #{asOf})",
         "ORDER BY rb.id ASC, p.id ASC"
     })
@@ -82,7 +82,7 @@ public interface RoleBindingGrantQueryMapper extends BaseMapper<RoleBindingEntit
         "  AND lower(p.code) = lower(#{permissionCode})",
         "  AND rb.status = 'ACTIVE'",
         "  AND r.status = 'ACTIVE'",
-        "  AND (rb.effective_from IS NULL OR rb.effective_from <= #{asOf})",
+        "  AND (rb.effective_from IS NULL OR rb.effective_from <= (#{asOf} + interval '3 seconds'))",
         "  AND (rb.effective_to IS NULL OR rb.effective_to >= #{asOf})",
         "ORDER BY rb.id ASC, p.id ASC"
     })

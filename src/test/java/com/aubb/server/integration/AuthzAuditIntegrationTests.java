@@ -19,7 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
+class AuthzAuditIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -29,6 +29,8 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private String latestTeacherToken;
 
     @BeforeEach
     void setUp() {
@@ -78,6 +80,7 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -135,6 +138,47 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
         assertThat(latestAudit.get("method")).isEqualTo("GET");
         assertThat(latestAudit.get("path")).isEqualTo("/api/v1/teacher/submissions/" + submissionId);
         assertThat(latestAudit.get("reason")).isEqualTo("FORBIDDEN");
+    }
+
+    @Test
+    void deniedAuditShouldCaptureForwardedClientIp() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "A1", "A1班", 2024);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        addMember(teacherToken, offeringId, 5L, "STUDENT", classId);
+
+        Long assignmentId = createAssignment(
+                teacherToken,
+                offeringId,
+                classId,
+                "审计任务",
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1),
+                OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(3));
+        publishAssignment(teacherToken, assignmentId);
+
+        String studentA1Token = login("student-a1", "Password123");
+        String studentA2Token = login("student-a2", "Password123");
+        Long submissionId = createSubmission(studentA2Token, assignmentId, "student submission");
+
+        mockMvc.perform(get("/api/v1/teacher/submissions/{submissionId}", submissionId)
+                        .header("Authorization", "Bearer " + studentA1Token)
+                        .header("X-Forwarded-For", "198.51.100.10, 10.0.0.5"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        Map<String, Object> latestAudit = jdbcTemplate.queryForMap("""
+                SELECT ip
+                FROM audit_logs
+                ORDER BY id DESC
+                LIMIT 1
+                """);
+        assertThat(latestAudit.get("ip")).isEqualTo("198.51.100.10");
     }
 
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {
@@ -220,13 +264,14 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -244,7 +289,7 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -266,7 +311,7 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
             OffsetDateTime dueAt)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -289,9 +334,13 @@ class AuthzAuditIntegrationTests extends AbstractIntegrationTest {
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 
     private Long createSubmission(String token, Long assignmentId, String contentText) throws Exception {

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-class AuthzSchemaIntegrationTests extends AbstractIntegrationTest {
+class AuthzSchemaIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -107,9 +107,19 @@ class AuthzSchemaIntegrationTests extends AbstractIntegrationTest {
         assertThat(loadRolePermissions("offering_teacher"))
                 .contains("discussion.manage", "lab.read", "lab.manage", "lab.report.review");
         assertThat(loadRolePermissions("offering_ta"))
-                .contains("announcement.read", "resource.read", "discussion.participate", "lab.read", "lab.report.review");
+                .contains(
+                        "announcement.read",
+                        "resource.read",
+                        "discussion.participate",
+                        "lab.read",
+                        "lab.report.review");
         assertThat(loadRolePermissions("class_ta"))
-                .contains("announcement.read", "resource.read", "discussion.participate", "lab.read", "lab.report.review");
+                .contains(
+                        "announcement.read",
+                        "resource.read",
+                        "discussion.participate",
+                        "lab.read",
+                        "lab.report.review");
         assertThat(loadRolePermissions("student")).contains("discussion.participate", "lab.read");
     }
 

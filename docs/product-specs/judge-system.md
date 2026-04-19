@@ -87,6 +87,7 @@
 16. `result_summary` 当前要求是稳定的人类可读摘要；legacy job、question-level judge 和样例试运行都必须对同一类失败给出一致中文描述。
 17. 正式评测详细报告当前优先保存为对象存储 JSON，数据库仅保留对象引用、追踪摘要、状态和索引；旧 `detail_report_json` 只作为兼容回退。
 18. 样例试运行当前优先把“详细报告 + 源码快照”对象化存储；数据库只保留 `detail_report_object_key / source_snapshot_object_key`、输入模式、结果摘要和工作区修订引用。
+19. 样例试运行详情接口在详细报告对象缺失时，当前回退为摘要响应，并返回 `detailReportUnavailableReasonCode`，避免把对象存储缺失直接暴露成 500。
 19. 正式评测可复现链路 phase 2 当前依赖 `submission_id / submission_answer_id / assignment_question_id / judge_job_id / programmingLanguage / entryFilePath / artifactIds / compileArgs / runArgs / executionEnvironment / detailReportObject / sourceSnapshotObject / artifactManifestObject / artifactTraceSummary`；样例试运行额外依赖 `sourceSnapshotObject`。
 20. 当前仍不保留 go-judge 镜像 digest、编译产物 bundle、对象版本化信息，也不做批量历史回填；这些属于后续更重的归档能力。
 21. 为降低终态卡在 `RUNNING` 的风险，当前实现会先独立提交 `judge_jobs` 终态，再回写 `submission_answers` 与审计日志；后续同步失败时保留终态和错误日志，避免“已执行但看不到终态”。
@@ -219,6 +220,7 @@
 - 正式评测当前会同步归档 `source_snapshot_object_key / artifact_manifest_object_key`，并在 `artifact_trace_json` 中保留三维追踪摘要；列表 API 只暴露 `artifactTraceAvailable`，详细追踪在报告接口中展开。
 - 样例试运行当前不入队异步 `judge_jobs`，而是同步调用 go-judge 后把结果、详细报告和源码快照优先写入对象存储，再在 `programming_sample_runs` 中保留对象引用；输入可来自题目样例或学生自定义标准输入。
 - 样例试运行当前可直接运行当前工作区或历史工作区修订，用来保证“断线恢复后的再次试运行”和“正式评测前最后一次自测”共享同一份源码快照。
+- 样例试运行详情当前优先读取对象化详细报告；若对象缺失，则继续返回 `stdoutText / stderrText / resultSummary / verdict` 等摘要字段，并通过 `detailReportUnavailableReasonCode` 告知前端做兼容提示。
 - 正式评测的可复现性当前优先依赖 `submission_answers` 源码快照、附件引用和 `executionMetadata.sourceSnapshotRef`，同时把正式评测源码快照摘要再归档一份对象引用，便于后续独立下载与追踪。
 - phase 2 对象化覆盖正式评测详细报告、case outputs、运行日志、正式评测源码快照、归档清单以及样例试运行源码快照；仍不覆盖编译二进制、go-judge 镜像指纹或对象版本化归档。
 - 当前已支持 RabbitMQ 队列第一阶段，并保留本地异步回退路径；尚未拆分独立评测 worker 与重试编排。
@@ -242,8 +244,8 @@
 - 结构化编程题自动评测成功后，会把结果回写到 `submission_answers.PROGRAMMING_JUDGED`，使 grading 可继续发布成绩。
 - 结构化编程题自动评测若基础设施失败，会把 answer 标记为 `PROGRAMMING_JUDGE_FAILED` 并保留失败反馈，便于教师区分“尚未评测”和“评测已失败”。
 - 教师重新排队后会新增一条新的评测作业历史。
-- 学生和教师都可以查询详细评测报告；学生侧默认看不到隐藏测试输入输出，教师侧可见。
-- 学生和教师都可以下载详细评测报告；学生下载仍保持隐藏测试点脱敏，教师下载保留隐藏测试输入输出与追踪摘要。
+- 学生和教师都可以查询详细评测报告；学生侧默认看不到隐藏测试输入输出，教师侧只有显式具备 `judge.view_hidden` 时才可查看隐藏测试细节。
+- 学生和教师都可以下载详细评测报告；学生下载仍保持隐藏测试点脱敏，教师下载只有在显式具备 `judge.view_hidden` 时才保留隐藏测试输入输出与追踪摘要。
 - RabbitMQ 队列开启时，legacy judge、question-level judge 和详细报告回归都能通过真实 go-judge + RabbitMQ Testcontainers 验证。
 - 学生样例试运行不会创建正式提交，也不会创建 `judge_jobs`，但会保留目录树快照、工作区修订引用和详细日志。
 - MinIO 启用时，`judge_jobs` 的详细报告、源码快照、归档清单以及 `programming_sample_runs` 的详细报告和源码快照都能完成真实对象写入，并保持现有报告查询 / 下载 API 回放正常。

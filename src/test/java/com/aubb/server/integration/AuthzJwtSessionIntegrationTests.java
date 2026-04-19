@@ -19,7 +19,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
+class AuthzJwtSessionIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -44,6 +44,7 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
                 TRUNCATE TABLE
                     audit_logs,
                     auth_sessions,
+                    role_bindings,
                     teaching_classes,
                     course_offering_college_maps,
                     course_offerings,
@@ -155,6 +156,75 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
     }
 
     @Test
+    void loginTokenShouldUseRoleBindingSnapshotWhenLegacyGovernanceCreatedAtIsSlightlyFuture() throws Exception {
+        jdbcTemplate.update("DELETE FROM user_scope_roles WHERE user_id = ?", 2L);
+        jdbcTemplate.update("""
+                INSERT INTO user_scope_roles (
+                    user_id,
+                    scope_org_unit_id,
+                    role_code,
+                    created_at
+                ) VALUES (?, ?, ?, clock_timestamp() + interval '5 second')
+                """, 2L, 4L, "CLASS_ADMIN");
+
+        AuthTokens tokens = loginWithRefresh("teacher", "Password123");
+
+        Jwt jwt = jwtDecoder.decode(tokens.accessToken());
+
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("class.manage", "role_binding.manage");
+    }
+
+    @Test
+    void loginTokenShouldUseRoleBindingSnapshotWhenLegacyAuthzGroupJoinedAtIsSlightlyFuture() throws Exception {
+        jdbcTemplate.update("DELETE FROM user_scope_roles WHERE user_id = ?", 2L);
+        Long templateId = jdbcTemplate.queryForObject(
+                "SELECT id FROM auth_group_templates WHERE code = ?", Long.class, "class-admin");
+        jdbcTemplate.update("""
+                INSERT INTO auth_groups (
+                    template_id,
+                    scope_type,
+                    scope_ref_id,
+                    display_name,
+                    managed_by_system,
+                    status
+                ) VALUES (?, 'CLASS', ?, 'class-admin-future-join', FALSE, 'ACTIVE')
+                """, templateId, 1L);
+        Long groupId =
+                jdbcTemplate.queryForObject("SELECT currval(pg_get_serial_sequence('auth_groups', 'id'))", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO auth_group_members (
+                    group_id,
+                    user_id,
+                    source_type,
+                    joined_at,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    ?,
+                    ?,
+                    'MANUAL',
+                    clock_timestamp() + interval '5 second',
+                    clock_timestamp() + interval '5 second',
+                    clock_timestamp() + interval '5 second'
+                )
+                """, groupId, 2L);
+
+        AuthTokens tokens = loginWithRefresh("teacher", "Password123");
+
+        Jwt jwt = jwtDecoder.decode(tokens.accessToken());
+
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("class.manage", "role_binding.manage");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.get("templateCode")).isEqualTo("class-admin");
+            assertThat(binding.get("source")).isEqualTo("AUTHZ_GROUP");
+        });
+    }
+
+    @Test
     void loginTokenShouldLoadAuthoritiesFromRoleBindingsWithoutLegacyScopeRoles() throws Exception {
         jdbcTemplate.update("DELETE FROM user_scope_roles WHERE user_id = ?", 1L);
         jdbcTemplate.update("""
@@ -189,6 +259,36 @@ class AuthzJwtSessionIntegrationTests extends AbstractIntegrationTest {
                 .contains("school.manage", "role_binding.manage", "report.export");
         assertThat(jwt.getClaimAsStringList("authorities")).contains("SCHOOL_ADMIN");
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+    }
+
+    @Test
+    void loginTokenShouldUseRoleBindingSnapshotWhenManualRoleBindingStartsWithinClockSkewTolerance() throws Exception {
+        jdbcTemplate.update("DELETE FROM user_scope_roles WHERE user_id = ?", 2L);
+        jdbcTemplate.update("""
+                INSERT INTO role_bindings (
+                    user_id,
+                    role_id,
+                    scope_type,
+                    scope_id,
+                    constraints_json,
+                    status,
+                    effective_from,
+                    effective_to,
+                    granted_by,
+                    source_type,
+                    source_ref_id
+                )
+                SELECT ?, id, 'class', ?, '{}'::jsonb, 'ACTIVE', clock_timestamp() + interval '900 milliseconds', NULL, NULL, 'MANUAL', ?
+                FROM roles
+                WHERE code = 'class_admin'
+                """, 2L, 1L, 20001L);
+
+        AuthTokens tokens = loginWithRefresh("teacher", "Password123");
+
+        Jwt jwt = jwtDecoder.decode(tokens.accessToken());
+
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("class.manage", "role_binding.manage");
     }
 
     @Test

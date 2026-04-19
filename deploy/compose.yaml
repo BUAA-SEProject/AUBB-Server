@@ -30,7 +30,6 @@ services:
       AUBB_REDIS_DATABASE: ${AUBB_REDIS_DATABASE:-0}
       AUBB_REDIS_NAMESPACE: ${AUBB_REDIS_NAMESPACE:-aubb}
       AUBB_REDIS_RATE_LIMIT_ENABLED: ${AUBB_REDIS_RATE_LIMIT_ENABLED:-true}
-      AUBB_REDIS_REALTIME_ENABLED: ${AUBB_REDIS_REALTIME_ENABLED:-true}
       AUBB_JUDGE_QUEUE_ENABLED: ${AUBB_JUDGE_QUEUE_ENABLED:-false}
       AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED: ${AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED:-true}
       AUBB_JUDGE_QUEUE_CONSUMER_ENABLED: false
@@ -50,7 +49,7 @@ services:
     ports:
       - '${AUBB_APP_PORT:-8080}:8080'
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -86,7 +85,6 @@ services:
       AUBB_REDIS_DATABASE: ${AUBB_REDIS_DATABASE:-0}
       AUBB_REDIS_NAMESPACE: ${AUBB_REDIS_NAMESPACE:-aubb}
       AUBB_REDIS_RATE_LIMIT_ENABLED: ${AUBB_REDIS_RATE_LIMIT_ENABLED:-true}
-      AUBB_REDIS_REALTIME_ENABLED: ${AUBB_REDIS_REALTIME_ENABLED:-true}
       AUBB_JUDGE_QUEUE_ENABLED: ${AUBB_JUDGE_QUEUE_ENABLED:-false}
       AUBB_JUDGE_QUEUE_PUBLISHER_ENABLED: false
       AUBB_JUDGE_QUEUE_CONSUMER_ENABLED: true

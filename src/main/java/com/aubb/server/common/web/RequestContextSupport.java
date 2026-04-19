@@ -9,14 +9,19 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 public class RequestContextSupport {
 
+    private final ClientIpResolver clientIpResolver;
+
+    public RequestContextSupport(ClientIpResolver clientIpResolver) {
+        this.clientIpResolver = clientIpResolver;
+    }
+
     public String requestId() {
         HttpServletRequest request = currentRequest();
         return request == null ? "unknown" : (String) request.getAttribute(RequestIdFilter.REQUEST_ID_ATTRIBUTE);
     }
 
     public String clientIp() {
-        HttpServletRequest request = currentRequest();
-        return request == null ? "unknown" : request.getRemoteAddr();
+        return clientIpResolver.resolve(currentRequest());
     }
 
     public String userAgent() {

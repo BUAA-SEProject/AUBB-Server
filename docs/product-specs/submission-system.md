@@ -65,8 +65,9 @@
 19. assignment 成绩发布前，学生只能看到客观题即时分与非客观题批改状态；人工评分与反馈由 grading 发布控制。
 20. 工作区按 `assignmentId + assignmentQuestionId + userId` 唯一保存，避免不同编程题之间的草稿相互污染。
 21. 工作区当前保存入口文件、目录树源码快照、目录列表、语言、附件引用和最近一次标准输入，不改变正式提交次数、正式提交版本和成绩。
-22. 每次工作区保存、目录操作、模板重置和历史恢复都会追加一条工作区修订，供断线恢复和试运行复用。
-23. 工作区模板来源于 assignment 快照中的编程题配置，而不是引用运行中的题库实体；模板路径必须是安全相对路径。
+22. 工作区写入当前支持可选 `baseRevisionId` 作为乐观并发前提；当客户端基于旧修订写入时返回 `409 PROGRAMMING_WORKSPACE_CONFLICT`，避免多标签页 / 多设备静默覆盖。
+23. 手工保存、目录操作、模板重置和历史恢复会追加工作区修订；`saveKind=AUTO` 且工作区无变更时不会新增冗余修订。
+24. 工作区模板来源于 assignment 快照中的编程题配置，而不是引用运行中的题库实体；模板路径必须是安全相对路径。
 24. 编程题相关接口保持兼容：若客户端只传 `codeText`，平台仍按单入口文件正文处理；新客户端应优先使用 `entryFilePath + files + directories`。
 
 ## 核心数据模型
@@ -152,6 +153,12 @@
 - `GET /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/revisions/{revisionId}`
 - `POST /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/revisions/{revisionId}/restore`
 - `POST /api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/reset-to-template`
+
+工作区读写契约补充：
+
+- `PUT /workspace`、`POST /workspace/operations`、`restore`、`reset-to-template` 当前都支持可选 `baseRevisionId`
+- `GET /workspace` 当前会额外返回 `latestRevisionKind / editable / editBlockedReasonCode / runnable / runBlockedReasonCode`
+- 工作区与目录树当前显式拦截大小写冲突，以及“目录重命名到自身子路径”这类高风险脏写
 - `GET /api/v1/me/assignments/{assignmentId}/submissions`
 - `GET /api/v1/me/submissions/{submissionId}`
 - `GET /api/v1/me/submission-artifacts/{artifactId}/download`
@@ -174,7 +181,7 @@
 - 附件当前采用“先上传，再在正式提交时关联”的两阶段模型，不支持草稿恢复。
 - 附件下载当前统一走服务端鉴权后再读取对象存储，不直接暴露预签名下载契约。
 - 编程题答案当前已接入题目级 go-judge，并支持 `entryFilePath + files + artifactIds` 一起装配为评测输入。
-- 当前后端已支持模板工作区、多文件回填、目录操作、历史修订、模板重置和最近标准输入回填；前端目录树交互、编辑器能力和实时协同仍待后续阶段。
+- 当前后端已支持模板工作区、多文件回填、目录操作、历史修订、模板重置、最近标准输入回填、基于 `baseRevisionId` 的冲突检测、`AUTO_SAVE` 无变更去噪和 IDE 初始化元信息；前端目录树交互、编辑器能力和实时协同仍待后续阶段。
 
 ## 验收标准
 
