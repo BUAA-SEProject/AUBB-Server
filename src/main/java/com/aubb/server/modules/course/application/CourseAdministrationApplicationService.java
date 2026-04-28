@@ -4,8 +4,11 @@ import com.aubb.server.common.api.PageResponse;
 import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.AuditLogCommand;
 import com.aubb.server.modules.audit.domain.AuditAction;
+import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.audit.domain.AuditResult;
+import com.aubb.server.modules.course.application.member.CourseMemberRoleBindingSyncService;
 import com.aubb.server.modules.course.application.view.AcademicTermView;
 import com.aubb.server.modules.course.application.view.CourseCatalogView;
 import com.aubb.server.modules.course.application.view.CourseOfferingView;
@@ -30,7 +33,10 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.term.AcademicTermEntity;
 import com.aubb.server.modules.course.infrastructure.term.AcademicTermMapper;
+import com.aubb.server.modules.identityaccess.application.auth.AuthSessionApplicationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
+import com.aubb.server.modules.identityaccess.application.iam.GovernanceAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.user.UserDirectoryApplicationService;
 import com.aubb.server.modules.identityaccess.application.user.UserOrgMembershipApplicationService;
 import com.aubb.server.modules.identityaccess.application.user.view.UserDirectoryEntryView;
@@ -69,9 +75,13 @@ public class CourseAdministrationApplicationService {
     private final CourseMemberMapper courseMemberMapper;
     private final OrgUnitMapper orgUnitMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final OrganizationApplicationService organizationApplicationService;
     private final UserDirectoryApplicationService userDirectoryApplicationService;
     private final UserOrgMembershipApplicationService userOrgMembershipApplicationService;
+    private final AuthSessionApplicationService authSessionApplicationService;
+    private final GovernanceAuthorizationService governanceAuthorizationService;
+    private final CourseMemberRoleBindingSyncService courseMemberRoleBindingSyncService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final CacheService cacheService;
 
@@ -182,12 +192,18 @@ public class CourseAdministrationApplicationService {
         if (departmentUnitId != null) {
             courseAuthorizationService.assertCanCreateCatalog(principal, departmentUnitId);
         }
+        Set<Long> manageableOrgUnitIds = departmentUnitId == null
+                ? governanceAuthorizationService.loadManageableOrgUnitIds(principal)
+                : Set.of();
         String normalizedKeyword = normalizeKeyword(keyword);
         List<CourseCatalogEntity> matched = courseCatalogMapper
                 .selectList(Wrappers.<CourseCatalogEntity>lambdaQuery().orderByAsc(CourseCatalogEntity::getCourseCode))
                 .stream()
                 .filter(catalog ->
                         departmentUnitId == null || Objects.equals(departmentUnitId, catalog.getDepartmentUnitId()))
+                .filter(catalog -> departmentUnitId != null
+                        || (!manageableOrgUnitIds.isEmpty()
+                                && manageableOrgUnitIds.contains(catalog.getDepartmentUnitId())))
                 .filter(catalog -> courseType == null || courseType.name().equals(catalog.getCourseType()))
                 .filter(catalog -> status == null || status.name().equals(catalog.getStatus()))
                 .filter(catalog -> matchesCatalog(catalog, normalizedKeyword))
@@ -263,13 +279,24 @@ public class CourseAdministrationApplicationService {
 
         persistOfferingCollegeLinks(entity.getId(), primaryCollegeUnitId, secondaryCollegeUnitIds);
         persistInitialInstructors(entity, normalizedInstructorIds);
-        auditLogApplicationService.record(
+        auditLogApplicationService.record(new AuditLogCommand(
                 principal.getUserId(),
                 AuditAction.COURSE_OFFERING_CREATED,
                 "COURSE_OFFERING",
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
-                Map.of("offeringCode", normalizedOfferingCode, "catalogId", catalogId, "termId", termId));
+                "offering",
+                entity.getId(),
+                AuditDecision.ALLOW,
+                Map.of(
+                        "offeringCode",
+                        normalizedOfferingCode,
+                        "catalogId",
+                        catalogId,
+                        "termId",
+                        termId,
+                        "primaryCollegeUnitId",
+                        primaryCollegeUnitId)));
         return toOfferingView(entity);
     }
 
@@ -281,27 +308,56 @@ public class CourseAdministrationApplicationService {
             String keyword,
             long page,
             long pageSize) {
-        if (collegeUnitId != null) {
-            courseAuthorizationService.assertCanCreateCatalog(principal, collegeUnitId);
+        Set<Long> accessibleOfferingIds =
+                readPathAuthorizationService.loadReadableOfferingIds(principal, "offering.read");
+        if (accessibleOfferingIds.isEmpty()) {
+            return new PageResponse<>(List.of(), 0, Math.max(page, 1), Math.max(pageSize, 1));
         }
         String normalizedKeyword = normalizeKeyword(keyword);
-        List<CourseOfferingEntity> visible = courseOfferingMapper
-                .selectList(Wrappers.<CourseOfferingEntity>lambdaQuery()
-                        .orderByDesc(CourseOfferingEntity::getCreatedAt)
-                        .orderByDesc(CourseOfferingEntity::getId))
-                .stream()
-                .filter(offering -> status == null || status.name().equals(offering.getStatus()))
-                .filter(offering -> collegeUnitId == null
-                        || loadManagingCollegeIds(offering.getId()).contains(collegeUnitId))
-                .filter(offering -> courseAuthorizationService.canManageOfferingAsAdmin(principal, offering.getId()))
-                .filter(offering -> matchesOffering(offering, normalizedKeyword))
-                .toList();
-        return pageOfferings(visible, page, pageSize);
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        var countQuery = Wrappers.<CourseOfferingEntity>lambdaQuery()
+                .in(CourseOfferingEntity::getId, accessibleOfferingIds)
+                .eq(status != null, CourseOfferingEntity::getStatus, status == null ? null : status.name())
+                .and(normalizedKeyword != null, wrapper -> wrapper.like(
+                                CourseOfferingEntity::getOfferingCode, normalizedKeyword)
+                        .or()
+                        .like(CourseOfferingEntity::getOfferingName, normalizedKeyword))
+                .and(collegeUnitId != null, wrapper -> wrapper.eq(
+                                CourseOfferingEntity::getPrimaryCollegeUnitId, collegeUnitId)
+                        .or()
+                        .apply(
+                                "id IN (SELECT offering_id FROM course_offering_college_maps WHERE college_unit_id = {0})",
+                                collegeUnitId));
+        long total = courseOfferingMapper.selectCount(countQuery);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<CourseOfferingEntity> items = courseOfferingMapper.selectList(Wrappers.<CourseOfferingEntity>lambdaQuery()
+                .in(CourseOfferingEntity::getId, accessibleOfferingIds)
+                .eq(status != null, CourseOfferingEntity::getStatus, status == null ? null : status.name())
+                .and(normalizedKeyword != null, wrapper -> wrapper.like(
+                                CourseOfferingEntity::getOfferingCode, normalizedKeyword)
+                        .or()
+                        .like(CourseOfferingEntity::getOfferingName, normalizedKeyword))
+                .and(collegeUnitId != null, wrapper -> wrapper.eq(
+                                CourseOfferingEntity::getPrimaryCollegeUnitId, collegeUnitId)
+                        .or()
+                        .apply(
+                                "id IN (SELECT offering_id FROM course_offering_college_maps WHERE college_unit_id = {0})",
+                                collegeUnitId))
+                .orderByDesc(CourseOfferingEntity::getCreatedAt)
+                .orderByDesc(CourseOfferingEntity::getId)
+                .last("LIMIT " + safePageSize + " OFFSET " + offset));
+        return new PageResponse<>(items.stream().map(this::toOfferingView).toList(), total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
     public CourseOfferingView getOffering(Long offeringId, AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanViewOfferingAsAdmin(principal, offeringId);
+        if (!courseAuthorizationService.canManageOfferingAsAdmin(principal, offeringId)) {
+            readPathAuthorizationService.assertCanReadOffering(principal, "offering.read", offeringId, "当前用户无权查看开课信息");
+        }
         return toOfferingView(requireOffering(offeringId));
     }
 
@@ -336,6 +392,7 @@ public class CourseAdministrationApplicationService {
             member.setSourceType(CourseMemberSourceType.MANUAL.name());
             member.setJoinedAt(OffsetDateTime.now());
             courseMemberMapper.insert(member);
+            courseMemberRoleBindingSyncService.sync(member);
             userOrgMembershipApplicationService.upsertMembership(
                     instructorUserId,
                     offering.getOrgCourseUnitId(),
@@ -347,6 +404,8 @@ public class CourseAdministrationApplicationService {
             cacheService.evict(
                     CourseTeachingApplicationService.MY_COURSES_CACHE_NAME,
                     CourseTeachingApplicationService.myCoursesCacheKey(instructorUserId));
+            authSessionApplicationService.invalidateAllSessionsForUser(
+                    instructorUserId, offering.getCreatedByUserId(), "COURSE_OFFERING_INITIAL_INSTRUCTOR_GRANTED");
         }
     }
 
@@ -530,7 +589,9 @@ public class CourseAdministrationApplicationService {
         List<Long> instructorIds = courseMemberMapper
                 .selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                         .eq(CourseMemberEntity::getOfferingId, entity.getId())
-                        .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.INSTRUCTOR.name())
+                        .in(
+                                CourseMemberEntity::getMemberRole,
+                                List.of(CourseMemberRole.INSTRUCTOR.name(), CourseMemberRole.CLASS_INSTRUCTOR.name()))
                         .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name()))
                 .stream()
                 .map(CourseMemberEntity::getUserId)

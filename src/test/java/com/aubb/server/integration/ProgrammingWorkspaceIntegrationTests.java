@@ -41,6 +41,8 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     @Autowired
     private ObjectStorageService objectStorageService;
 
+    private String latestTeacherToken;
+
     @AfterAll
     static void stopServer() {
         // 真实 go-judge 与 MinIO 由 Testcontainers 生命周期管理。
@@ -48,9 +50,12 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     @BeforeEach
     void setUp() {
+        RedisIntegrationTestSupport.flushAll();
         resetJudgeTables(jdbcTemplate, """
                 TRUNCATE TABLE
                     audit_logs,
+                    auth_sessions,
+                    role_bindings,
                     judge_jobs,
                     submission_answers,
                     submission_artifacts,
@@ -91,6 +96,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         insertUser(2L, "eng-admin", "Engineering Admin", "eng-admin@example.com");
         insertUser(2L, "teacher-main", "Teacher Main", "teacher-main@example.com");
         insertUser(2L, "student-a", "Student A", "student-a@example.com");
+        latestTeacherToken = null;
 
         jdbcTemplate.update("""
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
@@ -114,6 +120,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -241,6 +248,141 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     }
 
     @Test
+    void classScopedStudentCanAccessOfferingWideProgrammingWorkspaceAndSampleRun() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-OFFERING", "公共 IDE 班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, null);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"a, b = map(int, input().split())\\nprint(a + b)"}],
+                                  "programmingLanguage":"PYTHON3"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$.entryFilePath").value("main.py"));
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId));
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"a, b = map(int, input().split())\\nprint(a + b)"}],
+                                  "programmingLanguage":"PYTHON3"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.assignmentId").value(assignmentId))
+                .andExpect(jsonPath("$.assignmentQuestionId").value(questionId))
+                .andExpect(jsonPath("$.verdict").value("ACCEPTED"));
+    }
+
+    @Test
+    void activeStudentWithoutRoleBindingsCannotAccessWorkspaceOrSampleRun() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long questionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
+
+        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 4L);
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"print(1)"}],
+                                  "programmingLanguage":"PYTHON3"
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"print(1)"}],
+                                  "programmingLanguage":"PYTHON3"
+                                }
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
     void studentRunsJavaAndCppSampleRunsWithLanguageSpecificCommands() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -252,6 +394,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JC", "多语言班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long javaAssignmentId = createJavaProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, javaAssignmentId);
@@ -371,6 +514,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-IDE", "IDE 班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -532,6 +676,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-RUN", "试运行班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -641,6 +786,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-SAMPLE-LIST", "样例列表班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -705,6 +851,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-ARGS", "参数班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createCppArgsProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -766,6 +913,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-GO", "Go 班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createGoEnvironmentProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -833,6 +981,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-JFAIL", "编译失败班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createJavaProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -880,6 +1029,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-B", "B班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long assignmentId = createCustomScriptProgrammingAssignment(teacherToken, offeringId, classId);
         publishAssignment(teacherToken, assignmentId);
@@ -931,6 +1081,322 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
         assertThat(queryForInt("SELECT COUNT(*) FROM submissions")).isZero();
         assertThat(queryForInt("SELECT COUNT(*) FROM judge_jobs")).isZero();
         assertThat(queryForInt("SELECT COUNT(*) FROM programming_sample_runs")).isEqualTo(1);
+    }
+
+    @Test
+    void staleBaseRevisionIdIsRejectedForWorkspaceSave() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-CONFLICT", "冲突班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        MvcResult firstSaveResult = mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"print(1)"}],
+                                  "programmingLanguage":"PYTHON3",
+                                  "saveKind":"MANUAL"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.editable").value(true))
+                .andExpect(jsonPath("$.runnable").value(true))
+                .andExpect(jsonPath("$.latestRevisionKind").value("MANUAL_SAVE"))
+                .andReturn();
+        Long firstRevisionId = readLong(firstSaveResult, "$.latestRevisionId");
+
+        MvcResult secondSaveResult = mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "baseRevisionId":%d,
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"print(2)"}],
+                                  "programmingLanguage":"PYTHON3",
+                                  "saveKind":"MANUAL"
+                                }
+                                """.formatted(firstRevisionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestRevisionKind").value("MANUAL_SAVE"))
+                .andReturn();
+        Long secondRevisionId = readLong(secondSaveResult, "$.latestRevisionId");
+        studentToken = login("student-a", "Password123");
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "baseRevisionId":%d,
+                                  "entryFilePath":"main.py",
+                                  "files":[{"path":"main.py","content":"print(3)"}],
+                                  "programmingLanguage":"PYTHON3",
+                                  "saveKind":"MANUAL"
+                                }
+                                """.formatted(firstRevisionId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROGRAMMING_WORKSPACE_CONFLICT"));
+
+        assertThat(queryForInt("SELECT COUNT(*) FROM programming_workspace_revisions"))
+                .isEqualTo(2);
+        assertThat(queryForString("SELECT source_files_json FROM programming_workspaces WHERE user_id = 4"))
+                .contains("print(2)")
+                .doesNotContain("print(3)");
+        assertThat(secondRevisionId).isGreaterThan(firstRevisionId);
+    }
+
+    @Test
+    void autoSaveWithoutChangesDoesNotCreateDuplicateRevisionAndWorkspaceExposesCapabilities() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-AUTO", "自动保存班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.editable").value(true))
+                .andExpect(jsonPath("$.runnable").value(true))
+                .andExpect(jsonPath("$.latestRevisionKind").doesNotExist());
+
+        MvcResult manualSaveResult = mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"src/main.py",
+                                  "directories":["src","src/lib"],
+                                  "files":[
+                                    {
+                                      "path":"src/main.py",
+                                      "content":"from src.lib.math_utils import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                    },
+                                    {
+                                      "path":"src/lib/math_utils.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    }
+                                  ],
+                                  "programmingLanguage":"PYTHON3",
+                                  "saveKind":"MANUAL"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestRevisionNo").value(1))
+                .andExpect(jsonPath("$.latestRevisionKind").value("MANUAL_SAVE"))
+                .andExpect(jsonPath("$.editable").value(true))
+                .andExpect(jsonPath("$.runnable").value(true))
+                .andReturn();
+        Long revisionId = readLong(manualSaveResult, "$.latestRevisionId");
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "baseRevisionId":%d,
+                                  "entryFilePath":"src/main.py",
+                                  "directories":["src","src/lib"],
+                                  "files":[
+                                    {
+                                      "path":"src/main.py",
+                                      "content":"from src.lib.math_utils import add\\na, b = map(int, input().split())\\nprint(add(a, b))"
+                                    },
+                                    {
+                                      "path":"src/lib/math_utils.py",
+                                      "content":"def add(left, right):\\n    return left + right"
+                                    }
+                                  ],
+                                  "programmingLanguage":"PYTHON3",
+                                  "saveKind":"AUTO"
+                                }
+                                """.formatted(revisionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.latestRevisionId").value(revisionId))
+                .andExpect(jsonPath("$.latestRevisionNo").value(1))
+                .andExpect(jsonPath("$.latestRevisionKind").value("MANUAL_SAVE"))
+                .andExpect(jsonPath("$.editable").value(true))
+                .andExpect(jsonPath("$.runnable").value(true));
+
+        assertThat(queryForInt("SELECT COUNT(*) FROM programming_workspace_revisions"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void workspaceRejectsCaseConflictAndRenameIntoDescendant() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-PATH", "路径班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createTemplatedProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        mockMvc.perform(put(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "entryFilePath":"src/main.py",
+                                  "directories":["src"],
+                                  "files":[
+                                    {"path":"src/main.py","content":"print(1)"},
+                                    {"path":"src/Main.py","content":"print(2)"}
+                                  ],
+                                  "programmingLanguage":"PYTHON3",
+                                  "saveKind":"MANUAL"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PROGRAMMING_SOURCE_PATH_CASE_CONFLICT"));
+
+        mockMvc.perform(post(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/workspace/operations",
+                                assignmentId,
+                                questionId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "operations":[
+                                    {
+                                      "type":"RENAME_PATH",
+                                      "path":"src",
+                                      "newPath":"src/archive"
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PROGRAMMING_PATH_RENAME_DESCENDANT_INVALID"));
+    }
+
+    @Test
+    void sampleRunDetailFallsBackToStableSummaryWhenDetailReportObjectIsMissing() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-MISSING-DETAIL", "缺失详情班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long assignmentId = createStructuredProgrammingAssignment(teacherToken, offeringId, classId);
+        publishAssignment(teacherToken, assignmentId);
+        Long questionId = readLong(
+                mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken))
+                        .andExpect(status().isOk())
+                        .andReturn(),
+                "$.paper.sections[0].questions[0].id");
+
+        Long sampleRunId = readLong(
+                mockMvc.perform(post(
+                                        "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs",
+                                        assignmentId,
+                                        questionId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                        {
+                                          "entryFilePath":"main.py",
+                                          "files":[{"path":"main.py","content":"a, b = map(int, input().split())\\nprint(a + b)"}],
+                                          "programmingLanguage":"PYTHON3"
+                                        }
+                                        """))
+                        .andExpect(status().isCreated())
+                        .andReturn(),
+                "$.id");
+
+        jdbcTemplate.update(
+                "UPDATE programming_sample_runs SET detail_report_object_key = ?, detail_report_json = NULL WHERE id = ?",
+                "programming-sample-runs/%d/missing-detail-report.json".formatted(sampleRunId),
+                sampleRunId);
+
+        mockMvc.perform(get(
+                                "/api/v1/me/assignments/{assignmentId}/programming-questions/{questionId}/sample-runs/{sampleRunId}",
+                                assignmentId,
+                                questionId,
+                                sampleRunId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sampleRunId))
+                .andExpect(jsonPath("$.stdoutText").value("3\n"))
+                .andExpect(jsonPath("$.detailReport").doesNotExist())
+                .andExpect(jsonPath("$.detailReportUnavailableReasonCode").value("DETAIL_REPORT_MISSING"));
     }
 
     private Long uploadArtifact(String token, Long assignmentId, String filename, String contentType, String content)
@@ -1009,7 +1475,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     private Long createOffering(String token, Long catalogId, Long termId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/course-offerings")
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1029,13 +1495,14 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        refreshTeacherToken("class.manage", "member.manage");
         return readLong(result, "$.id");
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1054,7 +1521,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1113,7 +1580,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
                 ? "null"
                 : tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(customJudgeScript);
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1173,7 +1640,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     private Long createCppArgsProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1231,7 +1698,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
     private Long createGoEnvironmentProgrammingAssignment(String token, Long offeringId, Long classId)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1306,7 +1773,7 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     private Long createTemplatedProgrammingAssignment(String token, Long offeringId, Long classId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
                         .content("""
                                 {
@@ -1373,9 +1840,23 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/assignments/{assignmentId}/publish", assignmentId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        if (latestTeacherToken == null) {
+            return token;
+        }
+        String[] segments = token.split("\\.");
+        if (segments.length < 2) {
+            return token;
+        }
+        String payload = new String(
+                java.util.Base64.getUrlDecoder().decode(segments[1]), java.nio.charset.StandardCharsets.UTF_8);
+        String subject = JsonPath.read(payload, "$.sub");
+        return "teacher-main".equals(subject) ? latestTeacherToken : token;
     }
 
     private String login(String username, String password) throws Exception {
@@ -1406,5 +1887,52 @@ class ProgrammingWorkspaceIntegrationTests extends AbstractRealJudgeIntegrationT
 
     private String queryForString(String sql, Object... args) {
         return jdbcTemplate.query(sql, rs -> rs.next() ? rs.getString(1) : null, args);
+    }
+
+    private void refreshTeacherToken(String... expectedPermissionCodes) throws Exception {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(3).toNanos();
+        while (true) {
+            String candidate = login("teacher-main", "Password123");
+            if (isRoleBindingSnapshotReady(candidate)
+                    && tokenContainsAllPermissions(candidate, expectedPermissionCodes)) {
+                latestTeacherToken = candidate;
+                return;
+            }
+            if (System.nanoTime() >= deadline) {
+                latestTeacherToken = candidate;
+                assertThat(isRoleBindingSnapshotReady(candidate)).isTrue();
+                assertThat(readPermissionCodes(candidate)).contains(expectedPermissionCodes);
+                return;
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("等待教师权限快照收敛时被中断", exception);
+            }
+        }
+    }
+
+    private boolean isRoleBindingSnapshotReady(String token) {
+        return Boolean.TRUE.equals(readTokenClaim(token, "$.roleBindingSnapshot"));
+    }
+
+    private boolean tokenContainsAllPermissions(String token, String... expectedPermissionCodes) {
+        return readPermissionCodes(token).containsAll(java.util.List.of(expectedPermissionCodes));
+    }
+
+    private java.util.List<String> readPermissionCodes(String token) {
+        java.util.List<String> permissionCodes = readTokenClaim(token, "$.permissionCodes");
+        return permissionCodes == null ? java.util.List.of() : permissionCodes;
+    }
+
+    private <T> T readTokenClaim(String token, String path) {
+        String[] segments = token.split("\\.");
+        if (segments.length < 2) {
+            return null;
+        }
+        String payload = new String(
+                java.util.Base64.getUrlDecoder().decode(segments[1]), java.nio.charset.StandardCharsets.UTF_8);
+        return JsonPath.read(payload, path);
     }
 }

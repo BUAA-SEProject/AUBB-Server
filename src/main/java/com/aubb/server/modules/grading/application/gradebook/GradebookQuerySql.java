@@ -13,15 +13,15 @@ final class GradebookQuerySql {
                         ROW_NUMBER() OVER (
                             PARTITION BY cm.user_id
                             ORDER BY
+                                CASE WHEN cm.member_status = 'ACTIVE' THEN 0 ELSE 1 END,
                                 CASE WHEN cm.teaching_class_id IS NULL THEN 1 ELSE 0 END,
-                                COALESCE(cm.teaching_class_id, 9223372036854775807),
-                                cm.id
+                                COALESCE(cm.left_at, cm.joined_at, cm.created_at) DESC,
+                                cm.id DESC
                         ) AS row_num
                     FROM course_members cm
                     WHERE cm.offering_id = :offeringId
                       AND cm.member_role = 'STUDENT'
-                      AND cm.member_status = 'ACTIVE'
-                      AND (:filterByTeachingClass = FALSE OR cm.teaching_class_id = :teachingClassId)
+                      AND cm.member_status IN ('ACTIVE', 'DROPPED', 'TRANSFERRED', 'COMPLETED')
                       AND (:filterByStudentUser = FALSE OR cm.user_id = :studentUserId)
                 ),
                 roster AS (
@@ -36,6 +36,7 @@ final class GradebookQuerySql {
                     JOIN users ON users.id = candidate.user_id
                     LEFT JOIN teaching_classes ON teaching_classes.id = candidate.teaching_class_id
                     WHERE candidate.row_num = 1
+                      AND (:filterByTeachingClass = FALSE OR candidate.teaching_class_id = :teachingClassId)
                 )
                 """;
     }

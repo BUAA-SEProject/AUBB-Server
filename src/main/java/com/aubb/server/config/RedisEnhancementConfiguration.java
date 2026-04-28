@@ -3,17 +3,17 @@ package com.aubb.server.config;
 import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.cache.NoOpCacheService;
 import com.aubb.server.common.cache.RedisCacheService;
+import com.aubb.server.common.ratelimit.InMemoryRateLimitService;
 import com.aubb.server.common.ratelimit.NoOpRateLimitService;
 import com.aubb.server.common.ratelimit.RateLimitAspect;
 import com.aubb.server.common.ratelimit.RateLimitService;
 import com.aubb.server.common.ratelimit.RedisRateLimitService;
-import com.aubb.server.common.realtime.NoOpRealtimeCoordinationService;
-import com.aubb.server.common.realtime.RealtimeCoordinationService;
-import com.aubb.server.common.realtime.RedisRealtimeCoordinationService;
+import com.aubb.server.common.ratelimit.ResilientRateLimitService;
 import com.aubb.server.common.redis.RedisAvailabilityTracker;
 import com.aubb.server.common.redis.RedisEnhancementHealthIndicator;
 import com.aubb.server.common.redis.RedisEnhancementMetrics;
 import com.aubb.server.common.redis.RedisKeyFactory;
+import com.aubb.server.common.web.ClientIpResolver;
 import io.lettuce.core.ClientOptions;
 import java.time.Duration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -101,50 +101,30 @@ public class RedisEnhancementConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(StringRedisTemplate.class)
-    @ConditionalOnProperty(
-            prefix = "aubb.redis.rate-limit",
-            name = "enabled",
-            havingValue = "true",
-            matchIfMissing = true)
-    RateLimitService redisRateLimitService(
-            StringRedisTemplate redisTemplate,
+    @ConditionalOnMissingBean(RateLimitService.class)
+    RateLimitService rateLimitService(
+            org.springframework.beans.factory.ObjectProvider<StringRedisTemplate> redisTemplateProvider,
             RedisEnhancementProperties properties,
             RedisKeyFactory redisKeyFactory,
             RedisEnhancementMetrics redisEnhancementMetrics,
             RedisAvailabilityTracker redisAvailabilityTracker) {
-        return new RedisRateLimitService(
-                redisTemplate, properties, redisKeyFactory, redisEnhancementMetrics, redisAvailabilityTracker);
+        if (!properties.getRateLimit().isEnabled()) {
+            return new NoOpRateLimitService();
+        }
+        StringRedisTemplate redisTemplate = redisTemplateProvider.getIfAvailable();
+        if (properties.isEnabled() && redisTemplate != null) {
+            RateLimitService primary = new RedisRateLimitService(
+                    redisTemplate, properties, redisKeyFactory, redisEnhancementMetrics, redisAvailabilityTracker);
+            RateLimitService fallback =
+                    new InMemoryRateLimitService(properties, redisKeyFactory, redisEnhancementMetrics, "fallback_");
+            return new ResilientRateLimitService(primary, fallback);
+        }
+        return new InMemoryRateLimitService(properties, redisKeyFactory, redisEnhancementMetrics);
     }
 
     @Bean
-    @ConditionalOnMissingBean(RateLimitService.class)
-    RateLimitService noOpRateLimitService() {
-        return new NoOpRateLimitService();
-    }
-
-    @Bean
-    RateLimitAspect rateLimitAspect(RateLimitService rateLimitService, RedisKeyFactory redisKeyFactory) {
-        return new RateLimitAspect(rateLimitService, redisKeyFactory);
-    }
-
-    @Bean
-    @ConditionalOnBean(StringRedisTemplate.class)
-    @ConditionalOnProperty(
-            prefix = "aubb.redis.realtime",
-            name = "enabled",
-            havingValue = "true",
-            matchIfMissing = true)
-    RealtimeCoordinationService redisRealtimeCoordinationService(
-            StringRedisTemplate redisTemplate,
-            RedisKeyFactory redisKeyFactory,
-            RedisAvailabilityTracker redisAvailabilityTracker) {
-        return new RedisRealtimeCoordinationService(redisTemplate, redisKeyFactory, redisAvailabilityTracker);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(RealtimeCoordinationService.class)
-    RealtimeCoordinationService noOpRealtimeCoordinationService() {
-        return new NoOpRealtimeCoordinationService();
+    RateLimitAspect rateLimitAspect(
+            RateLimitService rateLimitService, RedisKeyFactory redisKeyFactory, ClientIpResolver clientIpResolver) {
+        return new RateLimitAspect(rateLimitService, redisKeyFactory, clientIpResolver);
     }
 }

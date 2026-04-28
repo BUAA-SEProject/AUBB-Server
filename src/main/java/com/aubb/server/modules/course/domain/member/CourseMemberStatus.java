@@ -4,6 +4,7 @@ public enum CourseMemberStatus {
     PENDING,
     ACTIVE,
     DROPPED,
+    TRANSFERRED,
     COMPLETED,
     REMOVED
 }

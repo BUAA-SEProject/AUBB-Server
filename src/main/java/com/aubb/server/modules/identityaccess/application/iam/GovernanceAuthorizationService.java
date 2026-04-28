@@ -2,6 +2,8 @@ package com.aubb.server.modules.identityaccess.application.iam;
 
 import com.aubb.server.common.exception.BusinessException;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthzScopeResolutionService;
+import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRole;
 import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRolePolicy;
 import com.aubb.server.modules.organization.domain.OrgUnitType;
@@ -13,6 +15,7 @@ import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -26,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class GovernanceAuthorizationService {
 
     private final OrgUnitMapper orgUnitMapper;
+    private final AuthzScopeResolutionService authzScopeResolutionService;
     private final GovernanceRolePolicy governanceRolePolicy = new GovernanceRolePolicy();
 
     @Transactional(readOnly = true)
@@ -35,15 +39,16 @@ public class GovernanceAuthorizationService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ORG_PARENT_NOT_FOUND", "上级组织不存在");
         }
         if (parent == null) {
-            if (!principal.hasAuthority(GovernanceRole.SCHOOL_ADMIN.name())) {
+            if (loadGovernanceAssignments(principal).stream()
+                    .noneMatch(assignment -> assignment.role() == GovernanceRole.SCHOOL_ADMIN)) {
                 throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权创建根节点");
             }
             return;
         }
-        boolean allowed = principal.getIdentities().stream().anyMatch(identity -> {
-            GovernanceRole role = GovernanceRole.from(identity.roleCode());
+        boolean allowed = loadGovernanceAssignments(principal).stream().anyMatch(assignment -> {
+            GovernanceRole role = assignment.role();
             return role.canManageDescendantCreation(childType)
-                    && isDescendantOrSelf(parent.getId(), identity.scopeOrgUnitId());
+                    && isDescendantOrSelf(parent.getId(), assignment.scopeOrgUnitId());
         });
         if (!allowed) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权在该组织下创建节点");
@@ -60,10 +65,11 @@ public class GovernanceAuthorizationService {
     @Transactional(readOnly = true)
     public boolean canManageUserAt(AuthenticatedUserPrincipal principal, Long orgUnitId) {
         if (orgUnitId == null) {
-            return principal.hasAuthority(GovernanceRole.SCHOOL_ADMIN.name());
+            return loadGovernanceAssignments(principal).stream()
+                    .anyMatch(assignment -> assignment.role() == GovernanceRole.SCHOOL_ADMIN);
         }
-        return principal.getIdentities().stream()
-                .anyMatch(identity -> isDescendantOrSelf(orgUnitId, identity.scopeOrgUnitId()));
+        return loadGovernanceAssignments(principal).stream()
+                .anyMatch(assignment -> isDescendantOrSelf(orgUnitId, assignment.scopeOrgUnitId()));
     }
 
     @Transactional(readOnly = true)
@@ -73,10 +79,10 @@ public class GovernanceAuthorizationService {
             return;
         }
         for (IdentityAssignmentCommand assignment : assignments) {
-            boolean allowed = principal.getIdentities().stream().anyMatch(identity -> {
-                GovernanceRole actorRole = GovernanceRole.from(identity.roleCode());
+            boolean allowed = loadGovernanceAssignments(principal).stream().anyMatch(actor -> {
+                GovernanceRole actorRole = actor.role();
                 return governanceRolePolicy.canGrant(actorRole, assignment.roleCode())
-                        && isDescendantOrSelf(assignment.scopeOrgUnitId(), identity.scopeOrgUnitId());
+                        && isDescendantOrSelf(assignment.scopeOrgUnitId(), actor.scopeOrgUnitId());
             });
             if (!allowed) {
                 throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权分配该身份");
@@ -86,8 +92,8 @@ public class GovernanceAuthorizationService {
 
     @Transactional(readOnly = true)
     public Set<Long> visibleScopeRootIds(AuthenticatedUserPrincipal principal) {
-        return principal.getIdentities().stream()
-                .map(ScopeIdentityView::scopeOrgUnitId)
+        return loadGovernanceAssignments(principal).stream()
+                .map(GovernanceAssignment::scopeOrgUnitId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
     }
@@ -128,4 +134,50 @@ public class GovernanceAuthorizationService {
         }
         return false;
     }
+
+    private List<GovernanceAssignment> loadGovernanceAssignments(AuthenticatedUserPrincipal principal) {
+        List<GovernanceAssignment> roleBindingAssignments = principal.getGroupBindings().stream()
+                .flatMap(binding -> toGovernanceAssignment(binding).stream())
+                .distinct()
+                .toList();
+        if (!roleBindingAssignments.isEmpty()) {
+            return roleBindingAssignments;
+        }
+        return principal.getIdentities().stream()
+                .map(identity ->
+                        new GovernanceAssignment(GovernanceRole.from(identity.roleCode()), identity.scopeOrgUnitId()))
+                .distinct()
+                .toList();
+    }
+
+    private java.util.Optional<GovernanceAssignment> toGovernanceAssignment(GroupBindingView binding) {
+        if (binding == null || binding.scopeRefId() == null || binding.templateCode() == null) {
+            return java.util.Optional.empty();
+        }
+        GovernanceRole role =
+                switch (binding.templateCode()) {
+                    case "school-admin" -> GovernanceRole.SCHOOL_ADMIN;
+                    case "college-admin" -> GovernanceRole.COLLEGE_ADMIN;
+                    case "course-admin" -> GovernanceRole.COURSE_ADMIN;
+                    case "class-admin" -> GovernanceRole.CLASS_ADMIN;
+                    default -> null;
+                };
+        if (role == null) {
+            return java.util.Optional.empty();
+        }
+        String normalizedScopeType =
+                binding.scopeType() == null ? null : binding.scopeType().trim().toUpperCase(Locale.ROOT);
+        Long scopeOrgUnitId =
+                switch (normalizedScopeType) {
+                    case "SCHOOL", "COLLEGE", "COURSE" -> binding.scopeRefId();
+                    case "CLASS" ->
+                        authzScopeResolutionService.findOrgClassUnitIdByTeachingClassId(binding.scopeRefId());
+                    default -> null;
+                };
+        return scopeOrgUnitId == null
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(new GovernanceAssignment(role, scopeOrgUnitId));
+    }
+
+    private record GovernanceAssignment(GovernanceRole role, Long scopeOrgUnitId) {}
 }

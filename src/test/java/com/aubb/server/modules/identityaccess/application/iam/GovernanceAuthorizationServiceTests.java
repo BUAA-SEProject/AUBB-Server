@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.AuthzScopeResolutionService;
+import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
@@ -23,13 +25,17 @@ class GovernanceAuthorizationServiceTests {
     @Mock
     private OrgUnitMapper orgUnitMapper;
 
+    @Mock
+    private AuthzScopeResolutionService authzScopeResolutionService;
+
     @Test
     void loadsManageableOrgUnitIdsForAllDescendantsOfVisibleScopes() {
         when(orgUnitMapper.selectList(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(orgUnit(4L, 2L)))
                 .thenReturn(List.of(orgUnit(5L, 4L)))
                 .thenReturn(List.of());
-        GovernanceAuthorizationService service = new GovernanceAuthorizationService(orgUnitMapper);
+        GovernanceAuthorizationService service =
+                new GovernanceAuthorizationService(orgUnitMapper, authzScopeResolutionService);
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
                 10L,
                 "college-admin",
@@ -49,7 +55,8 @@ class GovernanceAuthorizationServiceTests {
         when(orgUnitMapper.selectById(5L)).thenReturn(orgUnit(5L, 4L));
         when(orgUnitMapper.selectById(4L)).thenReturn(orgUnit(4L, 2L));
 
-        GovernanceAuthorizationService service = new GovernanceAuthorizationService(orgUnitMapper);
+        GovernanceAuthorizationService service =
+                new GovernanceAuthorizationService(orgUnitMapper, authzScopeResolutionService);
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
                 10L,
                 "college-admin",
@@ -61,6 +68,52 @@ class GovernanceAuthorizationServiceTests {
 
         assertThat(service.canManageUserAt(principal, 5L)).isTrue();
         verify(orgUnitMapper, never()).selectList(any());
+    }
+
+    @Test
+    void builtInGroupBindingShouldGrantGovernanceScopeWithoutLegacyIdentity() {
+        when(orgUnitMapper.selectById(5L)).thenReturn(orgUnit(5L, 4L));
+        when(orgUnitMapper.selectById(4L)).thenReturn(orgUnit(4L, 2L));
+
+        GovernanceAuthorizationService service =
+                new GovernanceAuthorizationService(orgUnitMapper, authzScopeResolutionService);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "group-college-admin",
+                "Group College Admin",
+                2L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(),
+                List.of(new GroupBindingView("ROLE_BINDING", "college-admin", "college", 2L)),
+                Set.of(),
+                null);
+
+        assertThat(service.canManageUserAt(principal, 5L)).isTrue();
+    }
+
+    @Test
+    void roleBindingsShouldOverrideLegacyGovernanceIdentitiesWhenPresent() {
+        when(authzScopeResolutionService.findOrgClassUnitIdByTeachingClassId(8L))
+                .thenReturn(4L);
+
+        GovernanceAuthorizationService service =
+                new GovernanceAuthorizationService(orgUnitMapper, authzScopeResolutionService);
+        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
+                10L,
+                "mixed-admin",
+                "Mixed Admin",
+                1L,
+                null,
+                AccountStatus.ACTIVE,
+                null,
+                List.of(new ScopeIdentityView("SCHOOL_ADMIN", 1L, "SCHOOL", "AUBB School")),
+                List.of(new GroupBindingView("ROLE_BINDING", "class-admin", "class", 8L)),
+                Set.of(),
+                null);
+
+        assertThat(service.canManageUserAt(principal, null)).isFalse();
     }
 
     private OrgUnitEntity orgUnit(Long id, Long parentId) {

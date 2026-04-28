@@ -20,7 +20,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class AuthApiIntegrationTests extends AbstractIntegrationTest {
+class AuthApiIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
@@ -130,6 +130,24 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.academicProfile.realName").value("学校管理员"))
                 .andExpect(jsonPath("$.identities[0].roleCode").value("SCHOOL_ADMIN"))
                 .andExpect(jsonPath("$.accountStatus").value("ACTIVE"));
+    }
+
+    @Test
+    void authMeShouldReturnLatestUserSnapshotInsteadOfJwtEmbeddedSnapshot() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
+
+        jdbcTemplate.update(
+                "UPDATE users SET display_name = ? WHERE username = ?", "School Admin Updated", "school-admin");
+        jdbcTemplate.update("""
+                UPDATE academic_profiles
+                SET real_name = ?
+                WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                """, "最新学校管理员", "school-admin");
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("School Admin Updated"))
+                .andExpect(jsonPath("$.academicProfile.realName").value("最新学校管理员"));
     }
 
     @Test
@@ -267,6 +285,33 @@ class AuthApiIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(tokens.refreshToken())))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+    }
+
+    @Test
+    void authMeUsesSessionActiveCacheAndEvictsAfterLogout() throws Exception {
+        AuthTokens tokens = login("school-admin", "Password123");
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/prometheus")).andExpect(status().isOk()).andExpect(result -> assertThat(
+                        result.getResponse().getContentAsString())
+                .contains("aubb_cache_operations_total{cache=\"authSessionActive\",operation=\"get\",result=\"hit\"}"));
+
+        mockMvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(
+                        result -> assertThat(result.getResponse().getContentAsString())
+                                .contains(
+                                        "aubb_cache_operations_total{cache=\"authSessionActive\",operation=\"evict\",result=\"success\"}"));
     }
 
     @Test

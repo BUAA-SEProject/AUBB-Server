@@ -1,6 +1,7 @@
 package com.aubb.server.modules.identityaccess.application.iam;
 
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.domain.governance.GovernanceRolePolicy;
 import com.aubb.server.modules.identityaccess.infrastructure.role.UserScopeRoleEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.role.UserScopeRoleMapper;
@@ -31,6 +32,17 @@ public class ScopeIdentityService {
     @Transactional(readOnly = true)
     public List<ScopeIdentityView> loadForUser(Long userId) {
         return loadForUsers(List.of(userId)).getOrDefault(userId, List.of());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ScopeIdentityView> loadForPrincipal(AuthenticatedUserPrincipal principal) {
+        if (principal == null) {
+            return List.of();
+        }
+        if (principal.getIdentities() != null && !principal.getIdentities().isEmpty()) {
+            return principal.getIdentities();
+        }
+        return loadForUser(principal.getUserId());
     }
 
     @Transactional(readOnly = true)

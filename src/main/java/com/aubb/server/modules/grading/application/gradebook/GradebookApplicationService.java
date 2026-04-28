@@ -6,7 +6,8 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionEntity;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionMapper;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
+import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.course.domain.member.CourseMemberStatus;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
@@ -16,6 +17,9 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapp
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
@@ -26,6 +30,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -45,6 +50,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class GradebookApplicationService {
 
     private static final double PASS_SCORE_RATE = 0.6d;
+    private static final List<String> HISTORY_READABLE_ROSTER_STATUSES = List.of(
+            CourseMemberStatus.ACTIVE.name(),
+            CourseMemberStatus.DROPPED.name(),
+            CourseMemberStatus.TRANSFERRED.name(),
+            CourseMemberStatus.COMPLETED.name());
     private static final List<ScoreBandDefinition> SCORE_BAND_DEFINITIONS = List.of(
             new ScoreBandDefinition("EXCELLENT", "优秀", 90, null, 0.9, 1.0000001),
             new ScoreBandDefinition("GOOD", "良好", 80, 90, 0.8, 0.9),
@@ -60,7 +70,8 @@ public class GradebookApplicationService {
     private final AssignmentSectionMapper assignmentSectionMapper;
     private final SubmissionMapper submissionMapper;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
-    private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final GradebookQueryRepository gradebookQueryRepository;
 
     @Transactional(readOnly = true)
@@ -72,8 +83,9 @@ public class GradebookApplicationService {
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
+        assertCanReadGradebook(
+                principal, offeringId, teachingClass == null ? null : teachingClass.getId(), "当前用户无权查看成绩册");
         return buildGradebook(offering, teachingClass, studentUserId, page, pageSize);
     }
 
@@ -82,7 +94,7 @@ public class GradebookApplicationService {
             Long teachingClassId, Long studentUserId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
-        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        assertCanReadGradebook(principal, offering.getId(), teachingClassId, "当前用户无权查看成绩册");
         return buildGradebook(offering, teachingClass, studentUserId, page, pageSize);
     }
 
@@ -90,9 +102,26 @@ public class GradebookApplicationService {
     public GradebookExportContent exportOfferingGradebook(
             Long offeringId, Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
-        return toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
+        AuthorizationResourceRef resourceRef = teachingClass == null
+                ? new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId)
+                : new AuthorizationResourceRef(AuthorizationResourceType.CLASS, teachingClass.getId());
+        ReadPathAuthorizationService.TeachingReadScope scope =
+                readPathAuthorizationService.resolveTeachingReadScope(principal, "grade.export", offeringId);
+        boolean allowed = teachingClass == null ? scope.offeringReadable() : scope.canReadClass(teachingClass.getId());
+        if (!allowed) {
+            sensitiveOperationAuditService.recordDenied(
+                    principal, AuditAction.GRADE_EXPORT, "grade.export", resourceRef, "DENY_SCOPE_FILTER", Map.of());
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权导出成绩册");
+        }
+        GradebookExportContent content = toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
+        Map<String, Object> auditMetadata = new LinkedHashMap<>();
+        if (studentUserId != null) {
+            auditMetadata.put("studentUserId", studentUserId);
+        }
+        sensitiveOperationAuditService.recordAllowed(
+                principal, AuditAction.GRADE_EXPORT, "grade.export", resourceRef, auditMetadata);
+        return content;
     }
 
     @Transactional(readOnly = true)
@@ -100,16 +129,32 @@ public class GradebookApplicationService {
             Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
-        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
-        return toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
+        AuthorizationResourceRef resourceRef =
+                new AuthorizationResourceRef(AuthorizationResourceType.CLASS, teachingClassId);
+        ReadPathAuthorizationService.TeachingReadScope scope =
+                readPathAuthorizationService.resolveTeachingReadScope(principal, "grade.export", offering.getId());
+        if (!scope.canReadClass(teachingClassId)) {
+            sensitiveOperationAuditService.recordDenied(
+                    principal, AuditAction.GRADE_EXPORT, "grade.export", resourceRef, "DENY_SCOPE_FILTER", Map.of());
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权导出成绩册");
+        }
+        GradebookExportContent content = toCsvExport(buildGradebookSnapshot(offering, teachingClass, studentUserId));
+        Map<String, Object> auditMetadata = new LinkedHashMap<>();
+        if (studentUserId != null) {
+            auditMetadata.put("studentUserId", studentUserId);
+        }
+        sensitiveOperationAuditService.recordAllowed(
+                principal, AuditAction.GRADE_EXPORT, "grade.export", resourceRef, auditMetadata);
+        return content;
     }
 
     @Transactional(readOnly = true)
     public GradebookReportView getOfferingGradebookReport(
             Long offeringId, Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
         TeachingClassEntity teachingClass = resolveTeachingClassScope(offeringId, teachingClassId);
+        assertCanReadGradebook(
+                principal, offeringId, teachingClass == null ? null : teachingClass.getId(), "当前用户无权查看成绩报表");
         return buildGradebookReport(offering, teachingClass, studentUserId, teachingClass == null);
     }
 
@@ -118,7 +163,7 @@ public class GradebookApplicationService {
             Long teachingClassId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         TeachingClassEntity teachingClass = requireTeachingClass(teachingClassId);
         CourseOfferingEntity offering = requireOffering(teachingClass.getOfferingId());
-        courseAuthorizationService.assertCanGradeSubmission(principal, offering.getId(), teachingClassId);
+        assertCanReadGradebook(principal, offering.getId(), teachingClassId, "当前用户无权查看成绩报表");
         return buildGradebookReport(offering, teachingClass, studentUserId, false);
     }
 
@@ -126,32 +171,46 @@ public class GradebookApplicationService {
     public StudentGradebookView getStudentGradebook(
             Long offeringId, Long studentUserId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
-        return buildStudentGradebook(offering, studentUserId, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中", true);
+        readPathAuthorizationService.assertCanReadStudentInOffering(
+                principal, "grade.read", offeringId, studentUserId, "当前用户无权查看学生成绩册");
+        return buildStudentGradebook(
+                offering, studentUserId, true, true, HttpStatus.NOT_FOUND, "当前学生不在课程名册中", true, true);
+    }
+
+    private void assertCanReadGradebook(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId, String message) {
+        ReadPathAuthorizationService.TeachingReadScope scope =
+                readPathAuthorizationService.resolveTeachingReadScope(principal, "grade.read", offeringId);
+        boolean allowed = teachingClassId == null ? scope.offeringReadable() : scope.canReadClass(teachingClassId);
+        if (!allowed) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", message);
+        }
     }
 
     @Transactional(readOnly = true)
     public StudentGradebookView getMyGradebook(Long offeringId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
         return buildStudentGradebook(
-                offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册", false);
+                offering, principal.getUserId(), false, false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册", false, true);
     }
 
     @Transactional(readOnly = true)
     public GradebookExportContent exportMyGradebook(Long offeringId, AuthenticatedUserPrincipal principal) {
         CourseOfferingEntity offering = requireOffering(offeringId);
         return toStudentCsvExport(buildStudentGradebook(
-                offering, principal.getUserId(), false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册", false));
+                offering, principal.getUserId(), false, false, HttpStatus.FORBIDDEN, "当前用户无权查看学生成绩册", false, true));
     }
 
     private StudentGradebookView buildStudentGradebook(
             CourseOfferingEntity offering,
             Long studentUserId,
             boolean revealNonObjectiveScores,
+            boolean revealUnpublishedScores,
             HttpStatus missingStudentStatus,
             String missingStudentMessage,
-            boolean includeRanking) {
-        List<StudentRosterEntry> roster = loadRoster(offering.getId(), null, studentUserId);
+            boolean includeRanking,
+            boolean allowHistoricalMembership) {
+        List<StudentRosterEntry> roster = loadRoster(offering.getId(), null, studentUserId, allowHistoricalMembership);
         StudentRosterEntry student = roster.stream()
                 .filter(candidate -> Objects.equals(candidate.user().getId(), studentUserId))
                 .findFirst()
@@ -185,7 +244,7 @@ public class GradebookApplicationService {
                     latestSubmissionKey(assignment.getId(), student.user().getId()));
             SubmissionScoreSummaryView summary = submission == null ? null : scoreSummaries.get(submission.getId());
             GradebookPageView.GradeCellView gradeCell =
-                    toGradeCell(assignment, assignmentMaxScore, true, submission, summary);
+                    toGradeCell(assignment, assignmentMaxScore, true, submission, summary, revealUnpublishedScores);
             if (Boolean.TRUE.equals(gradeCell.submitted())) {
                 submittedCount++;
             }
@@ -250,7 +309,7 @@ public class GradebookApplicationService {
             CourseOfferingEntity offering, TeachingClassEntity teachingClass, Long studentUserId) {
         Long teachingClassId = teachingClass == null ? null : teachingClass.getId();
         List<AssignmentEntity> assignments = loadStructuredAssignments(offering.getId(), teachingClassId);
-        List<StudentRosterEntry> roster = loadRoster(offering.getId(), teachingClassId, studentUserId);
+        List<StudentRosterEntry> roster = loadRoster(offering.getId(), teachingClassId, studentUserId, true);
         Map<Long, Integer> assignmentMaxScores = loadAssignmentMaxScores(assignments);
         List<Long> studentUserIds =
                 roster.stream().map(entry -> entry.user().getId()).toList();
@@ -677,7 +736,7 @@ public class GradebookApplicationService {
                     latestSubmissionKey(assignment.getId(), student.user().getId()));
             SubmissionScoreSummaryView summary = submission == null ? null : scoreSummaries.get(submission.getId());
             GradebookPageView.GradeCellView cell =
-                    toGradeCell(assignment, assignmentMaxScore, applicable, submission, summary);
+                    toGradeCell(assignment, assignmentMaxScore, applicable, submission, summary, true);
             if (applicable && Boolean.TRUE.equals(cell.submitted())) {
                 submittedAssignmentCount++;
             }
@@ -791,16 +850,21 @@ public class GradebookApplicationService {
             int assignmentMaxScore,
             boolean applicable,
             SubmissionEntity submission,
-            SubmissionScoreSummaryView summary) {
+            SubmissionScoreSummaryView summary,
+            boolean revealUnpublishedScores) {
         if (!applicable) {
             return new GradebookPageView.GradeCellView(
                     assignment.getId(), false, false, null, null, null, null, null, null, null, null, null);
         }
         boolean submitted = submission != null;
-        Double weightedScore = summary == null
+        boolean gradePublished = summary == null
+                ? assignment.getGradePublishedAt() != null
+                : Boolean.TRUE.equals(summary.gradePublished());
+        boolean revealScores = revealUnpublishedScores || gradePublished;
+        Integer finalScore = revealScores || summary == null ? summary == null ? null : summary.finalScore() : null;
+        Double weightedScore = finalScore == null
                 ? null
-                : weightedScore(
-                        summary.finalScore(), assignmentMaxScore, defaultGradeWeight(assignment.getGradeWeight()));
+                : weightedScore(finalScore, assignmentMaxScore, defaultGradeWeight(assignment.getGradeWeight()));
         return new GradebookPageView.GradeCellView(
                 assignment.getId(),
                 true,
@@ -808,12 +872,12 @@ public class GradebookApplicationService {
                 submitted ? submission.getId() : null,
                 submitted ? submission.getAttemptNo() : null,
                 submitted ? submission.getSubmittedAt() : null,
-                summary,
-                summary == null ? null : summary.finalScore(),
+                revealScores ? summary : null,
+                finalScore,
                 assignmentMaxScore,
                 weightedScore,
                 summary == null ? null : summary.fullyGraded(),
-                summary == null ? assignment.getGradePublishedAt() != null : summary.gradePublished());
+                gradePublished);
     }
 
     private GradebookPageView.AssignmentColumnView toAssignmentColumn(
@@ -889,38 +953,55 @@ public class GradebookApplicationService {
         return scoreByAssignmentId;
     }
 
-    private List<StudentRosterEntry> loadRoster(Long offeringId, Long teachingClassId, Long studentUserId) {
+    private List<StudentRosterEntry> loadRoster(
+            Long offeringId, Long teachingClassId, Long studentUserId, boolean allowHistoricalMembership) {
+        List<String> readableStatuses = allowHistoricalMembership
+                ? HISTORY_READABLE_ROSTER_STATUSES
+                : List.of(CourseMemberStatus.ACTIVE.name());
         List<CourseMemberEntity> members = courseMemberMapper.selectList(Wrappers.<CourseMemberEntity>lambdaQuery()
                 .eq(CourseMemberEntity::getOfferingId, offeringId)
                 .eq(CourseMemberEntity::getMemberRole, CourseMemberRole.STUDENT.name())
-                .eq(CourseMemberEntity::getMemberStatus, CourseMemberStatus.ACTIVE.name())
-                .eq(teachingClassId != null, CourseMemberEntity::getTeachingClassId, teachingClassId));
+                .in(CourseMemberEntity::getMemberStatus, readableStatuses));
         if (members.isEmpty()) {
             return List.of();
         }
         members = members.stream()
-                .sorted(Comparator.comparing((CourseMemberEntity member) -> member.getTeachingClassId() == null ? 1 : 0)
-                        .thenComparing(member -> member.getTeachingClassId() == null ? 0L : member.getTeachingClassId())
-                        .thenComparing(CourseMemberEntity::getId))
+                .sorted(Comparator.comparing(GradebookApplicationService::isHistoricalRosterMember)
+                        .thenComparing(GradebookApplicationService::hasMissingTeachingClass, Comparator.naturalOrder())
+                        .thenComparing(
+                                GradebookApplicationService::rosterMembershipRecency,
+                                Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(CourseMemberEntity::getId, Comparator.reverseOrder()))
                 .toList();
         Map<Long, CourseMemberEntity> rosterByUserId = new LinkedHashMap<>();
         for (CourseMemberEntity member : members) {
             if (studentUserId != null && !Objects.equals(member.getUserId(), studentUserId)) {
                 continue;
             }
-            CourseMemberEntity existing = rosterByUserId.get(member.getUserId());
-            if (existing == null || (existing.getTeachingClassId() == null && member.getTeachingClassId() != null)) {
+            if (!rosterByUserId.containsKey(member.getUserId())) {
                 rosterByUserId.put(member.getUserId(), member);
             }
         }
         if (rosterByUserId.isEmpty()) {
             return List.of();
         }
-        Map<Long, UserEntity> userIndex = userMapper.selectByIds(rosterByUserId.keySet()).stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        UserEntity::getId, user -> user, (left, right) -> left, LinkedHashMap::new));
-        Map<Long, TeachingClassEntity> teachingClassIndex = loadTeachingClassIndex(rosterByUserId.values());
-        return rosterByUserId.values().stream()
+        List<CourseMemberEntity> rosterMembers = rosterByUserId.values().stream()
+                .filter(member ->
+                        teachingClassId == null || Objects.equals(member.getTeachingClassId(), teachingClassId))
+                .toList();
+        if (rosterMembers.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, UserEntity> userIndex =
+                userMapper
+                        .selectByIds(rosterMembers.stream()
+                                .map(CourseMemberEntity::getUserId)
+                                .toList())
+                        .stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                UserEntity::getId, user -> user, (left, right) -> left, LinkedHashMap::new));
+        Map<Long, TeachingClassEntity> teachingClassIndex = loadTeachingClassIndex(rosterMembers);
+        return rosterMembers.stream()
                 .map(member -> new StudentRosterEntry(userIndex.get(member.getUserId()), member.getTeachingClassId()))
                 .filter(entry -> entry.user() != null)
                 .sorted(Comparator.comparing((StudentRosterEntry entry) ->
@@ -928,6 +1009,24 @@ public class GradebookApplicationService {
                         .thenComparing(entry -> entry.user().getUsername())
                         .thenComparing(entry -> entry.user().getId()))
                 .toList();
+    }
+
+    private static boolean isHistoricalRosterMember(CourseMemberEntity member) {
+        return !CourseMemberStatus.ACTIVE.name().equals(member.getMemberStatus());
+    }
+
+    private static boolean hasMissingTeachingClass(CourseMemberEntity member) {
+        return member.getTeachingClassId() == null;
+    }
+
+    private static OffsetDateTime rosterMembershipRecency(CourseMemberEntity member) {
+        if (member.getLeftAt() != null) {
+            return member.getLeftAt();
+        }
+        if (member.getJoinedAt() != null) {
+            return member.getJoinedAt();
+        }
+        return member.getCreatedAt();
     }
 
     private Map<Long, TeachingClassEntity> loadTeachingClassIndex(

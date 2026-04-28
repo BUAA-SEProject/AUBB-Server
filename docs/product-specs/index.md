@@ -2,6 +2,7 @@
 
 - [平台基线](platform-baseline.md)
 - [平台治理与 IAM](platform-governance-and-iam.md)
+- [权限系统](permission-system.md)
 - [课程系统](course-system.md)
 - [作业系统](assignment-system.md)
 - [提交系统](submission-system.md)

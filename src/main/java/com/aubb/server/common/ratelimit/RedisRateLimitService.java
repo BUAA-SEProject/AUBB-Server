@@ -5,11 +5,9 @@ import com.aubb.server.common.redis.RedisEnhancementMetrics;
 import com.aubb.server.common.redis.RedisKeyFactory;
 import com.aubb.server.config.RedisEnhancementProperties;
 import java.util.List;
-import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.util.StringUtils;
 
 @RequiredArgsConstructor
 public class RedisRateLimitService implements RateLimitService {
@@ -31,19 +29,12 @@ public class RedisRateLimitService implements RateLimitService {
 
     @Override
     public RateLimitDecision check(RateLimitRequest request) {
-        if (request == null || !StringUtils.hasText(request.policy())) {
-            return RateLimitDecision.allowed();
-        }
-        RedisEnhancementProperties.Policy policy =
-                properties.getRateLimit().getPolicies().get(request.policy());
-        if (policy == null
-                || policy.getLimit() <= 0
-                || policy.getWindow() == null
-                || policy.getWindow().isZero()) {
+        RedisEnhancementProperties.Policy policy = RateLimitRequestSupport.resolvePolicy(properties, request);
+        if (RateLimitRequestSupport.isPolicyDisabled(policy)) {
             metrics.recordRateLimitDecision(request.policy(), "allowed");
             return RateLimitDecision.allowed();
         }
-        String keySuffix = buildKeySuffix(request);
+        String keySuffix = RateLimitRequestSupport.buildKeySuffix(request, redisKeyFactory);
         String key = redisKeyFactory.rateLimitKey(request.policy(), keySuffix);
         long windowSeconds = Math.max(policy.getWindow().getSeconds(), 1L);
         try {
@@ -59,33 +50,8 @@ public class RedisRateLimitService implements RateLimitService {
             return RateLimitDecision.allowed();
         } catch (Exception exception) {
             availabilityTracker.recordFailure("ratelimit.check", exception);
-            metrics.recordRateLimitDecision(request.policy(), "fallback");
-            return RateLimitDecision.allowed();
+            throw new IllegalStateException("Redis rate limit backend unavailable", exception);
         }
-    }
-
-    private String buildKeySuffix(RateLimitRequest request) {
-        StringBuilder builder = new StringBuilder();
-        if (request.userId() != null) {
-            builder.append("user").append(':').append(request.userId());
-        }
-        if (StringUtils.hasText(request.clientIp())) {
-            appendSegment(builder, "ip:" + redisKeyFactory.sanitize(request.clientIp()));
-        }
-        if (StringUtils.hasText(request.subjectKey())) {
-            appendSegment(builder, redisKeyFactory.sanitize(request.subjectKey().toLowerCase(Locale.ROOT)));
-        }
-        if (builder.isEmpty()) {
-            builder.append("global");
-        }
-        return builder.toString();
-    }
-
-    private void appendSegment(StringBuilder builder, String segment) {
-        if (!builder.isEmpty()) {
-            builder.append(':');
-        }
-        builder.append(segment);
     }
 
     private long asLong(List<?> result, int index) {

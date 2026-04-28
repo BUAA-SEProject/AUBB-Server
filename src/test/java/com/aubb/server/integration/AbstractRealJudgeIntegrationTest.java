@@ -81,6 +81,7 @@ abstract class AbstractRealJudgeIntegrationTest {
 
     @DynamicPropertySource
     static void registerRuntimeProperties(DynamicPropertyRegistry registry) {
+        registry.add("aubb.redis.rate-limit.enabled", () -> "false");
         registry.add(
                 "aubb.judge.go-judge.base-url",
                 () -> "http://" + GO_JUDGE_CONTAINER.getHost() + ":" + GO_JUDGE_CONTAINER.getMappedPort(5050));

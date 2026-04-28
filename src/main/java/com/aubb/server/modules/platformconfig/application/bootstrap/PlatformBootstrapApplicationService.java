@@ -56,14 +56,17 @@ public class PlatformBootstrapApplicationService {
     public PlatformBootstrapResult bootstrap(PlatformBootstrapProperties properties) {
         SchoolState schoolState = ensureSchoolRoot(properties);
         UserState adminState = ensureAdminUser(properties, schoolState.entity());
+        // 首次 bootstrap 时管理员用户尚未提交，REQUIRES_NEW 审计事务无法读取该用户。
+        Long bootstrapAuditActorUserId =
+                adminState.created() ? null : adminState.entity().getId();
         boolean roleCreated = ensureSchoolAdminRole(
                 adminState.entity().getId(), schoolState.entity().getId());
         boolean profileCreated = ensureAcademicProfile(adminState.entity().getId(), properties);
-        boolean platformConfigCreated = ensurePlatformConfig(adminState.entity().getId(), properties);
+        boolean platformConfigCreated = ensurePlatformConfig(bootstrapAuditActorUserId, properties);
 
         if (schoolState.created()) {
             auditLogApplicationService.record(
-                    adminState.entity().getId(),
+                    bootstrapAuditActorUserId,
                     AuditAction.ORG_UNIT_CREATED,
                     "ORG_UNIT",
                     String.valueOf(schoolState.entity().getId()),
@@ -76,7 +79,7 @@ public class PlatformBootstrapApplicationService {
         }
         if (adminState.created()) {
             auditLogApplicationService.record(
-                    adminState.entity().getId(),
+                    bootstrapAuditActorUserId,
                     AuditAction.USER_CREATED,
                     "USER",
                     String.valueOf(adminState.entity().getId()),
@@ -95,7 +98,7 @@ public class PlatformBootstrapApplicationService {
         }
         if (roleCreated) {
             auditLogApplicationService.record(
-                    adminState.entity().getId(),
+                    bootstrapAuditActorUserId,
                     AuditAction.USER_IDENTITIES_CHANGED,
                     "USER",
                     String.valueOf(adminState.entity().getId()),
@@ -104,7 +107,7 @@ public class PlatformBootstrapApplicationService {
         }
         if (profileCreated) {
             auditLogApplicationService.record(
-                    adminState.entity().getId(),
+                    bootstrapAuditActorUserId,
                     AuditAction.USER_PROFILE_UPDATED,
                     "USER",
                     String.valueOf(adminState.entity().getId()),

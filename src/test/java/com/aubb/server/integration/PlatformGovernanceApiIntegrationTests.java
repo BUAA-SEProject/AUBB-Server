@@ -19,7 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-class PlatformGovernanceApiIntegrationTests extends AbstractIntegrationTest {
+class PlatformGovernanceApiIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 

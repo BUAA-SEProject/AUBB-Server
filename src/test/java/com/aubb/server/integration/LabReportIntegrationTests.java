@@ -32,7 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
-class LabReportIntegrationTests extends AbstractIntegrationTest {
+class LabReportIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
     private static final DockerImageName MINIO_IMAGE =
@@ -57,6 +57,8 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
     @Autowired
     private ObjectStorageService objectStorageService;
+
+    private String latestTeacherToken;
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
@@ -117,6 +119,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
                 INSERT INTO user_scope_roles (user_id, scope_org_unit_id, role_code)
                 SELECT id, ?, ? FROM users WHERE username = ?
                 """, 2L, "COLLEGE_ADMIN", "eng-admin");
+        latestTeacherToken = null;
     }
 
     @Test
@@ -131,6 +134,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB", "实验班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "操作系统实验", "完成进程调度报告");
         publishLab(teacherToken, labId);
@@ -168,7 +172,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
                                 """), 1);
 
         mockMvc.perform(get("/api/v1/teacher/labs/{labId}/reports", labId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(reportId))
@@ -177,7 +181,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.items[0].status").value("SUBMITTED"));
 
         mockMvc.perform(get("/api/v1/teacher/lab-reports/{reportId}", reportId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.attachments[0].id").value(attachmentId))
                 .andExpect(jsonPath("$.teacherCommentText").value(nullValue()));
@@ -214,7 +218,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
                 .andExpect(content().bytes("%PDF-1.7\nlab-report".getBytes(StandardCharsets.UTF_8)));
 
         mockMvc.perform(get("/api/v1/teacher/lab-report-attachments/{attachmentId}/download", attachmentId)
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(content().bytes("%PDF-1.7\nlab-report".getBytes(StandardCharsets.UTF_8)));
 
@@ -237,6 +241,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB2", "实验二班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "数据库实验", "初版说明");
         updateLab(teacherToken, labId, "数据库实验-更新", "更新后的实验说明");
@@ -245,7 +250,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/labs", offeringId)
                         .param("status", "CLOSED")
-                        .header("Authorization", "Bearer " + teacherToken))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].title").value("数据库实验-更新"))
@@ -276,6 +281,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB-LIMIT", "实验限制班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "附件上限实验", "验证实验附件上传上限");
         publishLab(teacherToken, labId);
@@ -315,12 +321,14 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
         Long classId = createTeachingClass(teacherToken, offeringId, "CLS-LAB3", "实验三班", 2026);
         addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
 
         Long labId = createLab(teacherToken, offeringId, classId, "网络实验", "先创建再关闭能力");
         publishLab(teacherToken, labId);
         updateTeachingClassFeatures(teacherToken, classId, false);
 
-        mockMvc.perform(get("/api/v1/teacher/labs/{labId}", labId).header("Authorization", "Bearer " + teacherToken))
+        mockMvc.perform(get("/api/v1/teacher/labs/{labId}", labId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("LAB_DISABLED"));
 
@@ -411,13 +419,14 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
                                 """.formatted(catalogId, termId)))
                 .andExpect(status().isCreated())
                 .andReturn();
+        latestTeacherToken = login("teacher-main", "Password123");
         return readId(result);
     }
 
     private Long createTeachingClass(String token, Long offeringId, String classCode, String className, int entryYear)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/classes", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -435,7 +444,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
     private void addMember(String token, Long offeringId, Long userId, String roleCode, Long classId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/members/batch", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -453,7 +462,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
     private void updateTeachingClassFeatures(String token, Long teachingClassId, boolean labEnabled) throws Exception {
         mockMvc.perform(put("/api/v1/teacher/course-classes/{teachingClassId}/features", teachingClassId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -470,7 +479,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
     private Long createLab(String token, Long offeringId, Long teachingClassId, String title, String description)
             throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/labs", offeringId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -486,7 +495,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
     private void updateLab(String token, Long labId, String title, String description) throws Exception {
         mockMvc.perform(put("/api/v1/teacher/labs/{labId}", labId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -498,12 +507,14 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
     }
 
     private void publishLab(String token, Long labId) throws Exception {
-        mockMvc.perform(post("/api/v1/teacher/labs/{labId}/publish", labId).header("Authorization", "Bearer " + token))
+        mockMvc.perform(post("/api/v1/teacher/labs/{labId}/publish", labId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk());
     }
 
     private void closeLab(String token, Long labId) throws Exception {
-        mockMvc.perform(post("/api/v1/teacher/labs/{labId}/close", labId).header("Authorization", "Bearer " + token))
+        mockMvc.perform(post("/api/v1/teacher/labs/{labId}/close", labId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk());
     }
 
@@ -537,7 +548,7 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
     private void reviewReport(String token, Long reportId, String annotation, String comment) throws Exception {
         mockMvc.perform(put("/api/v1/teacher/lab-reports/{reportId}/review", reportId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -551,9 +562,13 @@ class LabReportIntegrationTests extends AbstractIntegrationTest {
 
     private void publishReview(String token, Long reportId) throws Exception {
         mockMvc.perform(post("/api/v1/teacher/lab-reports/{reportId}/publish", reportId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String resolveTeacherToken(String token) {
+        return latestTeacherToken == null ? token : latestTeacherToken;
     }
 
     private void insertUser(Long primaryOrgUnitId, String username, String displayName, String email) {

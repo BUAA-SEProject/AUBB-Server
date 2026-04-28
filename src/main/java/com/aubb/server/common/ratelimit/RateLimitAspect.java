@@ -1,6 +1,7 @@
 package com.aubb.server.common.ratelimit;
 
 import com.aubb.server.common.redis.RedisKeyFactory;
+import com.aubb.server.common.web.ClientIpResolver;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
@@ -23,6 +24,7 @@ public class RateLimitAspect {
 
     private final RateLimitService rateLimitService;
     private final RedisKeyFactory redisKeyFactory;
+    private final ClientIpResolver clientIpResolver;
     private final ExpressionParser expressionParser = new SpelExpressionParser();
     private final DefaultParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
@@ -36,7 +38,7 @@ public class RateLimitAspect {
             subject = redisKeyFactory.hash(subject);
         }
         HttpServletRequest request = currentRequest();
-        String clientIp = request == null ? "unknown" : resolveClientIp(request);
+        String clientIp = clientIpResolver.resolve(request);
         rateLimitService.assertAllowed(new RateLimitRequest(
                 rateLimited.policy(), principal == null ? null : principal.getUserId(), clientIp, subject));
         return joinPoint.proceed();
@@ -72,13 +74,5 @@ public class RateLimitAspect {
             return null;
         }
         return attributes.getRequest();
-    }
-
-    private String resolveClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

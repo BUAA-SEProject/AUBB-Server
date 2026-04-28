@@ -1,6 +1,8 @@
 package com.aubb.server.modules.judge.application;
 
+import com.aubb.server.common.cache.CacheService;
 import com.aubb.server.common.exception.BusinessException;
+import com.aubb.server.config.RedisEnhancementProperties;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionSnapshot;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
@@ -8,10 +10,14 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeProfileMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.judge.domain.JudgeJobStatus;
 import com.aubb.server.modules.judge.domain.JudgeTriggerType;
 import com.aubb.server.modules.judge.domain.JudgeVerdict;
@@ -45,6 +51,7 @@ import tools.jackson.databind.ObjectMapper;
 public class JudgeApplicationService {
 
     private static final String ENGINE_CODE = "GO_JUDGE";
+    static final String JUDGE_JOB_REPORT_CACHE_NAME = "judgeJobReport";
 
     private final JudgeJobMapper judgeJobMapper;
     private final SubmissionMapper submissionMapper;
@@ -53,10 +60,14 @@ public class JudgeApplicationService {
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final AssignmentJudgeProfileMapper assignmentJudgeProfileMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
     private final ObjectMapper objectMapper;
+    private final CacheService cacheService;
+    private final RedisEnhancementProperties redisEnhancementProperties;
 
     @Transactional
     public void enqueueAutoJudge(SubmissionEntity submission, AssignmentEntity assignment) {
@@ -86,8 +97,7 @@ public class JudgeApplicationService {
         if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测任务");
         }
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测任务");
         }
         return listJobs(submissionId);
@@ -96,8 +106,9 @@ public class JudgeApplicationService {
     @Transactional(readOnly = true)
     public List<JudgeJobView> listTeacherJudgeJobs(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
-        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        if (!canReadTeacherSubmission(principal, submission)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测任务");
+        }
         return listJobs(submissionId);
     }
 
@@ -109,8 +120,7 @@ public class JudgeApplicationService {
         if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测任务");
         }
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测任务");
         }
         return listAnswerJobs(answerId);
@@ -120,8 +130,9 @@ public class JudgeApplicationService {
     public List<JudgeJobView> listTeacherAnswerJudgeJobs(Long answerId, AuthenticatedUserPrincipal principal) {
         SubmissionAnswerEntity answer = requireAnswer(answerId);
         SubmissionEntity submission = requireSubmission(answer.getSubmissionId());
-        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        if (!canReadTeacherSubmission(principal, submission)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测任务");
+        }
         return listAnswerJobs(answerId);
     }
 
@@ -133,11 +144,10 @@ public class JudgeApplicationService {
         if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
         }
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
         }
-        return toReportView(judgeJob, false);
+        return toMaybeCachedReportView(judgeJob, ReportFieldMode.OWNER);
     }
 
     @Transactional(readOnly = true)
@@ -148,11 +158,10 @@ public class JudgeApplicationService {
         if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该评测报告");
         }
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该评测报告");
         }
-        return toReportDownload(judgeJob, false);
+        return toReportDownload(judgeJob, ReportFieldMode.OWNER);
     }
 
     @Transactional(readOnly = true)
@@ -160,8 +169,14 @@ public class JudgeApplicationService {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
-        return toReportView(judgeJob, true);
+        if (!canReadTeacherSubmission(principal, submission)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该评测报告");
+        }
+        ReportFieldMode fieldMode =
+                canReadHiddenTeacherJudgeFields(principal, assignment) ? ReportFieldMode.FULL : ReportFieldMode.MASKED;
+        JudgeJobReportView reportView = toMaybeCachedReportView(judgeJob, fieldMode);
+        recordHiddenJudgeReadAuditIfNeeded(principal, judgeJob, submission, assignment, fieldMode, "view");
+        return reportView;
     }
 
     @Transactional(readOnly = true)
@@ -169,17 +184,34 @@ public class JudgeApplicationService {
         JudgeJobEntity judgeJob = requireJudgeJob(judgeJobId);
         SubmissionEntity submission = requireSubmission(judgeJob.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
-        return toReportDownload(judgeJob, true);
+        if (!canReadTeacherSubmission(principal, submission)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该评测报告");
+        }
+        ReportFieldMode fieldMode =
+                canReadHiddenTeacherJudgeFields(principal, assignment) ? ReportFieldMode.FULL : ReportFieldMode.MASKED;
+        JudgeJobReportDownload download = toReportDownload(judgeJob, fieldMode);
+        recordHiddenJudgeReadAuditIfNeeded(principal, judgeJob, submission, assignment, fieldMode, "download");
+        return download;
     }
 
     @Transactional
     public JudgeJobView requeueJudge(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanRejudgeSubmission(
+                principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        AuthorizationResourceRef resourceRef =
+                new AuthorizationResourceRef(AuthorizationResourceType.SUBMISSION, submissionId);
         if (isJudgeConfigured(assignment.getId())) {
-            return createJudgeJob(submission, assignment, null, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
+            JudgeJobView view = createJudgeJob(
+                    submission, assignment, null, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
+            sensitiveOperationAuditService.recordAllowed(
+                    principal,
+                    AuditAction.JUDGE_REJUDGE,
+                    "judge.rejudge",
+                    resourceRef,
+                    Map.of("assignmentId", assignment.getId(), "triggerType", JudgeTriggerType.MANUAL_REJUDGE.name()));
+            return view;
         }
         List<SubmissionAnswerEntity> programmingAnswers =
                 loadProgrammingAnswers(submission.getId(), assignment.getId());
@@ -192,6 +224,18 @@ public class JudgeApplicationService {
             queuedJobs.add(createJudgeJob(
                     submission, assignment, answer, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE));
         }
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.JUDGE_REJUDGE,
+                "judge.rejudge",
+                resourceRef,
+                Map.of(
+                        "assignmentId",
+                        assignment.getId(),
+                        "triggerType",
+                        JudgeTriggerType.MANUAL_REJUDGE.name(),
+                        "queuedJobs",
+                        queuedJobs.size()));
         return queuedJobs.getFirst();
     }
 
@@ -200,9 +244,24 @@ public class JudgeApplicationService {
         SubmissionAnswerEntity answer = requireAnswer(answerId);
         SubmissionEntity submission = requireSubmission(answer.getSubmissionId());
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanRejudgeSubmission(
+                principal, assignment.getOfferingId(), submission.getTeachingClassId());
         requireProgrammingQuestion(assignment.getId(), answer.getAssignmentQuestionId());
-        return createJudgeJob(submission, assignment, answer, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
+        JudgeJobView view =
+                createJudgeJob(submission, assignment, answer, principal.getUserId(), JudgeTriggerType.MANUAL_REJUDGE);
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.JUDGE_REJUDGE,
+                "judge.rejudge",
+                new AuthorizationResourceRef(AuthorizationResourceType.SUBMISSION, submission.getId()),
+                Map.of(
+                        "assignmentId",
+                        assignment.getId(),
+                        "answerId",
+                        answerId,
+                        "triggerType",
+                        JudgeTriggerType.MANUAL_REJUDGE.name()));
+        return view;
     }
 
     private JudgeJobView createJudgeJob(
@@ -375,31 +434,65 @@ public class JudgeApplicationService {
         }
     }
 
-    private JudgeJobReportView toReportView(JudgeJobEntity entity, boolean revealSensitiveFields) {
+    private JudgeJobReportView toMaybeCachedReportView(JudgeJobEntity entity, ReportFieldMode fieldMode) {
+        if (!isCacheableReport(entity)) {
+            return buildReportView(entity, fieldMode);
+        }
+        return cacheService.getOrLoad(
+                JUDGE_JOB_REPORT_CACHE_NAME,
+                judgeReportCacheKey(entity.getId(), fieldMode),
+                redisEnhancementProperties.getCache().getJudgeJobReportTtl(),
+                JudgeJobReportView.class,
+                () -> buildReportView(entity, fieldMode));
+    }
+
+    private JudgeJobReportView buildReportView(JudgeJobEntity entity, ReportFieldMode fieldMode) {
         if (!judgeArtifactStorageService.hasJudgeJobDetailReport(entity)) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "JUDGE_JOB_REPORT_NOT_READY", "当前评测任务尚未生成详细报告");
         }
         JudgeJobStoredReport storedReport = readDetailReport(entity);
-        List<JudgeJobCaseReportView> caseReports = revealSensitiveFields
-                ? storedReport.caseReports()
-                : storedReport.caseReports().stream()
-                        .map(caseReport -> new JudgeJobCaseReportView(
-                                caseReport.caseOrder(),
-                                caseReport.verdict(),
-                                caseReport.score(),
-                                caseReport.maxScore(),
-                                null,
-                                null,
-                                caseReport.stdoutText(),
-                                caseReport.stderrText(),
-                                caseReport.timeMillis(),
-                                caseReport.memoryBytes(),
-                                caseReport.errorMessage(),
-                                caseReport.engineStatus(),
-                                caseReport.exitStatus(),
-                                caseReport.compileCommand(),
-                                caseReport.runCommand()))
-                        .toList();
+        List<JudgeJobCaseReportView> caseReports =
+                switch (fieldMode) {
+                    case FULL -> storedReport.caseReports();
+                    case OWNER ->
+                        storedReport.caseReports().stream()
+                                .map(caseReport -> new JudgeJobCaseReportView(
+                                        caseReport.caseOrder(),
+                                        caseReport.verdict(),
+                                        caseReport.score(),
+                                        caseReport.maxScore(),
+                                        null,
+                                        null,
+                                        caseReport.stdoutText(),
+                                        caseReport.stderrText(),
+                                        caseReport.timeMillis(),
+                                        caseReport.memoryBytes(),
+                                        caseReport.errorMessage(),
+                                        caseReport.engineStatus(),
+                                        caseReport.exitStatus(),
+                                        null,
+                                        null))
+                                .toList();
+                    case MASKED ->
+                        storedReport.caseReports().stream()
+                                .map(caseReport -> new JudgeJobCaseReportView(
+                                        caseReport.caseOrder(),
+                                        caseReport.verdict(),
+                                        caseReport.score(),
+                                        caseReport.maxScore(),
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        caseReport.timeMillis(),
+                                        caseReport.memoryBytes(),
+                                        null,
+                                        caseReport.engineStatus(),
+                                        caseReport.exitStatus(),
+                                        null,
+                                        null))
+                                .toList();
+                };
         return new JudgeJobReportView(
                 entity.getId(),
                 entity.getSubmissionId(),
@@ -409,9 +502,9 @@ public class JudgeApplicationService {
                 JudgeJobStatus.valueOf(entity.getStatus()),
                 entity.getVerdict() == null ? null : JudgeVerdict.valueOf(entity.getVerdict()),
                 entity.getResultSummary(),
-                entity.getErrorMessage(),
-                storedReport.stdoutText(),
-                storedReport.stderrText(),
+                fieldMode == ReportFieldMode.MASKED ? null : entity.getErrorMessage(),
+                fieldMode == ReportFieldMode.MASKED ? null : storedReport.stdoutText(),
+                fieldMode == ReportFieldMode.MASKED ? null : storedReport.stderrText(),
                 entity.getScore(),
                 entity.getMaxScore(),
                 entity.getPassedCaseCount(),
@@ -426,8 +519,8 @@ public class JudgeApplicationService {
                 entity.getFinishedAt());
     }
 
-    private JudgeJobReportDownload toReportDownload(JudgeJobEntity entity, boolean revealSensitiveFields) {
-        JudgeJobReportView reportView = toReportView(entity, revealSensitiveFields);
+    private JudgeJobReportDownload toReportDownload(JudgeJobEntity entity, ReportFieldMode fieldMode) {
+        JudgeJobReportView reportView = toMaybeCachedReportView(entity, fieldMode);
         try {
             return new JudgeJobReportDownload(
                     "judge-job-%s-report.json".formatted(entity.getId()),
@@ -477,5 +570,61 @@ public class JudgeApplicationService {
         metadata.put("assignmentQuestionId", answer == null ? null : answer.getAssignmentQuestionId());
         metadata.put("triggerType", triggerType.name());
         return metadata;
+    }
+
+    private boolean isCacheableReport(JudgeJobEntity entity) {
+        return entity != null
+                && entity.getFinishedAt() != null
+                && judgeArtifactStorageService.hasJudgeJobDetailReport(entity)
+                && (JudgeJobStatus.SUCCEEDED.name().equals(entity.getStatus())
+                        || JudgeJobStatus.FAILED.name().equals(entity.getStatus()));
+    }
+
+    private String judgeReportCacheKey(Long judgeJobId, ReportFieldMode fieldMode) {
+        return "judgeJob:%d:mode:%s".formatted(judgeJobId, fieldMode.name().toLowerCase());
+    }
+
+    private boolean canReadOwnSubmissionHistory(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
+        return readPathAuthorizationService.canReadMyAssignmentHistory(principal, assignment);
+    }
+
+    private boolean canReadTeacherSubmission(AuthenticatedUserPrincipal principal, SubmissionEntity submission) {
+        return readPathAuthorizationService.canReadSubmission(principal, "submission.read", submission);
+    }
+
+    private boolean canReadHiddenTeacherJudgeFields(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
+        return readPathAuthorizationService.canReadHiddenJudgeFields(principal, assignment);
+    }
+
+    private void recordHiddenJudgeReadAuditIfNeeded(
+            AuthenticatedUserPrincipal principal,
+            JudgeJobEntity judgeJob,
+            SubmissionEntity submission,
+            AssignmentEntity assignment,
+            ReportFieldMode fieldMode,
+            String channel) {
+        if (fieldMode != ReportFieldMode.FULL) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("channel", channel);
+        metadata.put("judgeJobId", judgeJob.getId());
+        metadata.put("submissionId", submission.getId());
+        metadata.put("assignmentId", assignment.getId());
+        if (judgeJob.getSubmissionAnswerId() != null) {
+            metadata.put("submissionAnswerId", judgeJob.getSubmissionAnswerId());
+        }
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.JUDGE_HIDDEN_READ,
+                "judge.view_hidden",
+                new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignment.getId()),
+                metadata);
+    }
+
+    private enum ReportFieldMode {
+        FULL,
+        OWNER,
+        MASKED
     }
 }

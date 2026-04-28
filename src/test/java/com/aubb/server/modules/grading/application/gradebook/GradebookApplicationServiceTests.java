@@ -9,12 +9,13 @@ import static org.mockito.Mockito.when;
 
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.assignment.infrastructure.paper.AssignmentSectionMapper;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEntity;
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
@@ -54,7 +55,10 @@ class GradebookApplicationServiceTests {
     private SubmissionAnswerApplicationService submissionAnswerApplicationService;
 
     @Mock
-    private CourseAuthorizationService courseAuthorizationService;
+    private ReadPathAuthorizationService readPathAuthorizationService;
+
+    @Mock
+    private SensitiveOperationAuditService sensitiveOperationAuditService;
 
     @Mock
     private GradebookQueryRepository gradebookQueryRepository;
@@ -62,6 +66,8 @@ class GradebookApplicationServiceTests {
     @Test
     void offeringGradebookUsesDatabasePageQueryWithoutLoadingSubmissionScoreSummaries() {
         when(courseOfferingMapper.selectById(100L)).thenReturn(offering(100L));
+        when(readPathAuthorizationService.resolveTeachingReadScope(any(), any(), anyLong()))
+                .thenReturn(ReadPathAuthorizationService.TeachingReadScope.offeringWide(100L));
         when(gradebookQueryRepository.loadOfferingPage(anyLong(), any(), any(), anyLong(), anyLong()))
                 .thenReturn(new GradebookQueryRepository.GradebookPageAggregate(
                         new GradebookPageView.ScopeView(100L, null, null, null),
@@ -79,7 +85,8 @@ class GradebookApplicationServiceTests {
                 assignmentSectionMapper,
                 submissionMapper,
                 submissionAnswerApplicationService,
-                courseAuthorizationService,
+                readPathAuthorizationService,
+                sensitiveOperationAuditService,
                 gradebookQueryRepository);
 
         service.getOfferingGradebook(100L, null, null, 1, 20, principal());
@@ -91,6 +98,8 @@ class GradebookApplicationServiceTests {
     @Test
     void offeringGradebookReportUsesDatabaseAggregationWithoutLoadingSubmissionScoreSummaries() {
         when(courseOfferingMapper.selectById(100L)).thenReturn(offering(100L));
+        when(readPathAuthorizationService.resolveTeachingReadScope(any(), any(), anyLong()))
+                .thenReturn(ReadPathAuthorizationService.TeachingReadScope.offeringWide(100L));
         when(gradebookQueryRepository.loadOfferingReport(anyLong(), any(), any(), anyBoolean()))
                 .thenReturn(new GradebookQueryRepository.GradebookReportAggregate(
                         new GradebookPageView.ScopeView(100L, null, null, null),
@@ -108,7 +117,8 @@ class GradebookApplicationServiceTests {
                 assignmentSectionMapper,
                 submissionMapper,
                 submissionAnswerApplicationService,
-                courseAuthorizationService,
+                readPathAuthorizationService,
+                sensitiveOperationAuditService,
                 gradebookQueryRepository);
 
         service.getOfferingGradebookReport(100L, null, null, principal());

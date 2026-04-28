@@ -34,6 +34,14 @@ public class AuditLogEntity {
 
     private String ip;
 
+    private String scopeType;
+
+    private Long scopeId;
+
+    private String decision;
+
+    private String userAgent;
+
     @TableField(typeHandler = PostgreSqlJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private Map<String, Object> metadata;
 

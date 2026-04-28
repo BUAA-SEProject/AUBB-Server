@@ -6,7 +6,6 @@ import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionSnapshot;
-import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
@@ -14,9 +13,8 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
-import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.judge.application.JudgeArtifactStorageService;
 import com.aubb.server.modules.judge.application.JudgeExecutionService;
 import com.aubb.server.modules.judge.application.JudgeExecutionService.ProgrammingSampleRunOutcome;
@@ -39,11 +37,13 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +53,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProgrammingSampleRunApplicationService {
 
     private static final int MAX_CODE_TEXT_LENGTH = 50_000;
@@ -68,7 +69,7 @@ public class ProgrammingSampleRunApplicationService {
     private final SubmissionArtifactMapper submissionArtifactMapper;
     private final ProgrammingWorkspaceMapper programmingWorkspaceMapper;
     private final ProgrammingWorkspaceRevisionMapper programmingWorkspaceRevisionMapper;
-    private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final JudgeExecutionService judgeExecutionService;
     private final JudgeArtifactStorageService judgeArtifactStorageService;
@@ -90,8 +91,8 @@ public class ProgrammingSampleRunApplicationService {
             Long workspaceRevisionId,
             AuthenticatedUserPrincipal principal) {
         OffsetDateTime now = OffsetDateTime.now();
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
-        requireRunnableAssignment(context.assignment(), principal, now);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.run");
 
         ProgrammingSampleRunInputMode inputMode =
                 resolveInputMode(stdinText, expectedStdout, context.question().config());
@@ -209,7 +210,7 @@ public class ProgrammingSampleRunApplicationService {
     @Transactional(readOnly = true)
     public List<ProgrammingSampleRunView> listMySampleRuns(
             Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
-        requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         return programmingSampleRunMapper
                 .selectList(Wrappers.<ProgrammingSampleRunEntity>lambdaQuery()
                         .eq(ProgrammingSampleRunEntity::getAssignmentId, assignmentId)
@@ -225,7 +226,7 @@ public class ProgrammingSampleRunApplicationService {
     @Transactional(readOnly = true)
     public ProgrammingSampleRunView getMySampleRun(
             Long assignmentId, Long questionId, Long sampleRunId, AuthenticatedUserPrincipal principal) {
-        requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         ProgrammingSampleRunEntity entity = programmingSampleRunMapper.selectById(sampleRunId);
         if (entity == null
                 || !Objects.equals(entity.getAssignmentId(), assignmentId)
@@ -250,8 +251,10 @@ public class ProgrammingSampleRunApplicationService {
                         readSourceFiles(entity.getSourceFilesJson()))
                 : ProgrammingSourceSnapshot.fromInput(
                         programmingLanguage, null, storedSource.entryFilePath(), storedSource.files());
-        JudgeJobStoredReport detailReport =
-                shouldLoadDetailReport(entity, includeDetailReport) ? readDetailReport(entity) : null;
+        DetailReportLoadResult detailReportResult = shouldLoadDetailReport(entity, includeDetailReport)
+                ? readDetailReport(entity)
+                : new DetailReportLoadResult(null, null);
+        JudgeJobStoredReport detailReport = detailReportResult.detailReport();
         String stdoutText = detailReport == null ? entity.getStdoutText() : detailReport.stdoutText();
         String stderrText =
                 StringUtils.hasText(detailReport == null ? entity.getStderrText() : detailReport.stderrText())
@@ -282,6 +285,7 @@ public class ProgrammingSampleRunApplicationService {
                 entity.getTimeMillis(),
                 entity.getMemoryBytes(),
                 includeDetailReport ? detailReport : null,
+                includeDetailReport ? detailReportResult.unavailableReasonCode() : null,
                 entity.getCreatedAt(),
                 entity.getFinishedAt());
     }
@@ -293,14 +297,14 @@ public class ProgrammingSampleRunApplicationService {
     }
 
     private ProgrammingQuestionContext requireVisibleProgrammingQuestion(
-            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
+            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal, String permissionCode) {
         AssignmentEntity assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
-        if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || !courseAuthorizationService.canViewAssignment(
-                        principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!readPathAuthorizationService.canAccessMyAssignmentCapability(principal, "task.read", assignment)
+                || !readPathAuthorizationService.canAccessMyAssignmentCapability(
+                        principal, permissionCode, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题试运行");
         }
         AssignmentQuestionSnapshot question =
@@ -316,23 +320,6 @@ public class ProgrammingSampleRunApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_CONFIG_MISSING", "当前编程题缺少运行配置");
         }
         return new ProgrammingQuestionContext(assignment, question);
-    }
-
-    private void requireRunnableAssignment(
-            AssignmentEntity assignment, AuthenticatedUserPrincipal principal, OffsetDateTime now) {
-        if (!AssignmentStatus.PUBLISHED.name().equals(assignment.getStatus())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ASSIGNMENT_UNAVAILABLE", "当前作业暂不允许试运行");
-        }
-        if (!courseAuthorizationService.hasActiveMemberRole(
-                principal.getUserId(),
-                assignment.getOfferingId(),
-                assignment.getTeachingClassId(),
-                CourseMemberRole.STUDENT)) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权执行该编程题试运行");
-        }
-        if (now.isBefore(assignment.getOpenAt()) || now.isAfter(assignment.getDueAt())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_WINDOW_INVALID", "当前不在作业开放提交时间内");
-        }
     }
 
     private ProgrammingSampleRunInputMode resolveInputMode(
@@ -565,6 +552,7 @@ public class ProgrammingSampleRunApplicationService {
         }
         validateDirectories(directories);
         validateSourceFiles(sourceSnapshot);
+        validatePathCaseConflicts(sourceSnapshot, directories);
         int totalFileCount = artifacts.size() + sourceSnapshot.files().size();
         if (config.maxFileCount() != null && totalFileCount > config.maxFileCount()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_LIMIT_EXCEEDED", "上传文件数量超过题目限制");
@@ -611,6 +599,7 @@ public class ProgrammingSampleRunApplicationService {
                     HttpStatus.BAD_REQUEST, "PROGRAMMING_DIRECTORY_LIMIT_EXCEEDED", "样例试运行目录数量超过限制");
         }
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        LinkedHashMap<String, String> normalizedCasePaths = new LinkedHashMap<>();
         for (String directory : directories) {
             if (!isSafePath(directory)) {
                 throw new BusinessException(
@@ -620,6 +609,7 @@ public class ProgrammingSampleRunApplicationService {
                 throw new BusinessException(
                         HttpStatus.BAD_REQUEST, "PROGRAMMING_DIRECTORY_PATH_DUPLICATED", "样例试运行目录路径不能重复");
             }
+            ensureCaseInsensitivePathAvailable(normalizedCasePaths, directory);
         }
     }
 
@@ -628,6 +618,7 @@ public class ProgrammingSampleRunApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_LIMIT_EXCEEDED", "样例试运行源码文件数量超过限制");
         }
         LinkedHashSet<String> normalizedPaths = new LinkedHashSet<>();
+        LinkedHashMap<String, String> normalizedCasePaths = new LinkedHashMap<>();
         for (ProgrammingSourceFile file : sourceSnapshot.files()) {
             if (!isSafePath(file.path())) {
                 throw new BusinessException(
@@ -640,10 +631,30 @@ public class ProgrammingSampleRunApplicationService {
             if (file.content().length() > MAX_CODE_TEXT_LENGTH) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_CODE_TOO_LONG", "样例试运行代码正文长度超过限制");
             }
+            ensureCaseInsensitivePathAvailable(normalizedCasePaths, file.path());
         }
         if (!sourceSnapshot.files().isEmpty() && !normalizedPaths.contains(sourceSnapshot.entryFilePath())) {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "PROGRAMMING_ENTRY_FILE_INVALID", "样例试运行入口文件必须出现在源码文件列表中");
+        }
+    }
+
+    private void validatePathCaseConflicts(ProgrammingSourceSnapshot sourceSnapshot, List<String> directories) {
+        LinkedHashMap<String, String> normalizedPaths = new LinkedHashMap<>();
+        for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+            ensureCaseInsensitivePathAvailable(normalizedPaths, file.path());
+        }
+        for (String directory : directories) {
+            ensureCaseInsensitivePathAvailable(normalizedPaths, directory);
+        }
+    }
+
+    private void ensureCaseInsensitivePathAvailable(Map<String, String> normalizedPaths, String path) {
+        String normalizedKey = normalizePathKey(path);
+        String existingPath = normalizedPaths.putIfAbsent(normalizedKey, path);
+        if (existingPath != null && !Objects.equals(existingPath, path)) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_CASE_CONFLICT", "样例试运行路径存在大小写冲突");
         }
     }
 
@@ -683,6 +694,10 @@ public class ProgrammingSampleRunApplicationService {
             return "";
         }
         return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    private String normalizePathKey(String path) {
+        return path == null ? null : path.toLowerCase(Locale.ROOT);
     }
 
     private String writeArtifactIds(List<Long> artifactIds) {
@@ -756,11 +771,13 @@ public class ProgrammingSampleRunApplicationService {
         }
     }
 
-    private JudgeJobStoredReport readDetailReport(ProgrammingSampleRunEntity entity) {
+    private DetailReportLoadResult readDetailReport(ProgrammingSampleRunEntity entity) {
         try {
-            return judgeArtifactStorageService.loadProgrammingSampleRunDetailReport(entity);
+            return new DetailReportLoadResult(
+                    judgeArtifactStorageService.loadProgrammingSampleRunDetailReport(entity), null);
         } catch (RuntimeException exception) {
-            throw new IllegalStateException("样例试运行详细报告无法读取", exception);
+            log.warn("样例试运行详细报告读取失败，回退到摘要视图，sampleRunId={}, error={}", entity.getId(), exception.getMessage());
+            return new DetailReportLoadResult(null, resolveDetailReportUnavailableReasonCode(exception));
         }
     }
 
@@ -799,6 +816,14 @@ public class ProgrammingSampleRunApplicationService {
         return directories;
     }
 
+    private String resolveDetailReportUnavailableReasonCode(RuntimeException exception) {
+        String message = exception.getMessage();
+        if (message != null && message.contains("对象无法读取")) {
+            return "DETAIL_REPORT_MISSING";
+        }
+        return "DETAIL_REPORT_UNAVAILABLE";
+    }
+
     private record ProgrammingQuestionContext(AssignmentEntity assignment, AssignmentQuestionSnapshot question) {}
 
     private record ExecutionInput(String stdinText, String expectedStdout) {}
@@ -810,4 +835,6 @@ public class ProgrammingSampleRunApplicationService {
             List<Long> artifactIds,
             String lastStdinText,
             Long workspaceRevisionId) {}
+
+    private record DetailReportLoadResult(JudgeJobStoredReport detailReport, String unavailableReasonCode) {}
 }

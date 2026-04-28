@@ -35,5 +35,9 @@ build/
 .m2
 .serena
 .codex
+.worktrees/
 prompt*
 todo.md
+__pycache__/
+*.py[cod]
+docs/superpowers/

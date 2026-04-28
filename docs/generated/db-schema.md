@@ -32,6 +32,23 @@
 - `src/main/resources/db/migration/V28__db_paginated_permission_filter_indexes.sql`
 - `src/main/resources/db/migration/V29__judge_artifact_tracking_phase2.sql`
 - `src/main/resources/db/migration/V30__grade_publish_snapshots_v1.sql`
+- `src/main/resources/db/migration/V31__course_announcements_mvp.sql`
+- `src/main/resources/db/migration/V32__course_resources_mvp.sql`
+- `src/main/resources/db/migration/V33__course_discussions_mvp.sql`
+- `src/main/resources/db/migration/V34__authz_group_rbac_abac_foundation.sql`
+- `src/main/resources/db/migration/V35__course_member_extended_roles.sql`
+- `src/main/resources/db/migration/V36__submission_and_member_perf_indexes.sql`
+- `src/main/resources/db/migration/V37__permission_system_data_layer_foundation.sql`
+- `src/main/resources/db/migration/V38__class_ta_grade_export_compat.sql`
+- `src/main/resources/db/migration/V39__member_status_transferred_compat.sql`
+- `src/main/resources/db/migration/V40__legacy_role_bindings_backfill.sql`
+- `src/main/resources/db/migration/V41__course_member_transfer_history_support.sql`
+- `src/main/resources/db/migration/V42__discussion_and_lab_permission_compat.sql`
+- `src/main/resources/db/migration/V43__authz_builtin_role_permission_compat.sql`
+- `src/main/resources/db/migration/V44__offering_teacher_member_manage_compat.sql`
+- `src/main/resources/db/migration/V45__question_bank_manage_role_compat.sql`
+- `src/main/resources/db/migration/V46__legacy_binding_activation_tolerance.sql`
+- `src/main/resources/db/migration/V47__expand_legacy_binding_activation_tolerance_window.sql`
 
 ## 总览
 
@@ -46,12 +63,18 @@
 - `academic_profiles`：用户教务画像
 - `user_org_memberships`：用户组织成员关系
 - `user_scope_roles`：用户作用域身份分配
+- `roles`：权限系统角色模板定义
+- `permissions`：权限点定义
+- `role_permissions`：角色与权限点映射
+- `role_bindings`：用户在作用域上的角色绑定
 - `academic_terms`：学期主数据
 - `course_catalogs`：课程模板
 - `course_offerings`：开课实例
 - `course_offering_college_maps`：课程跨学院共同管理映射
 - `teaching_classes`：教学班
 - `course_members`：课程成员
+- `offering_members`：开课级业务成员
+- `class_members`：班级级业务成员
 - `assignments`：作业主数据
 - `labs`：教学班级实验主数据
 - `lab_reports`：学生当前实验报告
@@ -78,6 +101,35 @@
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
 - `programming_sample_runs`：样例试运行日志
 - `audit_logs`：关键治理与认证审计日志
+
+## 权限系统与兼容迁移增量（V37-V47）
+
+V37 在保留 `user_scope_roles`、`course_members`、`auth_group_*` 兼容链路的同时，引入新的统一权限基础结构：
+
+- `roles`：角色模板主表，`scope_type` 支持 `platform / school / college / course / offering / class`
+- `permissions`：规范化权限点字典，按 `resource.action` 组织
+- `role_permissions`：角色默认权限模板映射
+- `role_bindings`：用户角色绑定，支持 `constraints_json`、生效时间和来源追踪
+- `offering_members` / `class_members`：面向业务查询的成员表，与 `role_bindings` 分层协作
+- `audit_logs`：补充 `user_id`、`resource_type`、`resource_id`、`scope_type`、`scope_id`、`decision` 等兼容列与索引
+
+V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路收口到生产口径：
+
+- V38：为 `class_ta` 增补 `grade.export` 兼容权限映射
+- V39：扩展 `course_members / offering_members / class_members` 的 `member_status` 约束，纳入 `TRANSFERRED / INACTIVE`
+- V40：对历史库执行幂等 `role_bindings` backfill，补齐由旧治理身份、课程成员和授权组推导出的绑定
+- V41：把学生唯一索引收口为 `ux_course_members_student_active_unique`，允许保留转班 / 退课后的历史成员记录
+- V42：为 discussion / lab 读写路径补齐最小权限兼容映射
+- V43：收口内建角色默认权限模板，补齐 RBAC 基线兼容映射
+- V44：为 `offering_teacher` 显式补齐 `member.manage` 兼容权限
+- V45：为题库管理路径补齐 `question_bank.manage` 兼容权限
+- V46：引入 `legacy_binding_effective_from(...)` 与三类 legacy -> `role_bindings` 同步函数，缓解新绑定刚创建后的瞬时未生效窗口
+- V47：将 legacy binding 激活容忍窗口从 `1 second` 扩展到 `3 seconds`，并与应用层/授权查询容忍逻辑保持一致，避免教师建班后紧邻请求误判 `DENY_NO_ROLE_BINDING`
+- V42：补齐 `discussion.*`、`lab.*` 权限点及角色映射
+- V43：补齐 `auth.group.manage`、`auth.explain.read` 以及 judge / grade import 兼容角色映射
+- V44：为 `offering_teacher` 增补 `member.manage / member.import`
+- V45：为 `offering_coordinator / offering_teacher` 增补 `question_bank.manage`
+- V46：重写 legacy -> `role_bindings` 同步触发器，引入 `legacy_binding_effective_from(...)` 1 秒容忍窗口，避免创建成员 / 身份后立即登录时因为时间精度抖动错过新权限快照
 
 ## 表结构
 
@@ -308,8 +360,8 @@
 | `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
 | `teaching_class_id` | `bigint` | 可空，绑定教学班 |
 | `user_id` | `bigint` | 必填，外键到 `users.id` |
-| `member_role` | `text` | 必填，`INSTRUCTOR / TA / STUDENT / OBSERVER` |
-| `member_status` | `text` | 必填，默认 `ACTIVE` |
+| `member_role` | `text` | 必填，`INSTRUCTOR / CLASS_INSTRUCTOR / OFFERING_TA / TA / STUDENT / OBSERVER` |
+| `member_status` | `text` | 必填，默认 `ACTIVE`，`PENDING / ACTIVE / DROPPED / TRANSFERRED / COMPLETED / REMOVED` |
 | `source_type` | `text` | 必填，`MANUAL / IMPORT / SYNC` |
 | `remark` | `text` | 备注 |
 | `joined_at` / `left_at` | `timestamptz` | 加入与离开时间 |
@@ -321,8 +373,11 @@
 - `ix_course_members_user_id`
 - `ix_course_members_member_role_status`
 - `idx_course_members_user_offering_status_class`
+- `idx_course_members_offering_class_role_status_user`
 - `ux_course_members_instructor_unique`
-- `ux_course_members_student_unique`
+- `ux_course_members_class_instructor_unique`
+- `ux_course_members_offering_ta_unique`
+- `ux_course_members_student_active_unique`
 - `ux_course_members_ta_unique`
 
 ### `assignments`
@@ -663,6 +718,8 @@
 - `ix_submissions_assignment_id_submitted_at`
 - `ix_submissions_submitter_user_id_submitted_at`
 - `ix_submissions_offering_id_submitted_at`
+- `idx_submissions_assignment_submitter_submitted_id`
+- `idx_submissions_assignment_submitted_id`
 
 ### `submission_artifacts`
 

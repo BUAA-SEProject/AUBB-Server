@@ -8,7 +8,7 @@ COPY pom.xml ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests package
 
-FROM maven:3.9.11-eclipse-temurin-25 AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 
 RUN groupadd --system aubb \
         && useradd --system --gid aubb --create-home --home-dir /opt/aubb aubb

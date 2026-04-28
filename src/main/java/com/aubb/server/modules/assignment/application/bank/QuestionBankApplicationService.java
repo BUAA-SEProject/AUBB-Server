@@ -78,7 +78,7 @@ public class QuestionBankApplicationService {
             List<String> tags,
             AssignmentQuestionConfigInput config,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanManageQuestionBank(principal, offeringId);
         requireOffering(offeringId);
         structuredQuestionSupport.validateQuestionDefinition(
                 questionType, defaultScore, options, config, "QUESTION_BANK");
@@ -121,7 +121,7 @@ public class QuestionBankApplicationService {
             long page,
             long pageSize,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanManageQuestionBank(principal, offeringId);
         requireOffering(offeringId);
         String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
         String normalizedMetadataKeyword =
@@ -173,7 +173,7 @@ public class QuestionBankApplicationService {
 
     @Transactional(readOnly = true)
     public List<QuestionBankCategoryView> listCategories(Long offeringId, AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanManageQuestionBank(principal, offeringId);
         requireOffering(offeringId);
         return cacheService.getOrLoadList(
                 CATEGORY_CACHE_NAME,
@@ -185,7 +185,7 @@ public class QuestionBankApplicationService {
 
     @Transactional(readOnly = true)
     public List<QuestionBankTagView> listTagDictionary(Long offeringId, AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanManageQuestionBank(principal, offeringId);
         requireOffering(offeringId);
         return cacheService.getOrLoadList(
                 TAG_CACHE_NAME,
@@ -198,7 +198,7 @@ public class QuestionBankApplicationService {
     @Transactional(readOnly = true)
     public QuestionBankQuestionView getQuestion(Long questionId, AuthenticatedUserPrincipal principal) {
         QuestionBankQuestionEntity entity = requireQuestion(questionId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageQuestionBank(principal, entity.getOfferingId());
         return toView(entity, true);
     }
 
@@ -215,7 +215,7 @@ public class QuestionBankApplicationService {
             AssignmentQuestionConfigInput config,
             AuthenticatedUserPrincipal principal) {
         QuestionBankQuestionEntity entity = requireQuestion(questionId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageQuestionBank(principal, entity.getOfferingId());
         assertActiveQuestion(entity, "QUESTION_BANK_QUESTION_ARCHIVED", "已归档题目不能再编辑");
         structuredQuestionSupport.validateQuestionDefinition(
                 questionType, defaultScore, options, config, "QUESTION_BANK");
@@ -248,7 +248,7 @@ public class QuestionBankApplicationService {
     @Transactional
     public QuestionBankQuestionView archiveQuestion(Long questionId, AuthenticatedUserPrincipal principal) {
         QuestionBankQuestionEntity entity = requireQuestion(questionId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanManageQuestionBank(principal, entity.getOfferingId());
         if (entity.getArchivedAt() == null) {
             entity.setArchivedByUserId(principal.getUserId());
             entity.setArchivedAt(OffsetDateTime.now());

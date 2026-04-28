@@ -7,7 +7,10 @@ import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.AuditLogCommand;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
+import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
@@ -22,6 +25,8 @@ import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnaps
 import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnapshotEntity;
 import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnapshotMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.notification.application.NotificationDispatchService;
@@ -75,6 +80,7 @@ public class GradingApplicationService {
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final GradePublishSnapshotBatchMapper gradePublishSnapshotBatchMapper;
     private final GradePublishSnapshotMapper gradePublishSnapshotMapper;
     private final UserMapper userMapper;
@@ -91,62 +97,24 @@ public class GradingApplicationService {
             Integer score,
             String feedbackText,
             AuthenticatedUserPrincipal principal) {
-        SubmissionEntity submission = requireSubmission(submissionId);
-        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanGradeSubmission(
-                principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        return applyManualGrade(submissionId, answerId, score, feedbackText, principal, false);
+    }
 
-        SubmissionAnswerEntity answer = requireAnswer(answerId);
-        if (!Objects.equals(answer.getSubmissionId(), submissionId)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ANSWER_SCOPE_INVALID", "答案不属于当前提交");
-        }
-
-        AssignmentQuestionSnapshot question =
-                assignmentPaperApplicationService.loadQuestionSnapshots(assignment.getId()).stream()
-                        .filter(candidate -> Objects.equals(candidate.id(), answer.getAssignmentQuestionId()))
-                        .findFirst()
-                        .orElseThrow(() ->
-                                new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_QUESTION_NOT_FOUND", "题目不存在"));
-        validateManualGrade(question, score);
-
-        OffsetDateTime gradedAt = OffsetDateTime.now();
-        answer.setManualScore(score);
-        answer.setFinalScore(score);
-        answer.setGradingStatus(SubmissionAnswerGradingStatus.MANUALLY_GRADED.name());
-        answer.setFeedbackText(StringUtils.hasText(feedbackText) ? feedbackText.trim() : null);
-        answer.setGradedByUserId(principal.getUserId());
-        answer.setGradedAt(gradedAt);
-        submissionAnswerMapper.updateById(answer);
-
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("assignmentId", assignment.getId());
-        metadata.put("submissionId", submissionId);
-        metadata.put("assignmentQuestionId", answer.getAssignmentQuestionId());
-        metadata.put("score", score);
-        auditLogApplicationService.record(
-                principal.getUserId(),
-                AuditAction.SUBMISSION_ANSWER_GRADED,
-                "SUBMISSION_ANSWER",
-                String.valueOf(answer.getId()),
-                AuditResult.SUCCESS,
-                metadata);
-
-        SubmissionAnswerView answerView =
-                submissionAnswerApplicationService.loadAnswerViews(submissionId, assignment.getId()).stream()
-                        .filter(candidate -> Objects.equals(candidate.id(), answerId))
-                        .findFirst()
-                        .orElseThrow(() -> new BusinessException(
-                                HttpStatus.INTERNAL_SERVER_ERROR, "SUBMISSION_ANSWER_VIEW_MISSING", "批改结果无法读取"));
-        SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
-                submissionId, assignment.getId(), true, assignment.getGradePublishedAt() != null);
-        return new ManualGradeResultView(answerView, scoreSummary);
+    @Transactional
+    public ManualGradeResultView overrideAnswerGrade(
+            Long submissionId,
+            Long answerId,
+            Integer score,
+            String feedbackText,
+            AuthenticatedUserPrincipal principal) {
+        return applyManualGrade(submissionId, answerId, score, feedbackText, principal, true);
     }
 
     @Transactional
     public BatchManualGradeResultView batchGradeAnswers(
             Long assignmentId, List<BatchGradeItem> adjustments, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanOverrideGrade(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         if (adjustments == null || adjustments.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_BATCH_GRADE_REQUIRED", "批量调整必须至少包含一条成绩记录");
@@ -161,7 +129,7 @@ public class GradingApplicationService {
                 throw new BusinessException(
                         HttpStatus.BAD_REQUEST, "SUBMISSION_BATCH_GRADE_SCOPE_INVALID", "批量调整项存在不属于当前作业的提交");
             }
-            results.add(gradeAnswer(
+            results.add(overrideAnswerGrade(
                     adjustment.submissionId(),
                     adjustment.answerId(),
                     adjustment.score(),
@@ -254,7 +222,7 @@ public class GradingApplicationService {
     public BatchGradeImportResultView importBatchGrades(
             Long assignmentId, MultipartFile file, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanImportGrades(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         TransactionTemplate rowTransaction = new TransactionTemplate(transactionManager);
         rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -313,13 +281,20 @@ public class GradingApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "IMPORT_FILE_READ_FAILED", "无法读取导入文件");
         }
 
-        auditLogApplicationService.record(
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("total", total);
+        metadata.put("success", success);
+        metadata.put("failed", errors.size());
+        auditLogApplicationService.record(new AuditLogCommand(
                 principal.getUserId(),
                 AuditAction.ASSIGNMENT_GRADES_IMPORTED,
                 "ASSIGNMENT",
                 String.valueOf(assignmentId),
                 errors.isEmpty() ? AuditResult.SUCCESS : AuditResult.FAILURE,
-                Map.of("total", total, "success", success, "failed", errors.size()));
+                assignment.getTeachingClassId() == null ? "offering" : "class",
+                assignment.getTeachingClassId() == null ? assignment.getOfferingId() : assignment.getTeachingClassId(),
+                AuditDecision.ALLOW,
+                metadata));
         return new BatchGradeImportResultView(assignmentId, total, success, errors.size(), List.copyOf(errors));
     }
 
@@ -327,7 +302,8 @@ public class GradingApplicationService {
     public AssignmentGradePublicationView publishAssignmentGrades(
             Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanPublishGrades(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         assertGradesReady(assignmentId);
         boolean initialPublication = assignment.getGradePublishedAt() == null;
         OffsetDateTime snapshotCapturedAt = currentDatabaseTimestamp();
@@ -351,6 +327,18 @@ public class GradingApplicationService {
                         "publishSequence", snapshotBatch.getPublishSequence(),
                         "snapshotCount", snapshotBatch.getSnapshotCount(),
                         "initialPublication", initialPublication));
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.GRADE_PUBLISH,
+                "grade.publish",
+                new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignmentId),
+                Map.of(
+                        "snapshotBatchId",
+                        snapshotBatch.getId(),
+                        "publishSequence",
+                        snapshotBatch.getPublishSequence(),
+                        "initialPublication",
+                        initialPublication));
         gradingMetricsRecorder.recordGradePublication(initialPublication);
         return new AssignmentGradePublicationView(
                 assignment.getId(),
@@ -368,7 +356,8 @@ public class GradingApplicationService {
     public List<GradePublishBatchSummaryView> listGradePublishBatches(
             Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanPublishGrades(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         return gradePublishSnapshotBatchMapper
                 .selectList(Wrappers.<GradePublishSnapshotBatchEntity>lambdaQuery()
                         .eq(GradePublishSnapshotBatchEntity::getAssignmentId, assignmentId)
@@ -383,7 +372,8 @@ public class GradingApplicationService {
     public GradePublishBatchDetailView getGradePublishBatch(
             Long assignmentId, Long batchId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, assignment.getOfferingId());
+        courseAuthorizationService.assertCanPublishGrades(
+                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         GradePublishSnapshotBatchEntity batch = requireSnapshotBatch(batchId);
         if (!Objects.equals(batch.getAssignmentId(), assignmentId)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "GRADE_PUBLISH_BATCH_SCOPE_INVALID", "快照批次不属于当前作业");
@@ -396,6 +386,84 @@ public class GradingApplicationService {
                 .map(this::toSnapshotView)
                 .toList();
         return new GradePublishBatchDetailView(toBatchSummaryView(batch), snapshots);
+    }
+
+    private ManualGradeResultView applyManualGrade(
+            Long submissionId,
+            Long answerId,
+            Integer score,
+            String feedbackText,
+            AuthenticatedUserPrincipal principal,
+            boolean overrideMode) {
+        SubmissionEntity submission = requireSubmission(submissionId);
+        AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
+        if (overrideMode) {
+            courseAuthorizationService.assertCanOverrideGrade(
+                    principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        } else {
+            courseAuthorizationService.assertCanGradeSubmission(
+                    principal, assignment.getOfferingId(), submission.getTeachingClassId());
+        }
+
+        SubmissionAnswerEntity answer = requireAnswer(answerId);
+        if (!Objects.equals(answer.getSubmissionId(), submissionId)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ANSWER_SCOPE_INVALID", "答案不属于当前提交");
+        }
+
+        AssignmentQuestionSnapshot question =
+                assignmentPaperApplicationService.loadQuestionSnapshots(assignment.getId()).stream()
+                        .filter(candidate -> Objects.equals(candidate.id(), answer.getAssignmentQuestionId()))
+                        .findFirst()
+                        .orElseThrow(() ->
+                                new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_QUESTION_NOT_FOUND", "题目不存在"));
+        validateManualGrade(question, score);
+
+        OffsetDateTime gradedAt = OffsetDateTime.now();
+        answer.setManualScore(score);
+        answer.setFinalScore(score);
+        answer.setGradingStatus(SubmissionAnswerGradingStatus.MANUALLY_GRADED.name());
+        answer.setFeedbackText(StringUtils.hasText(feedbackText) ? feedbackText.trim() : null);
+        answer.setGradedByUserId(principal.getUserId());
+        answer.setGradedAt(gradedAt);
+        submissionAnswerMapper.updateById(answer);
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("assignmentId", assignment.getId());
+        metadata.put("submissionId", submissionId);
+        metadata.put("assignmentQuestionId", answer.getAssignmentQuestionId());
+        metadata.put("score", score);
+        metadata.put("overrideMode", overrideMode);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.SUBMISSION_ANSWER_GRADED,
+                "SUBMISSION_ANSWER",
+                String.valueOf(answer.getId()),
+                AuditResult.SUCCESS,
+                metadata);
+        if (overrideMode) {
+            sensitiveOperationAuditService.recordAllowed(
+                    principal,
+                    AuditAction.GRADE_OVERRIDE,
+                    "grade.override",
+                    new AuthorizationResourceRef(AuthorizationResourceType.SUBMISSION, submissionId),
+                    Map.of(
+                            "assignmentId",
+                            assignment.getId(),
+                            "assignmentQuestionId",
+                            answer.getAssignmentQuestionId(),
+                            "score",
+                            score));
+        }
+
+        SubmissionAnswerView answerView =
+                submissionAnswerApplicationService.loadAnswerViews(submissionId, assignment.getId()).stream()
+                        .filter(candidate -> Objects.equals(candidate.id(), answerId))
+                        .findFirst()
+                        .orElseThrow(() -> new BusinessException(
+                                HttpStatus.INTERNAL_SERVER_ERROR, "SUBMISSION_ANSWER_VIEW_MISSING", "批改结果无法读取"));
+        SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
+                submissionId, assignment.getId(), true, assignment.getGradePublishedAt() != null);
+        return new ManualGradeResultView(answerView, scoreSummary);
     }
 
     private void assertGradesReady(Long assignmentId) {

@@ -6,7 +6,6 @@ import com.aubb.server.common.programming.ProgrammingSourceSnapshot;
 import com.aubb.server.modules.assignment.application.paper.AssignmentPaperApplicationService;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionConfigInput;
 import com.aubb.server.modules.assignment.application.paper.AssignmentQuestionSnapshot;
-import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import com.aubb.server.modules.assignment.domain.question.AssignmentQuestionType;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
@@ -14,8 +13,9 @@ import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResult;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
 import com.aubb.server.modules.submission.domain.workspace.ProgrammingWorkspaceRevisionKind;
 import com.aubb.server.modules.submission.domain.workspace.ProgrammingWorkspaceSaveKind;
@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeSet;
@@ -60,22 +61,24 @@ public class ProgrammingWorkspaceApplicationService {
     private final AssignmentMapper assignmentMapper;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final SubmissionArtifactMapper submissionArtifactMapper;
-    private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public ProgrammingWorkspaceView getMyWorkspace(
             Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         WorkspaceState workspaceState = loadWorkspaceState(context, principal.getUserId());
-        return toWorkspaceView(context.assignment(), context.question(), workspaceState);
+        return toWorkspaceView(context.assignment(), context.question(), workspaceState, principal);
     }
 
     @Transactional
     public ProgrammingWorkspaceView saveMyWorkspace(
             Long assignmentId,
             Long questionId,
+            Long baseRevisionId,
             String codeText,
             List<Long> artifactIds,
             ProgrammingLanguage programmingLanguage,
@@ -86,8 +89,10 @@ public class ProgrammingWorkspaceApplicationService {
             ProgrammingWorkspaceSaveKind saveKind,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
+        assertBaseRevision(currentState, baseRevisionId);
         List<Long> normalizedArtifactIds = normalizeArtifactIds(artifactIds);
         List<SubmissionArtifactEntity> artifacts =
                 loadScopedArtifacts(assignmentId, principal.getUserId(), normalizedArtifactIds);
@@ -102,35 +107,38 @@ public class ProgrammingWorkspaceApplicationService {
         ProgrammingWorkspaceRevisionKind revisionKind = saveKind == ProgrammingWorkspaceSaveKind.MANUAL
                 ? ProgrammingWorkspaceRevisionKind.MANUAL_SAVE
                 : ProgrammingWorkspaceRevisionKind.AUTO_SAVE;
-        WorkspaceState updatedState = persistWorkspace(
-                context,
-                currentState,
-                new WorkspaceDraft(
-                        resolvedLanguage,
-                        sourceSnapshot,
-                        normalizedDirectories,
-                        normalizedArtifactIds,
-                        normalizedLastStdinText),
-                revisionKind,
-                revisionMessage,
-                principal);
-        return toWorkspaceView(context.assignment(), context.question(), updatedState);
+        WorkspaceDraft draft = new WorkspaceDraft(
+                resolvedLanguage,
+                sourceSnapshot,
+                normalizedDirectories,
+                normalizedArtifactIds,
+                normalizedLastStdinText);
+        if (revisionKind == ProgrammingWorkspaceRevisionKind.AUTO_SAVE
+                && !hasWorkspaceStateChanged(currentState, draft)) {
+            return toWorkspaceView(context.assignment(), context.question(), currentState, principal);
+        }
+        WorkspaceState updatedState =
+                persistWorkspace(context, currentState, draft, revisionKind, revisionMessage, principal);
+        return toWorkspaceView(context.assignment(), context.question(), updatedState, principal);
     }
 
     @Transactional
     public ProgrammingWorkspaceView applyMyWorkspaceOperations(
             Long assignmentId,
             Long questionId,
+            Long baseRevisionId,
             List<ProgrammingWorkspaceOperationInput> operations,
             String lastStdinText,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         if (operations == null || operations.isEmpty()) {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "PROGRAMMING_WORKSPACE_OPERATIONS_REQUIRED", "工作区操作不能为空");
         }
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
+        assertBaseRevision(currentState, baseRevisionId);
         MutableWorkspace workspace = MutableWorkspace.fromState(currentState);
         for (ProgrammingWorkspaceOperationInput operation : operations) {
             applyOperation(workspace, operation);
@@ -154,13 +162,14 @@ public class ProgrammingWorkspaceApplicationService {
                 ProgrammingWorkspaceRevisionKind.FILE_OPERATION,
                 revisionMessage,
                 principal);
-        return toWorkspaceView(context.assignment(), context.question(), updatedState);
+        return toWorkspaceView(context.assignment(), context.question(), updatedState, principal);
     }
 
     @Transactional(readOnly = true)
     public List<ProgrammingWorkspaceRevisionSummaryView> listMyWorkspaceRevisions(
             Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         ProgrammingWorkspaceEntity entity = loadWorkspaceEntity(questionId, principal.getUserId());
         if (entity == null) {
             return List.of();
@@ -180,7 +189,8 @@ public class ProgrammingWorkspaceApplicationService {
     @Transactional(readOnly = true)
     public ProgrammingWorkspaceRevisionView getMyWorkspaceRevision(
             Long assignmentId, Long questionId, Long revisionId, AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.read");
         ProgrammingWorkspaceRevisionEntity revision =
                 requireWorkspaceRevision(assignmentId, questionId, revisionId, principal.getUserId());
         return toRevisionView(context.assignment(), context.question(), revision);
@@ -191,10 +201,13 @@ public class ProgrammingWorkspaceApplicationService {
             Long assignmentId,
             Long questionId,
             Long revisionId,
+            Long baseRevisionId,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
+        assertBaseRevision(currentState, baseRevisionId);
         ProgrammingWorkspaceRevisionEntity revision =
                 requireWorkspaceRevision(assignmentId, questionId, revisionId, principal.getUserId());
         WorkspaceDraft draft = new WorkspaceDraft(
@@ -217,18 +230,21 @@ public class ProgrammingWorkspaceApplicationService {
                 draft.directories());
         WorkspaceState restoredState = persistWorkspace(
                 context, currentState, draft, ProgrammingWorkspaceRevisionKind.RESTORE, revisionMessage, principal);
-        return toWorkspaceView(context.assignment(), context.question(), restoredState);
+        return toWorkspaceView(context.assignment(), context.question(), restoredState, principal);
     }
 
     @Transactional
     public ProgrammingWorkspaceView resetMyWorkspaceToTemplate(
             Long assignmentId,
             Long questionId,
+            Long baseRevisionId,
             ProgrammingLanguage programmingLanguage,
             String revisionMessage,
             AuthenticatedUserPrincipal principal) {
-        ProgrammingQuestionContext context = requireVisibleProgrammingQuestion(assignmentId, questionId, principal);
+        ProgrammingQuestionContext context =
+                requireVisibleProgrammingQuestion(assignmentId, questionId, principal, "ide.save");
         WorkspaceState currentState = loadWorkspaceState(context, principal.getUserId());
+        assertBaseRevision(currentState, baseRevisionId);
         WorkspaceDraft templateDraft = buildTemplateDraft(
                 context.question().config(),
                 resolveLanguage(programmingLanguage, context.question().config(), null));
@@ -242,7 +258,7 @@ public class ProgrammingWorkspaceApplicationService {
                 ProgrammingWorkspaceRevisionKind.TEMPLATE_RESET,
                 revisionMessage,
                 principal);
-        return toWorkspaceView(context.assignment(), context.question(), resetState);
+        return toWorkspaceView(context.assignment(), context.question(), resetState, principal);
     }
 
     private WorkspaceState loadWorkspaceState(ProgrammingQuestionContext context, Long userId) {
@@ -325,7 +341,14 @@ public class ProgrammingWorkspaceApplicationService {
     }
 
     private ProgrammingWorkspaceView toWorkspaceView(
-            AssignmentEntity assignment, AssignmentQuestionSnapshot question, WorkspaceState workspaceState) {
+            AssignmentEntity assignment,
+            AssignmentQuestionSnapshot question,
+            WorkspaceState workspaceState,
+            AuthenticatedUserPrincipal principal) {
+        AuthorizationResult editAuthorization =
+                readPathAuthorizationService.authorizeMyAssignmentCapability(principal, "ide.save", assignment);
+        AuthorizationResult runAuthorization =
+                readPathAuthorizationService.authorizeMyAssignmentCapability(principal, "ide.run", assignment);
         List<SubmissionArtifactView> artifacts = loadArtifactViews(workspaceState.artifactIds());
         return new ProgrammingWorkspaceView(
                 assignment.getId(),
@@ -344,7 +367,35 @@ public class ProgrammingWorkspaceApplicationService {
                 workspaceState.latestRevision() == null
                         ? null
                         : workspaceState.latestRevision().getRevisionNo(),
+                workspaceState.latestRevision() == null
+                        ? null
+                        : ProgrammingWorkspaceRevisionKind.valueOf(
+                                workspaceState.latestRevision().getRevisionKind()),
+                editAuthorization.allowed(),
+                editAuthorization.allowed() ? null : editAuthorization.reasonCode(),
+                runAuthorization.allowed(),
+                runAuthorization.allowed() ? null : runAuthorization.reasonCode(),
                 workspaceState.entity() == null ? null : workspaceState.entity().getUpdatedAt());
+    }
+
+    private void assertBaseRevision(WorkspaceState currentState, Long baseRevisionId) {
+        if (baseRevisionId == null) {
+            return;
+        }
+        Long latestRevisionId = currentState.latestRevision() == null
+                ? null
+                : currentState.latestRevision().getId();
+        if (!Objects.equals(baseRevisionId, latestRevisionId)) {
+            throw new BusinessException(HttpStatus.CONFLICT, "PROGRAMMING_WORKSPACE_CONFLICT", "工作区已被其他会话更新，请刷新后重试");
+        }
+    }
+
+    private boolean hasWorkspaceStateChanged(WorkspaceState currentState, WorkspaceDraft draft) {
+        return !Objects.equals(currentState.programmingLanguage(), draft.programmingLanguage())
+                || !Objects.equals(currentState.sourceSnapshot(), draft.sourceSnapshot())
+                || !Objects.equals(currentState.directories(), draft.directories())
+                || !Objects.equals(currentState.artifactIds(), draft.artifactIds())
+                || !Objects.equals(currentState.lastStdinText(), draft.lastStdinText());
     }
 
     private ProgrammingWorkspaceRevisionSummaryView toRevisionSummaryView(ProgrammingWorkspaceRevisionEntity revision) {
@@ -501,14 +552,14 @@ public class ProgrammingWorkspaceApplicationService {
     }
 
     private ProgrammingQuestionContext requireVisibleProgrammingQuestion(
-            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal) {
+            Long assignmentId, Long questionId, AuthenticatedUserPrincipal principal, String permissionCode) {
         AssignmentEntity assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "ASSIGNMENT_NOT_FOUND", "作业不存在");
         }
-        if (AssignmentStatus.DRAFT.name().equals(assignment.getStatus())
-                || !courseAuthorizationService.canViewAssignment(
-                        principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!readPathAuthorizationService.canAccessMyAssignmentCapability(principal, "task.read", assignment)
+                || !readPathAuthorizationService.canAccessMyAssignmentCapability(
+                        principal, permissionCode, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权访问该编程题工作区");
         }
         AssignmentQuestionSnapshot question =
@@ -611,6 +662,7 @@ public class ProgrammingWorkspaceApplicationService {
         }
         validateDirectories(directories);
         validateSourceFiles(sourceSnapshot);
+        validatePathCaseConflicts(sourceSnapshot, directories);
         int totalFileCount = artifacts.size() + sourceSnapshot.files().size();
         if (config.maxFileCount() != null && totalFileCount > config.maxFileCount()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_LIMIT_EXCEEDED", "上传文件数量超过题目限制");
@@ -656,6 +708,7 @@ public class ProgrammingWorkspaceApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_DIRECTORY_LIMIT_EXCEEDED", "工作区目录数量超过限制");
         }
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        LinkedHashMap<String, String> normalizedCasePaths = new LinkedHashMap<>();
         for (String directory : directories) {
             if (!isSafePath(directory)) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_DIRECTORY_PATH_INVALID", "工作区目录路径不合法");
@@ -664,6 +717,7 @@ public class ProgrammingWorkspaceApplicationService {
                 throw new BusinessException(
                         HttpStatus.BAD_REQUEST, "PROGRAMMING_DIRECTORY_PATH_DUPLICATED", "工作区目录路径不能重复");
             }
+            ensureCaseInsensitivePathAvailable(normalizedCasePaths, directory);
         }
     }
 
@@ -672,6 +726,7 @@ public class ProgrammingWorkspaceApplicationService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_FILE_LIMIT_EXCEEDED", "工作区源码文件数量超过限制");
         }
         LinkedHashSet<String> normalizedPaths = new LinkedHashSet<>();
+        LinkedHashMap<String, String> normalizedCasePaths = new LinkedHashMap<>();
         for (ProgrammingSourceFile file : sourceSnapshot.files()) {
             if (!isSafePath(file.path())) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_INVALID", "工作区源码文件路径不合法");
@@ -683,10 +738,30 @@ public class ProgrammingWorkspaceApplicationService {
             if (file.content().length() > MAX_CODE_TEXT_LENGTH) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_CODE_TOO_LONG", "编程题工作区代码正文长度超过限制");
             }
+            ensureCaseInsensitivePathAvailable(normalizedCasePaths, file.path());
         }
         if (!sourceSnapshot.files().isEmpty() && !normalizedPaths.contains(sourceSnapshot.entryFilePath())) {
             throw new BusinessException(
                     HttpStatus.BAD_REQUEST, "PROGRAMMING_ENTRY_FILE_INVALID", "工作区入口文件必须出现在源码文件列表中");
+        }
+    }
+
+    private void validatePathCaseConflicts(ProgrammingSourceSnapshot sourceSnapshot, List<String> directories) {
+        LinkedHashMap<String, String> normalizedPaths = new LinkedHashMap<>();
+        for (ProgrammingSourceFile file : sourceSnapshot.files()) {
+            ensureCaseInsensitivePathAvailable(normalizedPaths, file.path());
+        }
+        for (String directory : directories) {
+            ensureCaseInsensitivePathAvailable(normalizedPaths, directory);
+        }
+    }
+
+    private void ensureCaseInsensitivePathAvailable(Map<String, String> normalizedPaths, String path) {
+        String normalizedKey = normalizePathKey(path);
+        String existingPath = normalizedPaths.putIfAbsent(normalizedKey, path);
+        if (existingPath != null && !Objects.equals(existingPath, path)) {
+            throw new BusinessException(
+                    HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_CASE_CONFLICT", "工作区路径存在大小写冲突");
         }
     }
 
@@ -782,6 +857,10 @@ public class ProgrammingWorkspaceApplicationService {
         return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
     }
 
+    private static String normalizePathKey(String path) {
+        return path == null ? null : path.toLowerCase(Locale.ROOT);
+    }
+
     private String writeArtifactIds(List<Long> artifactIds) {
         try {
             return objectMapper.writeValueAsString(artifactIds == null ? List.of() : artifactIds);
@@ -875,6 +954,12 @@ public class ProgrammingWorkspaceApplicationService {
             index = filePath.indexOf('/', index + 1);
         }
         return directories;
+    }
+
+    private static boolean isDescendantPath(String path, String newPath) {
+        return StringUtils.hasText(path)
+                && StringUtils.hasText(newPath)
+                && normalizePathKey(newPath).startsWith(normalizePathKey(path) + "/");
     }
 
     private record ProgrammingQuestionContext(AssignmentEntity assignment, AssignmentQuestionSnapshot question) {}
@@ -1033,9 +1118,17 @@ public class ProgrammingWorkspaceApplicationService {
             if (files.containsKey(path) || directories.contains(path)) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_DUPLICATED", "工作区路径已存在");
             }
+            if (hasCaseInsensitiveConflict(path, null)) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_CASE_CONFLICT", "工作区路径存在大小写冲突");
+            }
         }
 
         private void ensureRenameTargetAvailable(String oldPath, String newPath) {
+            if (isDescendantPath(oldPath, newPath)) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "PROGRAMMING_PATH_RENAME_DESCENDANT_INVALID", "目录不能重命名到自身子路径下");
+            }
             for (String filePath : files.keySet()) {
                 if (!filePath.equals(oldPath)
                         && !filePath.startsWith(oldPath + "/")
@@ -1051,6 +1144,10 @@ public class ProgrammingWorkspaceApplicationService {
                     throw new BusinessException(
                             HttpStatus.BAD_REQUEST, "PROGRAMMING_DIRECTORY_PATH_DUPLICATED", "目标目录路径已存在");
                 }
+            }
+            if (hasCaseInsensitiveConflict(newPath, oldPath)) {
+                throw new BusinessException(
+                        HttpStatus.BAD_REQUEST, "PROGRAMMING_SOURCE_PATH_CASE_CONFLICT", "工作区路径存在大小写冲突");
             }
         }
 
@@ -1069,6 +1166,37 @@ public class ProgrammingWorkspaceApplicationService {
                 normalized.addAll(parentDirectoriesOf(filePath));
             }
             return normalized.stream().toList();
+        }
+
+        private boolean hasCaseInsensitiveConflict(String targetPath, String excludedRootPath) {
+            String normalizedTarget = normalizePathKey(targetPath);
+            String normalizedPrefix = normalizedTarget + "/";
+            for (String filePath : files.keySet()) {
+                if (isUnderExcludedRoot(filePath, excludedRootPath)) {
+                    continue;
+                }
+                String normalizedFilePath = normalizePathKey(filePath);
+                if (Objects.equals(normalizedFilePath, normalizedTarget)
+                        || normalizedFilePath.startsWith(normalizedPrefix)) {
+                    return true;
+                }
+            }
+            for (String directory : directories) {
+                if (isUnderExcludedRoot(directory, excludedRootPath)) {
+                    continue;
+                }
+                String normalizedDirectoryPath = normalizePathKey(directory);
+                if (Objects.equals(normalizedDirectoryPath, normalizedTarget)
+                        || normalizedDirectoryPath.startsWith(normalizedPrefix)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean isUnderExcludedRoot(String path, String excludedRootPath) {
+            return StringUtils.hasText(excludedRootPath)
+                    && (Objects.equals(path, excludedRootPath) || path.startsWith(excludedRootPath + "/"));
         }
     }
 }

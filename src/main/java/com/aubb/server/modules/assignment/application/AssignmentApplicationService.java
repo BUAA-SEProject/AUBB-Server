@@ -17,6 +17,7 @@ import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeCa
 import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeProfileEntity;
 import com.aubb.server.modules.assignment.infrastructure.judge.AssignmentJudgeProfileMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
@@ -25,6 +26,11 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapp
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationContext;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.PermissionAuthorizationService;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.notification.application.NotificationDispatchService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.time.OffsetDateTime;
@@ -55,8 +61,11 @@ public class AssignmentApplicationService {
     private final CourseOfferingMapper courseOfferingMapper;
     private final TeachingClassMapper teachingClassMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
+    private final PermissionAuthorizationService permissionAuthorizationService;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final NotificationDispatchService notificationDispatchService;
 
     @Transactional
@@ -72,7 +81,10 @@ public class AssignmentApplicationService {
             AssignmentPaperInput paper,
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        courseAuthorizationService.assertCanCreateAssignment(principal, offeringId, teachingClassId);
+        if (judgeConfig != null) {
+            courseAuthorizationService.assertCanManageJudgeProfiles(principal, offeringId);
+        }
         CourseOfferingEntity offering = requireOffering(offeringId);
         TeachingClassEntity teachingClass = validateTeachingClassBelongsToOffering(offeringId, teachingClassId);
         validateSchedule(openAt, dueAt);
@@ -109,12 +121,15 @@ public class AssignmentApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 metadata);
-        return toView(
-                entity,
-                offering,
-                teachingClass,
-                assignmentPaperApplicationService.loadPaper(entity.getId(), true),
-                loadJudgeConfigView(entity.getId()));
+        if (judgeConfig != null) {
+            sensitiveOperationAuditService.recordAllowed(
+                    principal,
+                    AuditAction.JUDGE_CONFIG_CHANGE,
+                    "judge.config",
+                    new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, entity.getId()),
+                    Map.of("operation", "CREATE_ASSIGNMENT", "judgeEnabled", true));
+        }
+        return toView(entity, principal);
     }
 
     @Transactional
@@ -131,7 +146,11 @@ public class AssignmentApplicationService {
             AssignmentJudgeConfigInput judgeConfig,
             AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanUpdateAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
+        if (judgeConfig != null) {
+            courseAuthorizationService.assertCanManageJudgeProfiles(principal, entity.getOfferingId());
+        }
         if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以编辑");
         }
@@ -167,19 +186,23 @@ public class AssignmentApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 metadata);
-        return toView(
-                entity,
-                requireOffering(entity.getOfferingId()),
-                teachingClass,
-                assignmentPaperApplicationService.loadPaper(entity.getId(), true),
-                loadJudgeConfigView(entity.getId()));
+        if (judgeConfig != null) {
+            sensitiveOperationAuditService.recordAllowed(
+                    principal,
+                    AuditAction.JUDGE_CONFIG_CHANGE,
+                    "judge.config",
+                    new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, entity.getId()),
+                    Map.of("operation", "UPDATE_ASSIGNMENT", "judgeEnabled", true));
+        }
+        return toView(entity, principal);
     }
 
     @Transactional
     public AssignmentView replaceAssignmentPaper(
             Long assignmentId, AssignmentPaperInput paper, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanUpdateAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以编辑");
         }
@@ -195,7 +218,7 @@ public class AssignmentApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 Map.of("offeringId", entity.getOfferingId(), "updateScope", "paper"));
-        return toView(entity);
+        return toView(entity, principal);
     }
 
     @Transactional(readOnly = true)
@@ -206,35 +229,97 @@ public class AssignmentApplicationService {
             long page,
             long pageSize,
             AuthenticatedUserPrincipal principal) {
-        courseAuthorizationService.assertCanManageAssignments(principal, offeringId);
+        ReadPathAuthorizationService.TeachingReadScope scope =
+                readPathAuthorizationService.resolveTeachingReadScope(principal, "task.read", offeringId);
+        boolean adminReadable = hasAdministrativeAssignmentReadAccess(principal, offeringId, teachingClassId);
+        if (teachingClassId != null && !scope.canReadClass(teachingClassId) && !adminReadable) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
+        }
+        if (teachingClassId == null && !scope.canReadSharedOfferingResource() && !adminReadable) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
+        }
         CourseOfferingEntity offering = requireOffering(offeringId);
         if (teachingClassId != null) {
             validateTeachingClassBelongsToOffering(offeringId, teachingClassId);
         }
-        List<AssignmentEntity> matched = assignmentMapper
-                .selectList(Wrappers.<AssignmentEntity>lambdaQuery()
-                        .eq(AssignmentEntity::getOfferingId, offeringId)
-                        .orderByDesc(AssignmentEntity::getCreatedAt)
-                        .orderByDesc(AssignmentEntity::getId))
-                .stream()
-                .filter(assignment -> status == null || status.name().equals(assignment.getStatus()))
-                .filter(assignment ->
-                        teachingClassId == null || Objects.equals(teachingClassId, assignment.getTeachingClassId()))
-                .toList();
-        return toPage(matched, offering, page, pageSize);
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        String statusCode = status == null ? null : status.name();
+        long total = assignmentMapper.selectCount(Wrappers.<AssignmentEntity>lambdaQuery()
+                .eq(AssignmentEntity::getOfferingId, offeringId)
+                .eq(statusCode != null, AssignmentEntity::getStatus, statusCode)
+                .eq(teachingClassId != null, AssignmentEntity::getTeachingClassId, teachingClassId)
+                .and(teachingClassId == null && !scope.offeringReadable() && !adminReadable, wrapper -> wrapper.isNull(
+                                AssignmentEntity::getTeachingClassId)
+                        .or()
+                        .in(AssignmentEntity::getTeachingClassId, scope.classIds())));
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<AssignmentEntity> pageItems = assignmentMapper.selectList(Wrappers.<AssignmentEntity>lambdaQuery()
+                .eq(AssignmentEntity::getOfferingId, offeringId)
+                .eq(statusCode != null, AssignmentEntity::getStatus, statusCode)
+                .eq(teachingClassId != null, AssignmentEntity::getTeachingClassId, teachingClassId)
+                .and(teachingClassId == null && !scope.offeringReadable() && !adminReadable, wrapper -> wrapper.isNull(
+                                AssignmentEntity::getTeachingClassId)
+                        .or()
+                        .in(AssignmentEntity::getTeachingClassId, scope.classIds()))
+                .orderByDesc(AssignmentEntity::getCreatedAt)
+                .orderByDesc(AssignmentEntity::getId)
+                .last("LIMIT " + safePageSize + " OFFSET " + offset));
+        return toCurrentSlicePage(pageItems, Map.of(offering.getId(), offering), total, safePage, safePageSize);
     }
 
     @Transactional(readOnly = true)
     public AssignmentView getTeacherAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
-        return toView(entity);
+        ReadPathAuthorizationService.TeachingReadScope scope =
+                readPathAuthorizationService.resolveTeachingReadScope(principal, "task.read", entity.getOfferingId());
+        boolean allowed = entity.getTeachingClassId() == null
+                ? scope.canReadSharedOfferingResource()
+                : scope.canReadClass(entity.getTeachingClassId());
+        if (!allowed
+                && !hasAdministrativeAssignmentReadAccess(
+                        principal, entity.getOfferingId(), entity.getTeachingClassId())) {
+            if (scope.hasAnyAccess()) {
+                throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
+            }
+            readPathAuthorizationService.assertCanReadAssignment(principal, "task.read", entity, "当前用户无权查看该任务");
+        }
+        return toView(entity, principal);
+    }
+
+    private boolean hasAdministrativeAssignmentReadAccess(
+            AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
+        AuthorizationContext context = AuthorizationContext.of(OffsetDateTime.now());
+        if (permissionAuthorizationService
+                .authorize(
+                        principal,
+                        "offering.read",
+                        new AuthorizationResourceRef(AuthorizationResourceType.OFFERING, offeringId),
+                        context)
+                .allowed()) {
+            return true;
+        }
+        if (teachingClassId != null
+                && permissionAuthorizationService
+                        .authorize(
+                                principal,
+                                "class.read",
+                                new AuthorizationResourceRef(AuthorizationResourceType.CLASS, teachingClassId),
+                                context)
+                        .allowed()) {
+            return true;
+        }
+        return courseAuthorizationService.canManageOfferingAsAdmin(principal, offeringId);
     }
 
     @Transactional
     public AssignmentView publishAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanPublishAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (!AssignmentStatus.DRAFT.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "只有草稿任务可以发布");
         }
@@ -249,13 +334,14 @@ public class AssignmentApplicationService {
                 AuditResult.SUCCESS,
                 Map.of("offeringId", entity.getOfferingId()));
         notificationDispatchService.notifyAssignmentPublished(entity, principal.getUserId());
-        return toView(entity);
+        return toView(entity, principal);
     }
 
     @Transactional
     public AssignmentView closeAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanManageAssignments(principal, entity.getOfferingId());
+        courseAuthorizationService.assertCanCloseAssignment(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
         if (AssignmentStatus.CLOSED.name().equals(entity.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_STATUS_INVALID", "任务已关闭");
         }
@@ -272,7 +358,7 @@ public class AssignmentApplicationService {
                 String.valueOf(assignmentId),
                 AuditResult.SUCCESS,
                 Map.of("offeringId", entity.getOfferingId()));
-        return toView(entity);
+        return toView(entity, principal);
     }
 
     @Transactional(readOnly = true)
@@ -297,9 +383,7 @@ public class AssignmentApplicationService {
     @Transactional(readOnly = true)
     public AssignmentView getMyAssignment(Long assignmentId, AuthenticatedUserPrincipal principal) {
         AssignmentEntity entity = requireAssignment(assignmentId);
-        if (AssignmentStatus.DRAFT.name().equals(entity.getStatus())
-                || !courseAuthorizationService.canViewAssignment(
-                        principal, entity.getOfferingId(), entity.getTeachingClassId())) {
+        if (!readPathAuthorizationService.canReadMyAssignmentHistory(principal, entity)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该任务");
         }
         CourseOfferingEntity offering = requireOffering(entity.getOfferingId());
@@ -309,7 +393,7 @@ public class AssignmentApplicationService {
                 entity,
                 offering,
                 teachingClass,
-                assignmentPaperApplicationService.loadPaper(entity.getId(), false),
+                assignmentPaperApplicationService.loadPaper(entity.getId(), false, false, false),
                 loadJudgeConfigView(entity.getId()));
     }
 
@@ -382,6 +466,22 @@ public class AssignmentApplicationService {
                 offering,
                 teachingClass,
                 assignmentPaperApplicationService.loadPaper(entity.getId(), true),
+                loadJudgeConfigView(entity.getId()));
+    }
+
+    private AssignmentView toView(AssignmentEntity entity, AuthenticatedUserPrincipal principal) {
+        CourseOfferingEntity offering = requireOffering(entity.getOfferingId());
+        TeachingClassEntity teachingClass =
+                entity.getTeachingClassId() == null ? null : requireTeachingClass(entity.getTeachingClassId());
+        boolean revealHiddenJudgeFields = readPathAuthorizationService.canReadHiddenJudgeFields(principal, entity);
+        boolean revealSensitiveJudgeConfig =
+                readPathAuthorizationService.canReadSensitiveJudgeConfig(principal, entity);
+        return toView(
+                entity,
+                offering,
+                teachingClass,
+                assignmentPaperApplicationService.loadPaper(
+                        entity.getId(), true, revealHiddenJudgeFields, revealSensitiveJudgeConfig),
                 loadJudgeConfigView(entity.getId()));
     }
 

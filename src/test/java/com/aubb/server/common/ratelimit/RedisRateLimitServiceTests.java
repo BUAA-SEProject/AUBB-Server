@@ -1,6 +1,7 @@
 package com.aubb.server.common.ratelimit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
@@ -72,15 +73,12 @@ class RedisRateLimitServiceTests {
     }
 
     @Test
-    void fallsBackToAllowWhenRedisTemporarilyUnavailable() {
+    void marksBackendUnavailableWhenRedisTemporarilyUnavailable() {
         when(redisTemplate.execute(any(), anyList(), any())).thenThrow(new RuntimeException("redis down"));
 
-        RateLimitDecision decision =
-                rateLimitService.check(new RateLimitRequest("login", 7L, "127.0.0.1", "school-admin"));
-
-        assertThat(decision.permitted()).isTrue();
-        assertThat(decision.retryAfterSeconds()).isZero();
-        assertThat(counterValue("login", "fallback")).isEqualTo(1.0);
+        assertThatThrownBy(() -> rateLimitService.check(new RateLimitRequest("login", 7L, "127.0.0.1", "school-admin")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Redis rate limit backend unavailable");
         assertThat(availabilityTracker.isAvailable()).isFalse();
     }
 

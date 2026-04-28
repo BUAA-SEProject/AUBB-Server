@@ -2,11 +2,76 @@
 
 ## 当前目标
 
-基于当前代码基线，继续执行最终收尾步骤。Step 1 最终统一验收、Step 2 judge 产物对象化 phase 2、Step 3 成绩发布快照 v1、Step 4 健康检查收口、Step 5 关键业务指标、Step 6 Redis 去留收口与 Step 7 状态台账 / 最终交付结论已通过；本轮收尾开发完成，后续进入交接与新阶段规划。
+当前进入“按 `todo.md` 执行生产收口修复”主线：以当前 `dev` 分支代码、配置、compose、deploy、workflow、migration 和测试事实为准，按依赖顺序关闭所有 `P0 / P1` 与阻塞生产项，持续同步 `todo.md`、`findings.md`、`progress.md` 与 active exec plan，并用真实验证结果收口代码、配置、部署资产与文档口径。
 
 ## 当前阶段
 
-Phase 53 completed，Phase 52 completed，Phase 51 completed，Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+Phase 56 completed，Phase 55 completed，Phase 54 in progress，Phase 53 completed，Phase 52 completed，Phase 51 completed，Phase 50 completed，Phase 49 completed，Phase 48 completed，Phase 47 completed，Phase 46 completed，Phase 45 completed，Phase 44 completed，Phase 43 completed，Phase 42 completed，Phase 41 completed，Phase 40 completed，Phase 39 completed，Phase 38 completed，Phases 15 / 16 / 17 / 18 / 19 in progress，Phases 20 / 21 / 22 / 23 / 24 / 29 / 30 / 31 / 32 / 33 / 34 / 35 / 36 / 37 completed
+
+### Phase 56：仓库级生产收口修复
+
+- [x] 复核 `todo.md` 中全部 `P0 / P1` 与阻塞生产项的当前代码事实，剔除已经失效的问题并确认真实写面
+- [x] 优先修复全局基线与会导致返工的项
+  - [x] Redis 能力边界、限流 fail-open、health/readiness 与 deploy 口径
+  - [x] Maven / Docker 运行基线与共享层客户端 IP 解析
+  - [x] 清理未接线 Redis realtime 残留或将其降级为明确非阻塞增强
+- [x] 收口 `identityaccess / course` 的旧授权兼容运行态
+- [x] 修复 `assignment / submission / grading / judge` 的历史状态读路径与敏感字段授权缺口
+  - [x] `judge`：teacher report hidden 字段已改为显式依赖 `judge.view_hidden`，并补齐敏感审计与定向集成测试
+  - [x] `assignment`：`/api/v1/me/assignments` 与详情授权源统一
+  - [x] `submission`：教师提交列表与详情历史边界统一
+  - [x] `grading`：roster 历史成员规则收口
+- [x] 修复 `lab / notification` 的剩余阻塞或正式降级为非阻塞增强
+- [x] 重建并同步 `docs/generated/db-schema.md`、README、ARCHITECTURE、security/reliability/deployment/stable-api/product-spec
+- [x] 持续执行 `spotless -> 定向测试 -> test -> verify -> compose/workflow/deploy smoke`
+- [x] 关闭 `todo.md` 中全部 `P0 / P1` 与阻塞生产项，只保留明确的非阻塞增强
+- **Status:** completed
+
+### Phase 55：仓库级逐文件代码审查
+
+- [x] 读取 `AGENTS.md`、`README.md`、`ARCHITECTURE.md`、`docs/repository-structure.md`、`docs/development-workflow.md`、`docs/project-skills.md`、`docs/stable-api.md`、`docs/generated/db-schema.md`、`pom.xml`、`src/main/resources/application.yaml`、`compose.yaml`、`deploy/compose.yaml`、`.github/workflows/*.yml`
+- [x] 核对根目录 `task_plan.md`、`findings.md`、`progress.md`、`todo.md`，确认过程文档与当前任务存在明显漂移
+- [x] 重建 `todo.md` 结构，先记录首批全局阻塞项
+- [x] 审查全局工程基线、部署资产、配置与共享层
+- [x] 逐模块审查 `identityaccess / organization / platformconfig / audit`
+- [x] 逐模块审查 `course / assignment / submission / grading / judge`
+  - [x] `course`
+  - [x] `assignment`
+  - [x] `submission`
+  - [x] `grading`
+  - [x] `judge`
+- [x] 逐模块审查 `lab / notification`
+- [x] 汇总 Cross-cutting / Docs / Deploy / Observability / Security / Performance 结论
+- [x] 形成最终优先级排序、修复顺序与审查摘要
+- **Status:** completed
+
+### Phase 54：在线 IDE 后端继续完善
+
+- [x] 读取 `AGENTS.md`、`README.md`、`ARCHITECTURE.md`、`docs/repository-structure.md`、`docs/development-workflow.md`、`docs/project-skills.md`、`docs/stable-api.md`、`docs/product-specs/{assignment-system,submission-system,judge-system}.md`、`src/main/resources/application.yaml`
+- [x] 审计 `MyProgrammingWorkspaceController`、`ProgrammingWorkspaceApplicationService`、`MyProgrammingSampleRunController`、`ProgrammingSampleRunApplicationService`、相关 entity / migration 与 `ProgrammingWorkspaceIntegrationTests`
+- [x] 确认当前已具备的后端能力：模板工作区、目录树快照、目录操作、修订历史 / 恢复、模板重置、最近 stdin 回填、显式快照 / 当前工作区 / 历史修订三种样例试运行来源、`PYTHON3 / JAVA21 / CPP17 / GO122` 最小链路、对象存储详细报告回放、`compileArgs / runArgs / executionEnvironment`
+- [x] 确认阻塞真实浏览器 IDE 接入的核心缺口
+  - 缺少基于 `baseRevisionId` 的并发冲突检测，多标签页 / 多设备写入仍是静默覆盖
+  - `AUTO` 保存只写不同 revision kind，不做去重或幂等保护，容易产生大量无意义修订
+  - 工作区读取返回体缺少“是否可编辑 / 可运行及原因”这类前端初始化必须元信息
+  - 路径安全仍缺大小写冲突、目录重命名到自身子路径等边界保护
+  - 样例试运行详细报告对象缺失时，列表链路已规避大对象读取，但详情链路仍缺稳定兼容错误模型
+- [x] 明确仓库外边界
+  - 本仓库不实现 Monaco、目录树 UI、终端 UI、多人协同编辑、浏览器侧补全 / 格式化
+  - 后端需要补齐的是保存语义、冲突模型、恢复元信息、稳定错误码与运行一致性
+- [x] 形成优先级
+  - `P0`：冲突检测、自动保存去噪、工作区初始化元信息、路径安全硬边界
+  - `P1`：样例试运行详情缺失对象兼容、前端联调最小契约、OpenAPI / 文档同步
+  - `P2`：更细的运行历史摘要、性能 / 限流 / metrics 增强
+- [x] 先写失败测试，再实现工作区冲突检测、自动保存去噪和返回体元信息扩展
+- [x] 再补路径安全与样例试运行稳定错误模型
+- [x] 同步 README、stable-api、product specs、active exec plan、`todo.md`、`findings.md`、`progress.md`
+- [x] 处理当前分支已暴露的 course-member -> role-binding 生效窗口问题，消除教师创建作业与 submission/judge 交叉回归中的 403 误拒
+- [x] 收口全量验证中的教师 token 快照时序抖动，避免 `AssignmentIntegrationTests` / `GradebookIntegrationTests` 因旧 token 缓存误报 403
+- [x] 执行 `bash ./mvnw spotless:apply` 与 IDE / judge / submission 定向测试
+- [x] 执行 `bash ./mvnw test`
+- [x] 执行 `bash ./mvnw verify`
+- **Status:** in_progress
 
 ### Phase 53：状态台账与最终交付结论
 
@@ -449,3 +514,16 @@ Phase 53 completed，Phase 52 completed，Phase 51 completed，Phase 50 complete
 | 评测任务在 RabbitMQ 路径下可能出现 `finished_at < started_at` 约束冲突 | 1 | 在 `JudgeExecutionService` 中将 `startedAt / finishedAt` 归一到不早于排队时间与开始时间，避免时序抖动触发表约束 |
 | 工作区从历史修订恢复时，`last_stdin_text` 无法被清空 | 1 | 为 `ProgrammingWorkspaceEntity.lastStdinText` 增加 `FieldStrategy.ALWAYS`，确保恢复空值时也会写回数据库 |
 | 真实 go-judge 的每次 `/run` 都是全新沙箱，直接拆成两次调用会丢失编译产物 | 1 | 通过 `copyOut / copyIn` 回传编译阶段产物，再在第二阶段恢复执行，保证 Go 多文件工程等场景稳定运行 |
+
+## Session: 2026-04-17 真实运行与 API 联调验证
+
+### Phase 54：真实依赖联调、OpenAPI 契约提取与 API 验证
+
+- [ ] 确认启动主类、Maven/Wrapper 命令、Compose 编排、必要环境变量与 bootstrap 初始化路径
+- [ ] 真实拉起 PostgreSQL、RabbitMQ、MinIO、go-judge，并记录依赖健康状态与关键端口
+- [ ] 真实启动 Spring Boot 应用与 judge worker，确认 Flyway、readiness、`/v3/api-docs`、Swagger UI
+- [ ] 从运行时 `/v3/api-docs` 自动提取全部 API 并按模块分类统计
+- [ ] 获取管理员真实 token，并通过真实接口准备教师、学生、课程与业务测试数据
+- [ ] 对公开 REST API 执行正向、权限、越权与非法参数验证，重点覆盖认证、课程、作业、提交、评测、批改、成绩册、实验、通知
+- [ ] 汇总通过、失败、阻塞、风险与证据，输出《AUBB Server 真实 API 验证报告》
+- **Status:** in_progress

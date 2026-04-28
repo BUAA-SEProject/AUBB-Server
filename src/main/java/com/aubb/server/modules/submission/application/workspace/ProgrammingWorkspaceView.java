@@ -3,6 +3,7 @@ package com.aubb.server.modules.submission.application.workspace;
 import com.aubb.server.common.programming.ProgrammingSourceFile;
 import com.aubb.server.modules.assignment.domain.question.ProgrammingLanguage;
 import com.aubb.server.modules.submission.application.SubmissionArtifactView;
+import com.aubb.server.modules.submission.domain.workspace.ProgrammingWorkspaceRevisionKind;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -21,4 +22,9 @@ public record ProgrammingWorkspaceView(
         String lastStdinText,
         Long latestRevisionId,
         Long latestRevisionNo,
+        ProgrammingWorkspaceRevisionKind latestRevisionKind,
+        Boolean editable,
+        String editBlockedReasonCode,
+        Boolean runnable,
+        String runBlockedReasonCode,
         OffsetDateTime updatedAt) {}

@@ -15,6 +15,7 @@ import com.aubb.server.modules.grading.domain.appeal.GradeAppealStatus;
 import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
 import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserEntity;
 import com.aubb.server.modules.identityaccess.infrastructure.user.UserMapper;
 import com.aubb.server.modules.notification.application.NotificationDispatchService;
@@ -47,6 +48,7 @@ public class GradeAppealApplicationService {
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
     private final UserMapper userMapper;
     private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final GradingApplicationService gradingApplicationService;
     private final GradingMetricsRecorder gradingMetricsRecorder;
     private final AuditLogApplicationService auditLogApplicationService;
@@ -60,8 +62,7 @@ public class GradeAppealApplicationService {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权发起该成绩申诉");
         }
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), submission.getTeachingClassId())) {
+        if (!readPathAuthorizationService.canReadMySubmissionHistory(principal, submission, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权发起该成绩申诉");
         }
         if (assignment.getGradePublishedAt() == null) {
@@ -107,7 +108,7 @@ public class GradeAppealApplicationService {
     public List<GradeAppealView> listAssignmentAppeals(
             Long assignmentId, String status, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReadAppeals(
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         GradeAppealStatus statusFilter = parseStatus(status);
         return gradeAppealMapper
@@ -126,7 +127,7 @@ public class GradeAppealApplicationService {
 
     @Transactional(readOnly = true)
     public List<GradeAppealView> listMyAppeals(Long offeringId, String status, AuthenticatedUserPrincipal principal) {
-        if (!courseAuthorizationService.isActiveCourseMember(principal.getUserId(), offeringId)) {
+        if (!readPathAuthorizationService.canReadMyAppealHistory(principal, offeringId)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看成绩申诉");
         }
         GradeAppealStatus statusFilter = parseStatus(status);
@@ -156,7 +157,7 @@ public class GradeAppealApplicationService {
         GradeAppealEntity appeal = requireAppeal(appealId);
         AssignmentEntity assignment = requireAssignment(appeal.getAssignmentId());
         SubmissionEntity submission = requireSubmission(appeal.getSubmissionId());
-        courseAuthorizationService.assertCanGradeSubmission(
+        courseAuthorizationService.assertCanReviewAppeal(
                 principal, assignment.getOfferingId(), submission.getTeachingClassId());
         GradeAppealStatus currentStatus = GradeAppealStatus.valueOf(appeal.getStatus());
         if (GradeAppealStatus.ACCEPTED.equals(currentStatus) || GradeAppealStatus.REJECTED.equals(currentStatus)) {
@@ -187,7 +188,7 @@ public class GradeAppealApplicationService {
             }
             String feedbackForGrade =
                     StringUtils.hasText(revisedFeedbackText) ? revisedFeedbackText.trim() : answer.getFeedbackText();
-            ManualGradeResultView gradeResult = gradingApplicationService.gradeAnswer(
+            ManualGradeResultView gradeResult = gradingApplicationService.overrideAnswerGrade(
                     submission.getId(), answer.getId(), revisedScore, feedbackForGrade, principal);
             answerView = gradeResult.answer();
             appeal.setResolvedScore(answerView.finalScore());

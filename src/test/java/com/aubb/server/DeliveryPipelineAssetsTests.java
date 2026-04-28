@@ -93,6 +93,12 @@ class DeliveryPipelineAssetsTests {
                 deployCompose.contains("AUBB_REDIS_ENABLED"),
                 "Deploy compose should support optional Redis enhancement envs");
         assertTrue(!deployCompose.contains("SPRING_DATA_REDIS_"), "Deploy compose should not use legacy Redis envs");
+        assertTrue(
+                !deployCompose.contains("AUBB_REDIS_REALTIME_ENABLED"),
+                "Deploy compose should not carry unused Redis realtime switches");
+        assertTrue(
+                deployCompose.contains("/actuator/health/readiness"),
+                "Deploy compose healthcheck should align to readiness endpoint");
     }
 
     @Test
@@ -118,6 +124,9 @@ class DeliveryPipelineAssetsTests {
         assertTrue(
                 workflow.contains("AUBB_REDIS_ENABLED") && workflow.contains("AUBB_REDIS_PASSWORD"),
                 "Deploy workflow should render optional Redis envs");
+        assertTrue(
+                !workflow.contains("AUBB_REDIS_REALTIME_ENABLED"),
+                "Deploy workflow should not render removed Redis realtime envs");
         assertTrue(
                 workflow.contains("management.otlp.tracing.endpoint")
                         || workflow.contains("AUBB_OTLP_TRACING_ENDPOINT"),

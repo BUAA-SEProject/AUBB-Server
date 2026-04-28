@@ -91,6 +91,15 @@ public class AssignmentPaperApplicationService {
 
     @Transactional(readOnly = true)
     public AssignmentPaperView loadPaper(Long assignmentId, boolean revealSensitiveFields) {
+        return loadPaper(assignmentId, revealSensitiveFields, revealSensitiveFields, revealSensitiveFields);
+    }
+
+    @Transactional(readOnly = true)
+    public AssignmentPaperView loadPaper(
+            Long assignmentId,
+            boolean revealCorrectAnswers,
+            boolean revealHiddenJudgeFields,
+            boolean revealSensitiveJudgeConfig) {
         List<AssignmentSectionEntity> sections =
                 assignmentSectionMapper.selectList(Wrappers.<AssignmentSectionEntity>lambdaQuery()
                         .eq(AssignmentSectionEntity::getAssignmentId, assignmentId)
@@ -117,7 +126,9 @@ public class AssignmentPaperApplicationService {
                         section,
                         questionsBySectionId.getOrDefault(section.getId(), List.of()),
                         optionsByQuestionId,
-                        revealSensitiveFields))
+                        revealCorrectAnswers,
+                        revealHiddenJudgeFields,
+                        revealSensitiveJudgeConfig))
                 .toList();
         int questionCount = sectionViews.stream()
                 .mapToInt(section -> section.questions().size())
@@ -163,7 +174,9 @@ public class AssignmentPaperApplicationService {
             AssignmentSectionEntity section,
             List<AssignmentQuestionEntity> questions,
             Map<Long, List<AssignmentQuestionOptionEntity>> optionsByQuestionId,
-            boolean revealSensitiveFields) {
+            boolean revealCorrectAnswers,
+            boolean revealHiddenJudgeFields,
+            boolean revealSensitiveJudgeConfig) {
         List<AssignmentQuestionView> questionViews = questions.stream()
                 .map(question -> {
                     List<AssignmentQuestionOptionEntity> optionEntities =
@@ -176,10 +189,11 @@ public class AssignmentPaperApplicationService {
                             question.getPromptText(),
                             AssignmentQuestionType.valueOf(question.getQuestionType()),
                             question.getScore(),
-                            structuredQuestionSupport.toOptionViewsFromPaper(optionEntities, revealSensitiveFields),
+                            structuredQuestionSupport.toOptionViewsFromPaper(optionEntities, revealCorrectAnswers),
                             structuredQuestionSupport.toConfigView(
                                     structuredQuestionSupport.readConfigInput(question.getConfigJson()),
-                                    revealSensitiveFields));
+                                    revealHiddenJudgeFields,
+                                    revealSensitiveJudgeConfig));
                 })
                 .toList();
         return new AssignmentSectionView(

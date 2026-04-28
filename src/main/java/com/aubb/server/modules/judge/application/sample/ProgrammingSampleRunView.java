@@ -33,5 +33,6 @@ public record ProgrammingSampleRunView(
         Long timeMillis,
         Long memoryBytes,
         JudgeJobStoredReport detailReport,
+        String detailReportUnavailableReasonCode,
         OffsetDateTime createdAt,
         OffsetDateTime finishedAt) {}

@@ -23,7 +23,8 @@
 - 已列入本清单的响应允许增加向后兼容的可选字段，但不应移除现有字段或改变已存在字段的核心含义。
 - 未列入本清单的路径，默认视为内部实现细节、过渡接口或后续扩展位，不承诺稳定性。
 - `/actuator/health`、`/actuator/health/readiness`、`/actuator/info` 与 `/actuator/prometheus` 属于公开运维检查面；其他 `actuator` 端点不属于稳定业务 API。
-- 当前通知中心只承诺轮询式 HTTP 接口，不把未来 WebSocket / Redis 推送纳入本轮稳定承诺。
+- 当前通知中心承诺轮询式 HTTP 接口与当前 HTTP SSE stream 入口；未来 WebSocket / Redis 推送不纳入本轮稳定承诺。
+- 稳定业务接口一旦新增、改名或调整权限语义，必须同步更新本文、`AuthzOpenApiAccessRegistry`、`scripts/realrun/verify_authz_matrix.*` 与 `scripts/api-tests/permission/*`。
 
 ## 当前稳定接口范围
 
@@ -48,11 +49,15 @@
 
 - `GET /api/v1/admin/platform-config/current`，`PUT /api/v1/admin/platform-config/current`
 - `GET /api/v1/admin/org-units/tree`，`POST /api/v1/admin/org-units`
+- `POST /api/v1/admin/auth/groups`
+- `POST /api/v1/admin/auth/groups/{groupId}/members`
+- `GET /api/v1/admin/auth/explain`
 - `GET /api/v1/admin/users`
 - `GET /api/v1/admin/users/{userId}`
 - `POST /api/v1/admin/users`
 - `POST /api/v1/admin/users/import`
 - `PUT /api/v1/admin/users/{userId}/identities`
+- `PATCH /api/v1/admin/users/{userId}/status`
 - `PUT /api/v1/admin/users/{userId}/profile`
 - `PUT /api/v1/admin/users/{userId}/memberships`
 - `POST /api/v1/admin/users/{userId}/sessions/revoke`
@@ -70,6 +75,24 @@
 - `POST /api/v1/teacher/course-offerings/{offeringId}/members/batch`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/members/import`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/members`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/announcements`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/announcements`
+- `GET /api/v1/me/course-classes/{teachingClassId}/announcements`
+- `GET /api/v1/me/announcements/{announcementId}`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/resources`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/resources`
+- `GET /api/v1/teacher/course-resources/{resourceId}/download`
+- `GET /api/v1/me/course-classes/{teachingClassId}/resources`
+- `GET /api/v1/me/course-resources/{resourceId}/download`
+- `POST /api/v1/teacher/course-offerings/{offeringId}/discussions`
+- `GET /api/v1/teacher/course-offerings/{offeringId}/discussions`
+- `GET /api/v1/teacher/discussions/{discussionId}`
+- `POST /api/v1/teacher/discussions/{discussionId}/replies`
+- `PUT /api/v1/teacher/discussions/{discussionId}/lock-state`
+- `POST /api/v1/me/course-classes/{teachingClassId}/discussions`
+- `GET /api/v1/me/course-classes/{teachingClassId}/discussions`
+- `GET /api/v1/me/discussions/{discussionId}`
+- `POST /api/v1/me/discussions/{discussionId}/replies`
 
 ### 作业与题库
 
@@ -77,6 +100,7 @@
 - `GET /api/v1/teacher/course-offerings/{offeringId}/assignments`
 - `GET /api/v1/teacher/assignments/{assignmentId}`
 - `PUT /api/v1/teacher/assignments/{assignmentId}`
+- `PUT /api/v1/teacher/assignments/{assignmentId}/paper`
 - `POST /api/v1/teacher/assignments/{assignmentId}/publish`
 - `POST /api/v1/teacher/assignments/{assignmentId}/close`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/question-bank/questions`
@@ -123,6 +147,13 @@
 - `GET /api/v1/teacher/judge-environment-profiles/{profileId}`
 - `PUT /api/v1/teacher/judge-environment-profiles/{profileId}`
 - `POST /api/v1/teacher/judge-environment-profiles/{profileId}/archive`
+
+工作区与样例试运行当前还有以下稳定契约约束：
+
+- `PUT /workspace`、`POST /workspace/operations`、`POST /workspace/revisions/{revisionId}/restore`、`POST /workspace/reset-to-template` 均支持可选 `baseRevisionId`；若客户端基于旧修订写入，会返回 `409 PROGRAMMING_WORKSPACE_CONFLICT`
+- `GET /workspace` 返回 `latestRevisionKind / editable / editBlockedReasonCode / runnable / runBlockedReasonCode`，前端可直接用于初始化 IDE 状态
+- `saveKind=AUTO` 且工作区无变更时不会新增新修订，返回体会继续回放当前 `latestRevisionId / latestRevisionNo / latestRevisionKind`
+- `GET /sample-runs/{sampleRunId}` 在详细报告对象缺失时不再返回 500，而是返回摘要字段，并附带 `detailReportUnavailableReasonCode`
 
 ### 批改、成绩册与申诉
 
@@ -171,12 +202,18 @@
 
 - `GET /api/v1/me/notifications`
 - `GET /api/v1/me/notifications/unread-count`
+- `GET /api/v1/me/notifications/stream`
 - `POST /api/v1/me/notifications/{notificationId}/read`
 - `POST /api/v1/me/notifications/read-all`
 
+通知实时增强当前还有以下稳定约束：
+
+- `GET /api/v1/me/notifications/stream` 是 HTTP SSE 单实例 best-effort 通道，不承诺跨节点续传、断线补发或消息总线级可靠性
+- 客户端在 SSE 不可用、断线或超时后，必须回退 `GET /api/v1/me/notifications` 与 `GET /api/v1/me/notifications/unread-count`
+
 ## 当前未纳入稳定承诺的范围
 
-- 未来可能引入的 WebSocket / SSE 通知推送通道
+- 未来可能引入的 WebSocket、Redis 推送或其他非当前 HTTP SSE 形态的通知通道
 - 更细粒度的课程成员查询、设备会话管理、自助登录终端管理
 - 更复杂的题库组卷、实验报告版本历史和高级统计策略
 - 除 `health` / `info` / `prometheus` 之外的其他 `actuator` 端点

@@ -21,6 +21,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -99,6 +100,28 @@ public class CourseTeachingController {
         return courseTeachingApplicationService.importMembers(offeringId, file, importType, principal);
     }
 
+    @PatchMapping("/course-offerings/{offeringId}/members/{memberId}/status")
+    @PreAuthorize("isAuthenticated()")
+    public CourseMemberView updateMemberStatus(
+            @PathVariable Long offeringId,
+            @PathVariable Long memberId,
+            @Valid @RequestBody UpdateMemberStatusRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return courseTeachingApplicationService.updateMemberStatus(
+                offeringId, memberId, request.memberStatus(), request.remark(), principal);
+    }
+
+    @PostMapping("/course-offerings/{offeringId}/members/{memberId}/transfer")
+    @PreAuthorize("isAuthenticated()")
+    public CourseMemberView transferMember(
+            @PathVariable Long offeringId,
+            @PathVariable Long memberId,
+            @Valid @RequestBody TransferMemberRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return courseTeachingApplicationService.transferStudent(
+                offeringId, memberId, request.targetTeachingClassId(), request.remark(), principal);
+    }
+
     @GetMapping("/course-offerings/{offeringId}/members")
     @PreAuthorize("isAuthenticated()")
     public PageResponse<CourseMemberView> listMembers(
@@ -127,6 +150,10 @@ public class CourseTeachingController {
             boolean resourceEnabled,
             boolean labEnabled,
             boolean assignmentEnabled) {}
+
+    public record UpdateMemberStatusRequest(@NotNull CourseMemberStatus memberStatus, String remark) {}
+
+    public record TransferMemberRequest(@NotNull Long targetTeachingClassId, String remark) {}
 
     public record BatchAddMembersRequest(List<@Valid CourseMemberCommand> members) {}
 }

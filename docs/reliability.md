@@ -9,6 +9,7 @@
 - RabbitMQ 当前在 `aubb.judge.queue.enabled=true` 时属于条件化硬依赖；readiness 会暴露 `judgeQueue` 组件。
 - go-judge 当前在 `aubb.judge.go-judge.enabled=true` 时属于条件化硬依赖；readiness 会暴露 `goJudge` 组件。
 - Redis 当前作为可选增强组件引入，默认关闭；关闭时不得影响主链路可用性。
+- Redis 关闭或不可用时，`@RateLimited` 接口仍必须维持单实例本地限流，不允许因为增强链路故障而整体 fail-open。
 - readiness 当前固定暴露 `redisEnhancement` 组件：
   - 关闭时返回 `UP + mode=disabled`
   - 启用但不可用时返回 `UNKNOWN + mode=degraded`
@@ -21,7 +22,7 @@
 - 首个学校 / 管理员 bootstrap 当前采用默认关闭的启动期 `ApplicationRunner`；启用时若配置缺失或检测到多个学校根节点，会在启动阶段直接失败。
 - judge 详细产物当前采用“对象存储优先 + 数据库兼容回退”策略；启用 MinIO 后，详细报告和样例试运行源码快照必须写入成功，或者明确回退到旧列，不能出现“状态成功但报告丢失”。
 - lab/report 当前采用“数据库元数据 + 对象存储附件”策略；启用 MinIO 后，实验报告附件写入失败必须同步报错，不能出现“报告已保存但附件丢失”。
-- 通知中心当前采用“数据库通知内容 + 收件状态”模型；未读角标与列表回放依赖 `notifications / notification_receipts`，当前轮询策略不应被 WebSocket 或 Redis 可用性阻塞。
+- 通知中心当前采用“数据库通知内容 + 收件状态”模型；未读角标与列表回放依赖 `notifications / notification_receipts`，当前轮询策略不应被 WebSocket、Redis 或 SSE 可用性阻塞。`GET /api/v1/me/notifications/stream` 仅是单实例 best-effort 增强通道，失效后必须允许客户端回退轮询。
 - `labEnabled` 当前已进入真实后端拦截链路；教学班关闭实验功能后，实验定义、实验列表、实验详情、附件上传、报告提交和教师评阅都必须被统一拒绝。
 - 热点列表查询当前以数据库分页和权限过滤为基线；`total` 与 `items` 必须来自同一组 SQL 谓词，不能再通过“先全量拉取再 Java 侧过滤 / skip / limit”维持分页语义。
 
@@ -46,7 +47,7 @@
   - `/actuator/prometheus`：暴露运行时与业务指标，供 Prometheus 周期抓取
 - 当前最小业务指标集如下：
   - `aubb_cache_operations_total{cache,operation,result}`：Redis 缓存命中 / 未命中 / 驱逐 / 异常计数
-  - `aubb_rate_limit_decisions_total{policy,result}`：Redis 限流放行 / 拒绝 / 降级计数
+  - `aubb_rate_limit_decisions_total{policy,result}`：限流放行 / 拒绝 / 本地回退计数，Redis 回退结果使用 `fallback_allowed` / `fallback_rejected`
   - `aubb_redis_available`：Redis 增强链路当前可用性，1 为可用
   - `aubb_redis_enabled`：Redis 增强链路是否启用，1 为启用
   - `aubb_judge_queue_depth`：judge 队列长度；当 judge queue 未启用时返回 `NaN`
@@ -70,16 +71,17 @@
 8. `aubb.judge.queue.enabled=true` 时，RabbitMQ 必须进入 readiness；若 broker 不可达或评测队列缺失，不能继续返回“应用已就绪”。
 9. `aubb.judge.go-judge.enabled=true` 时，go-judge 必须进入 readiness；若 `/version` 不可达或返回异常响应，必须能从健康检查直接看出故障原因。
 10. Redis 只能作为增强组件，不得承载评测结果、提交记录、最终成绩、成绩发布快照等核心业务真相。
-11. 涉及异步评测的测试或运维脚本，不得在存在运行中 judge job 时直接批量清库；至少要先 drain 运行中任务，避免 `judge_jobs / submission_answers / audit_logs` 锁顺序反转。
-12. 涉及令牌撤销的改动，必须同时验证 access token 即时失效、refresh token 轮换和用户状态变更触发的旧会话失效，避免只实现半条链路。
-13. 涉及新环境初始化的改动，必须提供标准启动参数、幂等重复执行语义和自动化验证，不能继续依赖手工 SQL 插数。
-14. 根 `compose.yaml` 既要保留宿主机 `spring-boot-docker-compose` 的基础设施模式，也要通过显式 profile 支持 app + 基础设施联调，不能让两种运行方式互相冲突。
-15. CI 中任何 `verify` 失败都必须保留 `surefire/failsafe` 报告或关键日志，避免流水线失败后无法定位。
-16. 最小 deploy 至少要能表达“部署哪个镜像版本、用哪些环境变量、失败后如何回滚”，即使暂不引入更复杂编排。
-17. 评测产物对象化后，列表查询继续只走数据库摘要字段；完整详细报告与样例试运行源码快照走对象引用回放，避免把大对象读取放到热点列表路径。
-18. 实验报告当前只保留“每学生每实验一份当前报告”；后续若要引入历史版本，必须新增版本化结构，而不是直接覆盖现有表语义。
-19. 通知中心 v1 必须先保证“持久化 + 已读状态 + 未读数 + 列表补拉”闭环，再考虑 WebSocket 推送；实时通道故障不能影响通知入库和已读状态正确性。
-20. 涉及热点列表优化时，优先把权限过滤和分页下推到数据库；若组织树或课程成员边界仍需服务层预解析，也应先收敛成有限作用域集合，再交给 SQL 做 count/page，避免全量候选集进入内存。
-21. 稳定 API 发生变更时，必须在同一轮提交中同步更新 `docs/stable-api.md`，并至少验证 `/v3/api-docs` 仍可访问且包含当前承诺路径。
-22. `/actuator/prometheus` 与 `/actuator/health/readiness` 不能混用；监控系统抓 metrics，部署 smoke 与探活继续看 health/readiness。
-23. 所有 Redis 接入都必须同时给出 key 设计、TTL、失效点、一致性边界与降级策略；若做不到，宁可不缓存。
+11. Redis 增强链路故障时，登录、refresh、样例试运行、提交创建和上传等高风险接口不得整体放开；至少要保留单实例本地限流兜底。
+12. 涉及异步评测的测试或运维脚本，不得在存在运行中 judge job 时直接批量清库；至少要先 drain 运行中任务，避免 `judge_jobs / submission_answers / audit_logs` 锁顺序反转。
+13. 涉及令牌撤销的改动，必须同时验证 access token 即时失效、refresh token 轮换和用户状态变更触发的旧会话失效，避免只实现半条链路。
+14. 涉及新环境初始化的改动，必须提供标准启动参数、幂等重复执行语义和自动化验证，不能继续依赖手工 SQL 插数。
+15. 根 `compose.yaml` 既要保留宿主机 `spring-boot-docker-compose` 的基础设施模式，也要通过显式 profile 支持 app + 基础设施联调，不能让两种运行方式互相冲突。
+16. CI 中任何 `verify` 失败都必须保留 `surefire/failsafe` 报告或关键日志，避免流水线失败后无法定位。
+17. 最小 deploy 至少要能表达“部署哪个镜像版本、用哪些环境变量、失败后如何回滚”，即使暂不引入更复杂编排。
+18. 评测产物对象化后，列表查询继续只走数据库摘要字段；完整详细报告与样例试运行源码快照走对象引用回放，避免把大对象读取放到热点列表路径。
+19. 实验报告当前只保留“每学生每实验一份当前报告”；后续若要引入历史版本，必须新增版本化结构，而不是直接覆盖现有表语义。
+20. 通知中心 v1 必须先保证“持久化 + 已读状态 + 未读数 + 列表补拉”闭环，再考虑 WebSocket 推送；实时通道故障不能影响通知入库和已读状态正确性。
+21. 涉及热点列表优化时，优先把权限过滤和分页下推到数据库；若组织树或课程成员边界仍需服务层预解析，也应先收敛成有限作用域集合，再交给 SQL 做 count/page，避免全量候选集进入内存。
+22. 稳定 API 发生变更时，必须在同一轮提交中同步更新 `docs/stable-api.md`，并至少验证 `/v3/api-docs` 仍可访问且包含当前承诺路径。
+23. `/actuator/prometheus` 与 `/actuator/health/readiness` 不能混用；监控系统抓 metrics，部署 smoke 与探活继续看 health/readiness。
+24. 所有 Redis 接入都必须同时给出 key 设计、TTL、失效点、一致性边界与降级策略；若做不到，宁可不缓存。

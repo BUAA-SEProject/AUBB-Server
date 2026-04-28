@@ -8,7 +8,6 @@ Redis 在 AUBB 中只作为增强组件使用，不是业务真相库。
 - Redis 只承接低一致性风险、高收益场景：
   - 限流 / 防刷
   - 高频读缓存
-  - 未来实时推送与多实例协调的基础接口
 - Redis 不存储以下内容作为真相：
   - judge 最终评测结果
   - 提交主记录
@@ -20,7 +19,7 @@ Redis 在 AUBB 中只作为增强组件使用，不是业务真相库。
 
 ### 1. 限流
 
-由 `RateLimitService` 统一承接，默认使用 Redis 固定窗口计数器。
+由 `RateLimitService` 统一承接；Redis 可用时优先使用 Redis 固定窗口计数器，关闭或故障时回退到单实例内存窗口。
 
 当前已覆盖接口：
 
@@ -42,10 +41,6 @@ Redis 在 AUBB 中只作为增强组件使用，不是业务真相库。
 - 题库分类字典
 - 题库标签字典
 
-### 3. 未来实时推送预留
-
-`RealtimeCoordinationService` 目前只提供接口与基础 Redis 实现，不承担通知真相存储，也不阻塞现有通知入库链路。
-
 ## Key 设计
 
 统一前缀：
@@ -59,7 +54,6 @@ Redis 在 AUBB 中只作为增强组件使用，不是业务真相库。
 ```text
 aubb:staging:cache:notificationunreadcount:user:42
 aubb:staging:ratelimit:login:user:42:ip:10_0_0_1:school-admin
-aubb:staging:realtime:notifications
 ```
 
 ## TTL / 失效 / 一致性策略
@@ -81,15 +75,13 @@ aubb:staging:realtime:notifications
 ### Redis 关闭
 
 - `aubb.redis.enabled=false` 时，不创建 Redis 连接。
-- `RateLimitService` 自动退化为 no-op。
+- `RateLimitService` 自动退化为单实例内存固定窗口。
 - `CacheService` 自动退化为直接回源数据库 / 应用 loader。
-- `RealtimeCoordinationService` 自动退化为 no-op。
 
 ### Redis 不可用
 
-- 限流：返回 `allow/fallback`，不阻断主业务。
+- 限流：自动回退到单实例内存固定窗口，返回 `fallback_allowed` / `fallback_rejected` 指标，不再整体放开。
 - 缓存：直接回源，不因 Redis 异常导致接口失败。
-- 实时协调：记录降噪日志并跳过，不影响通知持久化。
 
 ## 配置项
 
@@ -105,9 +97,8 @@ aubb:staging:realtime:notifications
 | `aubb.redis.namespace` | `aubb` | Key 命名空间 |
 | `aubb.redis.environment` | `local` | 环境维度前缀 |
 | `aubb.redis.cache.*` | 见 `application.yaml` | 各缓存 TTL |
-| `aubb.redis.rate-limit.enabled` | `true` | 是否启用 Redis 限流实现 |
+| `aubb.redis.rate-limit.enabled` | `true` | 是否启用限流；Redis 关闭时仍会使用本地内存限流 |
 | `aubb.redis.rate-limit.policies.*` | 见 `application.yaml` | 各接口限流策略 |
-| `aubb.redis.realtime.enabled` | `true` | 是否启用 Redis 实时协调实现 |
 
 ## 健康检查与指标
 
@@ -134,7 +125,7 @@ aubb:staging:realtime:notifications
 
 - `cache=get,result=hit|miss|error`
 - `cache=*,operation=evict,result=error`
-- `policy=*,result=rejected|fallback`
+- `policy=*,result=rejected|fallback_allowed|fallback_rejected`
 - `aubb_redis_available == 0`
 
 ## 上线注意事项
@@ -143,7 +134,7 @@ aubb:staging:realtime:notifications
 2. 打开 Redis 后先观察：
    - readiness 中 `redisEnhancement`
    - `aubb_redis_available`
-   - `aubb_rate_limit_decisions_total{result="fallback"}`
+   - `aubb_rate_limit_decisions_total{result=~"fallback_allowed|fallback_rejected"}`
    - `aubb_cache_operations_total{result="error"}`
 3. 不要把 Redis 当成“省 SQL 的万能替代品”；新增缓存前必须先定义失效点与降级行为。
-4. 若需要扩展到组织范围短 TTL 缓存或 SSE/WebSocket 多实例协调，继续沿用 `CacheService` / `RealtimeCoordinationService` 抽象，不要在业务代码里散落 Redis 命令。
+4. 若后续确实需要引入 SSE/WebSocket 多实例协调，应先重新建立明确业务场景、健康检查、验证路径和部署口径，再新增独立抽象；不要在业务代码里散落 Redis 命令。

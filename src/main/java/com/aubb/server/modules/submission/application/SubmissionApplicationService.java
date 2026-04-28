@@ -10,11 +10,13 @@ import com.aubb.server.modules.assignment.domain.AssignmentStatus;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentEntity;
 import com.aubb.server.modules.assignment.infrastructure.AssignmentMapper;
 import com.aubb.server.modules.audit.application.AuditLogApplicationService;
+import com.aubb.server.modules.audit.application.SensitiveOperationAuditService;
 import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditResult;
-import com.aubb.server.modules.course.application.CourseAuthorizationService;
-import com.aubb.server.modules.course.domain.member.CourseMemberRole;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
+import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
+import com.aubb.server.modules.identityaccess.application.authz.core.ReadPathAuthorizationService;
 import com.aubb.server.modules.judge.application.JudgeApplicationService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService;
 import com.aubb.server.modules.submission.application.answer.SubmissionAnswerApplicationService.PersistedStructuredAnswers;
@@ -60,8 +62,9 @@ public class SubmissionApplicationService {
     private final AssignmentMapper assignmentMapper;
     private final AssignmentPaperApplicationService assignmentPaperApplicationService;
     private final SubmissionAnswerApplicationService submissionAnswerApplicationService;
-    private final CourseAuthorizationService courseAuthorizationService;
+    private final ReadPathAuthorizationService readPathAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
+    private final SensitiveOperationAuditService sensitiveOperationAuditService;
     private final ObjectProvider<ObjectStorageService> objectStorageServiceProvider;
     private final JudgeApplicationService judgeApplicationService;
 
@@ -144,6 +147,7 @@ public class SubmissionApplicationService {
             artifacts = loadAttachableArtifacts(assignmentId, principal.getUserId(), normalizedArtifactIds);
         }
 
+        submissionMapper.acquireSubmissionAttemptLock(assignmentId, principal.getUserId());
         int nextAttempt = countAttempts(assignmentId, principal.getUserId()) + 1;
         if (nextAttempt > assignment.getMaxSubmissions()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_LIMIT_REACHED", "已达到当前作业最大提交次数");
@@ -195,24 +199,34 @@ public class SubmissionApplicationService {
                         "structuredAnswerCount",
                         structuredAssignment && answerInputs != null ? answerInputs.size() : 0));
         boolean gradePublished = assignment.getGradePublishedAt() != null;
-        return toView(entity, assignment, toArtifactViews(artifacts), gradePublished, gradePublished);
+        return toView(entity, assignment, toArtifactViews(artifacts), gradePublished, gradePublished, true);
     }
 
     @Transactional(readOnly = true)
     public PageResponse<SubmissionView> listMySubmissions(
             Long assignmentId, long page, long pageSize, AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该作业提交");
         }
-        List<SubmissionEntity> matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
+        boolean gradePublished = assignment.getGradePublishedAt() != null;
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        long total = submissionMapper.selectCount(Wrappers.<SubmissionEntity>lambdaQuery()
+                .eq(SubmissionEntity::getAssignmentId, assignmentId)
+                .eq(SubmissionEntity::getSubmitterUserId, principal.getUserId()));
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<SubmissionEntity> pageItems = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
                 .eq(SubmissionEntity::getAssignmentId, assignmentId)
                 .eq(SubmissionEntity::getSubmitterUserId, principal.getUserId())
                 .orderByDesc(SubmissionEntity::getSubmittedAt)
-                .orderByDesc(SubmissionEntity::getId));
-        boolean gradePublished = assignment.getGradePublishedAt() != null;
-        return toPage(matched, assignment, page, pageSize, gradePublished, gradePublished);
+                .orderByDesc(SubmissionEntity::getId)
+                .last("LIMIT " + safePageSize + " OFFSET " + offset));
+        return toCurrentSlicePage(
+                pageItems, assignment, total, safePage, safePageSize, gradePublished, gradePublished, true);
     }
 
     @Transactional(readOnly = true)
@@ -222,12 +236,11 @@ public class SubmissionApplicationService {
         if (!Objects.equals(submission.getSubmitterUserId(), principal.getUserId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
         }
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
         }
         boolean gradePublished = assignment.getGradePublishedAt() != null;
-        return toView(submission, assignment, loadArtifactViews(submissionId), gradePublished, gradePublished);
+        return toView(submission, assignment, loadArtifactViews(submissionId), gradePublished, gradePublished, true);
     }
 
     @Transactional(readOnly = true)
@@ -237,8 +250,7 @@ public class SubmissionApplicationService {
         if (!Objects.equals(artifact.getUploaderUserId(), principal.getUserId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该附件");
         }
-        if (!courseAuthorizationService.canViewAssignment(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId())) {
+        if (!canReadOwnSubmissionHistory(principal, assignment)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该附件");
         }
         return loadStoredArtifact(artifact);
@@ -253,68 +265,135 @@ public class SubmissionApplicationService {
             long pageSize,
             AuthenticatedUserPrincipal principal) {
         AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanGradeSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        List<SubmissionEntity> matched = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
-                .eq(SubmissionEntity::getAssignmentId, assignmentId)
-                .eq(submitterUserId != null, SubmissionEntity::getSubmitterUserId, submitterUserId)
-                .orderByDesc(SubmissionEntity::getSubmittedAt)
-                .orderByDesc(SubmissionEntity::getId));
-        if (latestOnly) {
-            matched = loadLatestSubmissions(matched);
+        ReadPathAuthorizationService.TeachingReadScope scope = resolveTeacherSubmissionReadScope(principal, assignment);
+        if (!latestOnly) {
+            long safePage = Math.max(page, 1);
+            long safePageSize = Math.max(pageSize, 1);
+            long offset = (safePage - 1) * safePageSize;
+            long total = submissionMapper.countTeacherSubmissionPage(
+                    assignmentId, submitterUserId, scope.offeringReadable(), scope.classIds());
+            if (total == 0) {
+                return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+            }
+            List<SubmissionEntity> pageItems = submissionMapper.selectTeacherSubmissionPage(
+                    assignmentId, submitterUserId, scope.offeringReadable(), scope.classIds(), offset, safePageSize);
+            return toTeacherSlicePage(
+                    pageItems,
+                    assignment,
+                    total,
+                    safePage,
+                    safePageSize,
+                    assignment.getGradePublishedAt() != null,
+                    principal);
         }
-        return toPage(matched, assignment, page, pageSize, true, assignment.getGradePublishedAt() != null);
+        long safePage = Math.max(page, 1);
+        long safePageSize = Math.max(pageSize, 1);
+        long offset = (safePage - 1) * safePageSize;
+        long total = submissionMapper.countLatestTeacherSubmissionsPage(
+                assignmentId, submitterUserId, scope.offeringReadable(), scope.classIds());
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, safePage, safePageSize);
+        }
+        List<SubmissionEntity> pageItems = submissionMapper.selectLatestTeacherSubmissionsPage(
+                assignmentId, submitterUserId, scope.offeringReadable(), scope.classIds(), offset, safePageSize);
+        return toTeacherSlicePage(
+                pageItems,
+                assignment,
+                total,
+                safePage,
+                safePageSize,
+                assignment.getGradePublishedAt() != null,
+                principal);
     }
 
     @Transactional(readOnly = true)
     public SubmissionView getTeacherSubmission(Long submissionId, AuthenticatedUserPrincipal principal) {
         SubmissionEntity submission = requireSubmission(submissionId);
         AssignmentEntity assignment = requireAssignment(submission.getAssignmentId());
-        courseAuthorizationService.assertCanGradeSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
+        if (!canReadTeacherSubmission(principal, submission)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
+        }
         return toView(
                 submission,
                 assignment,
                 loadArtifactViews(submissionId),
                 true,
-                assignment.getGradePublishedAt() != null);
+                assignment.getGradePublishedAt() != null,
+                canReadSensitiveTeacherSubmission(principal, submission));
     }
 
     @Transactional(readOnly = true)
     public SubmissionArtifactDownload downloadTeacherArtifact(Long artifactId, AuthenticatedUserPrincipal principal) {
         SubmissionArtifactEntity artifact = requireArtifact(artifactId);
-        AssignmentEntity assignment = requireAssignment(artifact.getAssignmentId());
-        courseAuthorizationService.assertCanGradeSubmission(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         if (artifact.getSubmissionId() == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "SUBMISSION_ARTIFACT_NOT_FOUND", "提交附件不存在");
         }
-        return loadStoredArtifact(artifact);
+        SubmissionEntity submission = requireSubmission(artifact.getSubmissionId());
+        AuthorizationResourceRef resourceRef =
+                new AuthorizationResourceRef(AuthorizationResourceType.SUBMISSION, submission.getId());
+        if (!canReadSensitiveTeacherSubmission(principal, submission)) {
+            sensitiveOperationAuditService.recordDenied(
+                    principal,
+                    AuditAction.SUBMISSION_SOURCE_READ,
+                    "submission.read_source",
+                    resourceRef,
+                    "DENY_SCOPE_FILTER",
+                    Map.of("artifactId", artifactId));
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权下载该附件");
+        }
+        SubmissionArtifactDownload download = loadStoredArtifact(artifact);
+        sensitiveOperationAuditService.recordAllowed(
+                principal,
+                AuditAction.SUBMISSION_SOURCE_READ,
+                "submission.read_source",
+                resourceRef,
+                Map.of("artifactId", artifactId));
+        return download;
     }
 
-    private PageResponse<SubmissionView> toPage(
+    private PageResponse<SubmissionView> toCurrentSlicePage(
             List<SubmissionEntity> entities,
             AssignmentEntity assignment,
+            long total,
             long page,
             long pageSize,
             boolean revealNonObjectiveScores,
-            boolean gradePublished) {
-        long safePage = Math.max(page, 1);
-        long safePageSize = Math.max(pageSize, 1);
-        long offset = (safePage - 1) * safePageSize;
-        List<SubmissionEntity> pageItems =
-                entities.stream().skip(offset).limit(safePageSize).toList();
+            boolean gradePublished,
+            boolean revealSensitiveContent) {
         Map<Long, List<SubmissionArtifactView>> artifactsBySubmissionId = loadArtifactViewsBySubmissionIds(
-                pageItems.stream().map(SubmissionEntity::getId).toList());
-        List<SubmissionView> items = pageItems.stream()
+                entities.stream().map(SubmissionEntity::getId).toList());
+        List<SubmissionView> items = entities.stream()
                 .map(entity -> toView(
                         entity,
                         assignment,
                         artifactsBySubmissionId.getOrDefault(entity.getId(), List.of()),
                         revealNonObjectiveScores,
-                        gradePublished))
+                        gradePublished,
+                        revealSensitiveContent))
                 .toList();
-        return new PageResponse<>(items, entities.size(), safePage, safePageSize);
+        return new PageResponse<>(items, total, page, pageSize);
+    }
+
+    private PageResponse<SubmissionView> toTeacherSlicePage(
+            List<SubmissionEntity> entities,
+            AssignmentEntity assignment,
+            long total,
+            long page,
+            long pageSize,
+            boolean gradePublished,
+            AuthenticatedUserPrincipal principal) {
+        Map<Long, List<SubmissionArtifactView>> artifactsBySubmissionId = loadArtifactViewsBySubmissionIds(
+                entities.stream().map(SubmissionEntity::getId).toList());
+        List<SubmissionView> items = entities.stream()
+                .map(entity -> toView(
+                        entity,
+                        assignment,
+                        artifactsBySubmissionId.getOrDefault(entity.getId(), List.of()),
+                        true,
+                        gradePublished,
+                        readPathAuthorizationService.canReadSensitiveSubmission(principal, entity)))
+                .toList();
+        return new PageResponse<>(items, total, page, pageSize);
     }
 
     private SubmissionView toView(
@@ -322,9 +401,10 @@ public class SubmissionApplicationService {
             AssignmentEntity assignment,
             List<SubmissionArtifactView> artifacts,
             boolean revealNonObjectiveScores,
-            boolean gradePublished) {
+            boolean gradePublished,
+            boolean revealSensitiveContent) {
         List<SubmissionAnswerView> answers = submissionAnswerApplicationService.loadAnswerViews(
-                entity.getId(), assignment.getId(), revealNonObjectiveScores);
+                entity.getId(), assignment.getId(), revealNonObjectiveScores, revealSensitiveContent);
         SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
                 entity.getId(), assignment.getId(), revealNonObjectiveScores, gradePublished);
         return new SubmissionView(
@@ -337,13 +417,39 @@ public class SubmissionApplicationService {
                 entity.getSubmitterUserId(),
                 entity.getAttemptNo(),
                 SubmissionStatus.valueOf(entity.getStatus()),
-                entity.getContentText(),
+                revealSensitiveContent ? entity.getContentText() : null,
                 artifacts,
                 answers,
                 scoreSummary,
                 entity.getSubmittedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());
+    }
+
+    private boolean canReadOwnSubmissionHistory(AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
+        return readPathAuthorizationService.canReadMyAssignmentHistory(principal, assignment);
+    }
+
+    private ReadPathAuthorizationService.TeachingReadScope resolveTeacherSubmissionReadScope(
+            AuthenticatedUserPrincipal principal, AssignmentEntity assignment) {
+        ReadPathAuthorizationService.TeachingReadScope scope = readPathAuthorizationService.resolveTeachingReadScope(
+                principal, "submission.read", assignment.getOfferingId());
+        boolean allowed = assignment.getTeachingClassId() == null
+                ? scope.canReadSharedOfferingResource()
+                : scope.canReadClass(assignment.getTeachingClassId());
+        if (!allowed) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权查看该提交");
+        }
+        return scope;
+    }
+
+    private boolean canReadTeacherSubmission(AuthenticatedUserPrincipal principal, SubmissionEntity submission) {
+        return readPathAuthorizationService.canReadSubmission(principal, "submission.read", submission);
+    }
+
+    private boolean canReadSensitiveTeacherSubmission(
+            AuthenticatedUserPrincipal principal, SubmissionEntity submission) {
+        return readPathAuthorizationService.canReadSensitiveSubmission(principal, submission);
     }
 
     private SubmissionArtifactView toArtifactView(SubmissionArtifactEntity entity) {
@@ -381,14 +487,6 @@ public class SubmissionApplicationService {
         return artifactsBySubmissionId;
     }
 
-    private List<SubmissionEntity> loadLatestSubmissions(List<SubmissionEntity> entities) {
-        return new LinkedHashMap<Long, SubmissionEntity>() {
-            {
-                entities.forEach(entity -> putIfAbsent(entity.getSubmitterUserId(), entity));
-            }
-        }.values().stream().toList();
-    }
-
     private AssignmentEntity requireAssignment(Long assignmentId) {
         AssignmentEntity assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
@@ -423,11 +521,9 @@ public class SubmissionApplicationService {
         if (!AssignmentStatus.PUBLISHED.name().equals(assignment.getStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_ASSIGNMENT_UNAVAILABLE", "当前作业暂不允许提交");
         }
-        if (!courseAuthorizationService.hasActiveMemberRole(
-                principal.getUserId(),
-                assignment.getOfferingId(),
-                assignment.getTeachingClassId(),
-                CourseMemberRole.STUDENT)) {
+        if (!readPathAuthorizationService
+                .authorizeMySubmissionCapability(principal, assignment)
+                .allowed()) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "FORBIDDEN", "当前用户无权提交该作业");
         }
     }
