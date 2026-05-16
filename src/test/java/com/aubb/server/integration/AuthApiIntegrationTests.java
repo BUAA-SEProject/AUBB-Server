@@ -133,6 +133,47 @@ class AuthApiIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
     }
 
     @Test
+    void logsInUserWithoutPrimaryOrgUnit() throws Exception {
+        jdbcTemplate.update(
+                """
+                INSERT INTO users (
+                    primary_org_unit_id,
+                    username,
+                    display_name,
+                    email,
+                    password_hash,
+                    account_status,
+                    failed_login_attempts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                null,
+                "no-primary-org",
+                "No Primary Org",
+                "no-primary-org@example.com",
+                PASSWORD_ENCODER.encode("Password123"),
+                "ACTIVE",
+                0);
+        jdbcTemplate.update("""
+                INSERT INTO academic_profiles (user_id, academic_id, real_name, identity_type, profile_status)
+                SELECT id, ?, ?, ?, ? FROM users WHERE username = ?
+                """, "AUBB-NO-ORG-001", "无主组织用户", "STUDENT", "ACTIVE", "no-primary-org");
+
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content("""
+                                {"username":"no-primary-org","password":"Password123"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.username").value("no-primary-org"))
+                .andExpect(jsonPath("$.user.primaryOrgUnitId").doesNotExist())
+                .andReturn();
+
+        String token = JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken");
+        Jwt jwt = jwtDecoder.decode(token);
+        assertThat(jwt.getClaims()).doesNotContainKey("primaryOrgUnitId");
+    }
+
+    @Test
     void authMeShouldReturnLatestUserSnapshotInsteadOfJwtEmbeddedSnapshot() throws Exception {
         AuthTokens tokens = login("school-admin", "Password123");
 

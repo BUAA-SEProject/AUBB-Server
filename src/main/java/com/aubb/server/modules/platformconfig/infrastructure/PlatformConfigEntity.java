@@ -2,6 +2,7 @@ package com.aubb.server.modules.platformconfig.infrastructure;
 
 import com.aubb.server.infrastructure.persistence.PostgreSqlJsonbTypeHandler;
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -24,14 +25,17 @@ public class PlatformConfigEntity {
 
     private String platformShortName;
 
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String logoUrl;
 
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String footerText;
 
     private String defaultHomePath;
 
     private String themeKey;
 
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String loginNotice;
 
     @TableField(typeHandler = PostgreSqlJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)

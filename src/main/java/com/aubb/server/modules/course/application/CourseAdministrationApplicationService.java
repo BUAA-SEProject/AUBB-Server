@@ -390,10 +390,10 @@ public class CourseAdministrationApplicationService {
         var countQuery = Wrappers.<CourseOfferingEntity>lambdaQuery()
                 .in(CourseOfferingEntity::getId, accessibleOfferingIds)
                 .eq(status != null, CourseOfferingEntity::getStatus, status == null ? null : status.name())
-                .and(normalizedKeyword != null, wrapper -> wrapper.like(
-                                CourseOfferingEntity::getOfferingCode, normalizedKeyword)
+                .and(normalizedKeyword != null, wrapper -> wrapper.apply(
+                                "lower(offering_code) LIKE CONCAT('%', {0}, '%')", normalizedKeyword)
                         .or()
-                        .like(CourseOfferingEntity::getOfferingName, normalizedKeyword))
+                        .apply("lower(offering_name) LIKE CONCAT('%', {0}, '%')", normalizedKeyword))
                 .and(collegeUnitId != null, wrapper -> wrapper.eq(
                                 CourseOfferingEntity::getPrimaryCollegeUnitId, collegeUnitId)
                         .or()
@@ -407,10 +407,10 @@ public class CourseAdministrationApplicationService {
         List<CourseOfferingEntity> items = courseOfferingMapper.selectList(Wrappers.<CourseOfferingEntity>lambdaQuery()
                 .in(CourseOfferingEntity::getId, accessibleOfferingIds)
                 .eq(status != null, CourseOfferingEntity::getStatus, status == null ? null : status.name())
-                .and(normalizedKeyword != null, wrapper -> wrapper.like(
-                                CourseOfferingEntity::getOfferingCode, normalizedKeyword)
+                .and(normalizedKeyword != null, wrapper -> wrapper.apply(
+                                "lower(offering_code) LIKE CONCAT('%', {0}, '%')", normalizedKeyword)
                         .or()
-                        .like(CourseOfferingEntity::getOfferingName, normalizedKeyword))
+                        .apply("lower(offering_name) LIKE CONCAT('%', {0}, '%')", normalizedKeyword))
                 .and(collegeUnitId != null, wrapper -> wrapper.eq(
                                 CourseOfferingEntity::getPrimaryCollegeUnitId, collegeUnitId)
                         .or()

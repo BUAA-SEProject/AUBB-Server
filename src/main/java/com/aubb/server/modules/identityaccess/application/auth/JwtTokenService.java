@@ -43,7 +43,6 @@ public class JwtTokenService {
                 .claim("sid", sessionId)
                 .claim("userId", principal.getUserId())
                 .claim("displayName", principal.getDisplayName())
-                .claim("primaryOrgUnitId", principal.getPrimaryOrgUnitId())
                 .claim("accountStatus", principal.getAccountStatus().name())
                 .claim("authorities", principal.roleCodes())
                 .claim(
@@ -68,6 +67,9 @@ public class JwtTokenService {
                                         "scopeOrgName", identity.scopeOrgName()))
                                 .toList())
                 .claim("roleBindingSnapshot", principal.isRoleBindingSnapshot());
+        if (principal.getPrimaryOrgUnitId() != null) {
+            claimsBuilder.claim("primaryOrgUnitId", principal.getPrimaryOrgUnitId());
+        }
         if (permissionVersion != null) {
             claimsBuilder.claim("permissionVersion", permissionVersion);
         }

@@ -122,10 +122,37 @@ class PlatformGovernanceApiIntegrationTests extends AbstractNonRateLimitedIntegr
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.platformShortName").value("A1"));
 
+        mockMvc.perform(put("/api/v1/admin/platform-config/current")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "platformName":"AUBB One",
+                                  "platformShortName":"A1",
+                                  "logoUrl":null,
+                                  "footerText":null,
+                                  "defaultHomePath":"/admin",
+                                  "themeKey":"aubb-light",
+                                  "loginNotice":null,
+                                  "moduleFlags":{"courses":true}
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.logoUrl").doesNotExist())
+                .andExpect(jsonPath("$.footerText").doesNotExist())
+                .andExpect(jsonPath("$.loginNotice").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/admin/platform-config/current").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.logoUrl").doesNotExist())
+                .andExpect(jsonPath("$.footerText").doesNotExist())
+                .andExpect(jsonPath("$.loginNotice").doesNotExist());
+
         mockMvc.perform(get("/api/v1/admin/audit-logs").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].action").value("PLATFORM_CONFIG_UPDATED"))
-                .andExpect(jsonPath("$.items[1].action").value("LOGIN_SUCCESS"));
+                .andExpect(jsonPath("$.items[1].action").value("PLATFORM_CONFIG_UPDATED"))
+                .andExpect(jsonPath("$.items[2].action").value("LOGIN_SUCCESS"));
     }
 
     @Test

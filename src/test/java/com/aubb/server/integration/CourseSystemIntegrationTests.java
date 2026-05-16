@@ -157,6 +157,13 @@ class CourseSystemIntegrationTests extends AbstractNonRateLimitedIntegrationTest
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].offeringCode").value("CS101-2026SP-01"));
+
+        mockMvc.perform(get("/api/v1/admin/course-offerings")
+                        .header("Authorization", "Bearer " + bizAdminToken)
+                        .param("keyword", "cs101-2026sp-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].offeringCode").value("CS101-2026SP-01"));
     }
 
     @Test
