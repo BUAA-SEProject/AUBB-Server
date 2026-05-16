@@ -54,8 +54,6 @@
   - `aubb_judge_job_executions_total{result=\"succeeded|failed\"}`：judge 任务执行次数；失败率通过 `failed / total` 计算
   - `aubb_judge_job_execution_seconds_count|sum|max{result=\"succeeded|failed\"}`：judge 任务执行耗时
   - `aubb_grading_grade_publications_total{publish_type=\"initial|republish\"}`：成绩发布次数
-  - `aubb_grading_appeal_creations_total`：学生发起申诉数量
-  - `aubb_grading_appeal_reviews_total{result=\"pending|in_review|accepted|rejected\"}`：申诉处理结果数量
 - 当前指标只使用低基数标签；不得把 `assignmentId`、`submissionId`、`userId` 等高基数字段直接写入指标标签。
 - 当前 v1 只暴露最小业务指标，不在仓库内引入额外的 recording rules、告警平台或独立 metrics 服务。
 
@@ -70,7 +68,7 @@
 7. 启用对象存储后，bucket 缺失或不可访问必须能通过健康检查及时暴露，而不是在业务首次写入时才发现。
 8. `aubb.judge.queue.enabled=true` 时，RabbitMQ 必须进入 readiness；若 broker 不可达或评测队列缺失，不能继续返回“应用已就绪”。
 9. `aubb.judge.go-judge.enabled=true` 时，go-judge 必须进入 readiness；若 `/version` 不可达或返回异常响应，必须能从健康检查直接看出故障原因。
-10. Redis 只能作为增强组件，不得承载评测结果、提交记录、最终成绩、成绩发布快照等核心业务真相。
+10. Redis 只能作为增强组件，不得承载评测结果、提交记录、最终成绩等核心业务真相。
 11. Redis 增强链路故障时，登录、refresh、样例试运行、提交创建和上传等高风险接口不得整体放开；至少要保留单实例本地限流兜底。
 12. 涉及异步评测的测试或运维脚本，不得在存在运行中 judge job 时直接批量清库；至少要先 drain 运行中任务，避免 `judge_jobs / submission_answers / audit_logs` 锁顺序反转。
 13. 涉及令牌撤销的改动，必须同时验证 access token 即时失效、refresh token 轮换和用户状态变更触发的旧会话失效，避免只实现半条链路。

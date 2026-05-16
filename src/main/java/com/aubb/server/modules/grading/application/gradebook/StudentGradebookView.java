@@ -19,11 +19,7 @@ public record StudentGradebookView(
             Integer teachingClassRank) {}
 
     public record SummaryView(
-            int assignmentCount,
-            int submittedCount,
-            int gradedCount,
-            int totalFinalScore,
-            int totalMaxScore) {}
+            int assignmentCount, int submittedCount, int gradedCount, int totalFinalScore, int totalMaxScore) {}
 
     public record AssignmentGradeView(
             GradebookPageView.AssignmentColumnView assignment, GradebookPageView.GradeCellView grade) {}

@@ -809,8 +809,6 @@ public class CourseAuthorizationService {
             case GRADE_EXPORT_CLASS, GRADE_EXPORT_OFFERING -> "grade.export";
             case GRADE_OVERRIDE -> "grade.override";
             case GRADE_PUBLISH -> "grade.publish";
-            case APPEAL_READ_OWN, APPEAL_READ_CLASS -> "appeal.read";
-            case APPEAL_REVIEW -> "appeal.review";
             case JUDGE_PROFILE_MANAGE -> "judge.config";
             case JUDGE_HIDDEN_READ, JUDGE_HIDDEN_MANAGE -> "judge.view_hidden";
             case SUBMISSION_REJUDGE -> "judge.rejudge";

@@ -20,7 +20,6 @@
 - `aubb_judge_job_executions_total`
 - `aubb_judge_job_execution_seconds_*`
 - `aubb_grading_grade_publications_total`
-- `aubb_grading_appeal_*`
 
 ## Grafana
 

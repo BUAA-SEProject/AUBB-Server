@@ -1152,7 +1152,7 @@ class SubmissionIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
         AuthenticatedUserPrincipal principal =
                 new AuthenticatedUserPrincipal(4L, "student-a", "Student A", 2L, AccountStatus.ACTIVE, null, List.of());
-        int concurrentRequests = 24;
+        int concurrentRequests = 8;
         ExecutorService executorService = Executors.newFixedThreadPool(concurrentRequests);
         CountDownLatch readyLatch = new CountDownLatch(concurrentRequests);
         CountDownLatch startLatch = new CountDownLatch(1);

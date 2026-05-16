@@ -23,6 +23,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,7 @@ import org.testcontainers.utility.DockerImageName;
 class GradingIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
+    private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
     private static final DockerImageName MINIO_IMAGE =
             DockerImageName.parse("minio/minio:RELEASE.2025-09-07T16-13-09Z");
     private static final String MINIO_ACCESS_KEY = "aubbminio";
@@ -432,11 +434,11 @@ class GradingIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
         MvcResult publishResult = publishGradesForResult(teacherToken, assignmentId);
 
-        assertThat(JsonPath.read(publishResult.getResponse().getContentAsString(), "$.initialPublication"))
+        assertThat((Boolean) JsonPath.read(publishResult.getResponse().getContentAsString(), "$.initialPublication"))
                 .isEqualTo(true);
-        assertThat(JsonPath.read(publishResult.getResponse().getContentAsString(), "$.assignmentId"))
+        assertThat((Integer) JsonPath.read(publishResult.getResponse().getContentAsString(), "$.assignmentId"))
                 .isEqualTo(assignmentId.intValue());
-        assertThat(JsonPath.read(publishResult.getResponse().getContentAsString(), "$.publishedAt"))
+        assertThat((String) JsonPath.read(publishResult.getResponse().getContentAsString(), "$.publishedAt"))
                 .isNotNull();
 
         assertThat(counterValue(GradingMetricsRecorder.GRADE_PUBLICATIONS_METRIC, "publish_type", "initial")
@@ -501,14 +503,14 @@ class GradingIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
         gradeAnswer(teacherToken, submissionId, fileAnswerId, 27, "报告结构完整，实验现象分析还可更深入。");
 
         MvcResult firstPublish = publishGradesForResult(teacherToken, assignmentId);
-        assertThat(JsonPath.read(firstPublish.getResponse().getContentAsString(), "$.initialPublication"))
+        assertThat((Boolean) JsonPath.read(firstPublish.getResponse().getContentAsString(), "$.initialPublication"))
                 .isEqualTo(true);
         String firstPublishedAt = JsonPath.read(firstPublish.getResponse().getContentAsString(), "$.publishedAt");
 
         gradeAnswer(teacherToken, submissionId, fileAnswerId, 29, "第二次发布前补充了实验分析。");
 
         MvcResult secondPublish = publishGradesForResult(teacherToken, assignmentId);
-        assertThat(JsonPath.read(secondPublish.getResponse().getContentAsString(), "$.initialPublication"))
+        assertThat((Boolean) JsonPath.read(secondPublish.getResponse().getContentAsString(), "$.initialPublication"))
                 .isEqualTo(false);
         String secondPublishedAt = JsonPath.read(secondPublish.getResponse().getContentAsString(), "$.publishedAt");
 
@@ -878,195 +880,6 @@ class GradingIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
     }
 
     @Test
-    void droppedStudentCanCreateAndListOwnAppealsAsHistoryButActiveStudentWithoutRoleBindingsCannot() throws Exception {
-        String schoolAdminToken = login("school-admin", "Password123");
-        String engAdminToken = login("eng-admin", "Password123");
-        String teacherToken = login("teacher-main", "Password123");
-        String studentToken = login("student-a", "Password123");
-
-        Long termId = createTerm(schoolAdminToken);
-        Long catalogId = createCatalog(engAdminToken);
-        Long offeringId = createOffering(engAdminToken, catalogId, termId);
-        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
-        addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
-        studentToken = login("student-a", "Password123");
-
-        Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
-        publishAssignment(teacherToken, assignmentId);
-
-        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + studentToken))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        Long objectiveQuestionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
-        Long shortAnswerQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[0].id");
-        Long fileQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[1].id");
-        Long artifactId =
-                uploadArtifact(studentToken, assignmentId, "report.pdf", "application/pdf", "%PDF-1.7\nreport");
-
-        MvcResult submissionResult = mockMvc.perform(post(
-                                "/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
-                        .header("Authorization", "Bearer " + studentToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "answers":[
-                                    {"assignmentQuestionId":%s,"selectedOptionKeys":["A"]},
-                                    {"assignmentQuestionId":%s,"answerText":"路径压缩会在查找时递归压缩父指针。"},
-                                    {"assignmentQuestionId":%s,"artifactIds":[%s]}
-                                  ]
-                                }
-                                """.formatted(objectiveQuestionId, shortAnswerQuestionId, fileQuestionId, artifactId)))
-                .andExpect(status().isCreated())
-                .andReturn();
-
-        Long submissionId = readLong(submissionResult, "$.id");
-        Long shortAnswerId = readLong(submissionResult, "$.answers[1].id");
-        Long fileAnswerId = readLong(submissionResult, "$.answers[2].id");
-
-        gradeAnswer(teacherToken, submissionId, shortAnswerId, 18, "当前先给 18 分。");
-        gradeAnswer(teacherToken, submissionId, fileAnswerId, 27, "报告结构完整。");
-        publishGrades(teacherToken, assignmentId);
-
-        jdbcTemplate.update("DELETE FROM role_bindings WHERE user_id = ?", 6L);
-
-        mockMvc.perform(post(
-                                "/api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals",
-                                submissionId,
-                                shortAnswerId)
-                        .header("Authorization", "Bearer " + studentToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "reason":"当前学生删除 role binding 后不应继续发起申诉。"
-                                }
-                                """))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/grade-appeals", offeringId)
-                        .header("Authorization", "Bearer " + studentToken))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        jdbcTemplate.update("""
-                UPDATE course_members
-                SET member_status = 'DROPPED', updated_at = now()
-                WHERE offering_id = ? AND user_id = ? AND member_role = 'STUDENT'
-                """, offeringId, 6L);
-
-        MvcResult appealResult = mockMvc.perform(post(
-                                "/api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals",
-                                submissionId,
-                                shortAnswerId)
-                        .header("Authorization", "Bearer " + studentToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "reason":"退课后仍应允许申诉本人历史成绩。"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.submissionId").value(submissionId))
-                .andReturn();
-        Long appealId = readLong(appealResult, "$.id");
-
-        mockMvc.perform(get("/api/v1/me/course-offerings/{offeringId}/grade-appeals", offeringId)
-                        .header("Authorization", "Bearer " + studentToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].id").value(appealId))
-                .andExpect(jsonPath("$[0].submissionId").value(submissionId));
-    }
-
-    @Test
-    void classInstructorCanAcceptAppealWithinOwnedTeachingClass() throws Exception {
-        String schoolAdminToken = login("school-admin", "Password123");
-        String engAdminToken = login("eng-admin", "Password123");
-        String teacherToken = login("teacher-main", "Password123");
-        String classInstructorToken = login("class-instructor", "Password123");
-        String studentToken = login("student-a", "Password123");
-
-        Long termId = createTerm(schoolAdminToken);
-        Long catalogId = createCatalog(engAdminToken);
-        Long offeringId = createOffering(engAdminToken, catalogId, termId);
-        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-A", "A班", 2026);
-        addMember(teacherToken, offeringId, 6L, "STUDENT", classId);
-        addMember(teacherToken, offeringId, 7L, "CLASS_INSTRUCTOR", classId);
-        classInstructorToken = login("class-instructor", "Password123");
-        studentToken = login("student-a", "Password123");
-
-        Long assignmentId = createGradableStructuredAssignment(teacherToken, offeringId, classId);
-        publishAssignment(teacherToken, assignmentId);
-
-        MvcResult assignmentResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
-                        .header("Authorization", "Bearer " + studentToken))
-                .andExpect(status().isOk())
-                .andReturn();
-        Long objectiveQuestionId = readLong(assignmentResult, "$.paper.sections[0].questions[0].id");
-        Long shortAnswerQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[0].id");
-        Long fileQuestionId = readLong(assignmentResult, "$.paper.sections[1].questions[1].id");
-        Long artifactId =
-                uploadArtifact(studentToken, assignmentId, "report.pdf", "application/pdf", "%PDF-1.7\nreport");
-
-        MvcResult submissionResult = mockMvc.perform(post(
-                                "/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
-                        .header("Authorization", "Bearer " + studentToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "answers":[
-                                    {"assignmentQuestionId":%s,"selectedOptionKeys":["A"]},
-                                    {"assignmentQuestionId":%s,"answerText":"路径压缩会在查找时压缩父指针。"},
-                                    {"assignmentQuestionId":%s,"artifactIds":[%s]}
-                                  ]
-                                }
-                                """.formatted(objectiveQuestionId, shortAnswerQuestionId, fileQuestionId, artifactId)))
-                .andExpect(status().isCreated())
-                .andReturn();
-        Long submissionId = readLong(submissionResult, "$.id");
-        Long shortAnswerId = readLong(submissionResult, "$.answers[1].id");
-        Long fileAnswerId = readLong(submissionResult, "$.answers[2].id");
-
-        gradeAnswer(classInstructorToken, submissionId, shortAnswerId, 18, "补充按秩合并可更完整。");
-        gradeAnswer(classInstructorToken, submissionId, fileAnswerId, 27, "实验报告结构完整。");
-        publishGrades(teacherToken, assignmentId);
-
-        MvcResult appealResult = mockMvc.perform(post(
-                                "/api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals",
-                                submissionId,
-                                shortAnswerId)
-                        .header("Authorization", "Bearer " + studentToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "reason":"已补充按秩合并说明，请重新评估。"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andReturn();
-        Long appealId = readLong(appealResult, "$.id");
-
-        mockMvc.perform(post("/api/v1/teacher/grade-appeals/{appealId}/review", appealId)
-                        .header("Authorization", "Bearer " + classInstructorToken)
-                        .contentType("application/json")
-                        .content("""
-                                {
-                                  "decision":"ACCEPTED",
-                                  "responseText":"补充分点有效，予以加分。",
-                                  "revisedScore":20,
-                                  "revisedFeedbackText":"复核后按满分计。"
-                                }
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ACCEPTED"))
-                .andExpect(jsonPath("$.resolvedScore").value(20))
-                .andExpect(jsonPath("$.currentFinalScore").value(20))
-                .andExpect(jsonPath("$.respondedByUserId").value(7));
-    }
-
-    @Test
     void teachingAssistantCannotGradeSubmissionOutsideOwnedClass() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -1282,8 +1095,8 @@ class GradingIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                                   "title":"结构化批改作业",
                                   "description":"客观题 + 简答题 + 文件题",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":2,
                                   "paper":{
                                     "sections":[
@@ -1329,10 +1142,18 @@ class GradingIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                                     ]
                                   }
                                 }
-                                """.formatted(classId)))
+                                """.formatted(classId, openAt(), dueAt())))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
+    }
+
+    private String openAt() {
+        return OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1).format(OFFSET_DATE_TIME);
+    }
+
+    private String dueAt() {
+        return OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(30).format(OFFSET_DATE_TIME);
     }
 
     private void publishAssignment(String token, Long assignmentId) throws Exception {

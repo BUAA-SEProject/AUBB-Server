@@ -292,7 +292,7 @@ school
 * IDE 资源
 * 报表资源
 * 公告与资源文件
-* 申诉与审计资源
+* 审计资源
 
 ## 9.3 权限点清单
 
@@ -410,13 +410,9 @@ report.export
 analytics.read
 ```
 
-### 9.3.10 申诉与审计类
+### 9.3.10 审计类
 
 ```text
-appeal.create
-appeal.read
-appeal.review
-
 audit.read
 audit.export
 ```
@@ -568,7 +564,6 @@ audit.export
 * 使用 IDE 进行试运行与提交
 * 查看自己的提交
 * 查看自己的已发布成绩
-* 发起申诉
 * 查看可见教学资源
 
 ### 默认不拥有

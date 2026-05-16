@@ -9,8 +9,6 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
-import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
-import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealMapper;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
 import com.aubb.server.modules.submission.infrastructure.SubmissionEntity;
@@ -40,20 +38,12 @@ class ResourceOwnershipResolutionServiceTests {
     @Mock
     private SubmissionMapper submissionMapper;
 
-    @Mock
-    private GradeAppealMapper gradeAppealMapper;
-
     private ResourceOwnershipResolutionService service;
 
     @BeforeEach
     void setUp() {
         service = new ResourceOwnershipResolutionService(
-                orgUnitMapper,
-                courseOfferingMapper,
-                teachingClassMapper,
-                assignmentMapper,
-                submissionMapper,
-                gradeAppealMapper);
+                orgUnitMapper, courseOfferingMapper, teachingClassMapper, assignmentMapper, submissionMapper);
     }
 
     @Test
@@ -108,23 +98,6 @@ class ResourceOwnershipResolutionServiceTests {
         assertThat(resolved.ownerUserId()).isEqualTo(88L);
         assertThat(resolved.windowStart()).isEqualTo(assignment.getOpenAt());
         assertThat(resolved.windowEnd()).isEqualTo(assignment.getDueAt());
-    }
-
-    @Test
-    void shouldResolveGradeAppealOwnerAndTeachingScope() {
-        mockOfferingChain();
-        GradeAppealEntity appeal = new GradeAppealEntity();
-        appeal.setId(701L);
-        appeal.setOfferingId(10L);
-        appeal.setTeachingClassId(100L);
-        appeal.setStudentUserId(66L);
-        when(gradeAppealMapper.selectById(701L)).thenReturn(appeal);
-
-        ResolvedAuthorizationResource resolved =
-                service.resolve(new AuthorizationResourceRef(AuthorizationResourceType.GRADE_APPEAL, 701L));
-
-        assertThat(resolved.scopePath()).isEqualTo(AuthorizationScopePath.forClass(1L, 2L, 3L, 10L, 100L));
-        assertThat(resolved.ownerUserId()).isEqualTo(66L);
     }
 
     private void mockOfferingChain() {

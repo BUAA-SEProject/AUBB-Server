@@ -107,7 +107,6 @@ class AssignmentIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].title").value("链表实验一"))
-                .andExpect(jsonPath("$.items[0].gradeWeight").value(100))
                 .andExpect(jsonPath("$.items[0].teachingClass.id").value(classId));
 
         assertThat(queryForCount("SELECT COUNT(*) FROM assignments WHERE offering_id = 1"))

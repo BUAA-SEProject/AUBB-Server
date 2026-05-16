@@ -48,9 +48,6 @@ class HarnessHealthSmokeTests {
                         .string(org.hamcrest.Matchers.containsString("aubb_judge_job_execution_seconds_count")))
                 .andExpect(
                         content().string(org.hamcrest.Matchers.containsString("aubb_grading_grade_publications_total")))
-                .andExpect(
-                        content().string(org.hamcrest.Matchers.containsString("aubb_grading_appeal_creations_total")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("aubb_grading_appeal_reviews_total")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("aubb_judge_queue_depth")));
     }
 }

@@ -100,8 +100,7 @@ public class CourseResourceApplicationService {
     }
 
     @Transactional
-    public CourseResourceView updateResourceTitle(
-            Long resourceId, String title, AuthenticatedUserPrincipal principal) {
+    public CourseResourceView updateResourceTitle(Long resourceId, String title, AuthenticatedUserPrincipal principal) {
         CourseResourceEntity entity = requireResource(resourceId);
         courseAuthorizationService.assertCanManageResources(
                 principal, entity.getOfferingId(), entity.getTeachingClassId());

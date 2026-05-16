@@ -49,6 +49,7 @@
 - `src/main/resources/db/migration/V45__question_bank_manage_role_compat.sql`
 - `src/main/resources/db/migration/V46__legacy_binding_activation_tolerance.sql`
 - `src/main/resources/db/migration/V47__expand_legacy_binding_activation_tolerance_window.sql`
+- `src/main/resources/db/migration/V48__simplify_gradebook_remove_weight_snapshots_appeals.sql`
 
 ## 总览
 
@@ -93,16 +94,13 @@
 - `submissions`：正式提交记录
 - `submission_artifacts`：提交附件元数据
 - `submission_answers`：分题答案、人工批改与题目级评测回写状态
-- `grade_appeals`：成绩申诉与复核记录
-- `grade_publish_snapshot_batches`：assignment 成绩发布批次头
-- `grade_publish_snapshots`：按学生展开的成绩发布快照
 - `programming_workspaces`：编程题工作区草稿
 - `programming_workspace_revisions`：工作区历史修订与恢复点
 - `judge_jobs`：submission 级与 answer 级评测作业元数据
 - `programming_sample_runs`：样例试运行日志
 - `audit_logs`：关键治理与认证审计日志
 
-## 权限系统与兼容迁移增量（V37-V47）
+## 权限系统与兼容迁移增量（V37-V48）
 
 V37 在保留 `user_scope_roles`、`course_members`、`auth_group_*` 兼容链路的同时，引入新的统一权限基础结构：
 
@@ -125,6 +123,7 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 - V45：为题库管理路径补齐 `question_bank.manage` 兼容权限
 - V46：引入 `legacy_binding_effective_from(...)` 与三类 legacy -> `role_bindings` 同步函数，缓解新绑定刚创建后的瞬时未生效窗口
 - V47：将 legacy binding 激活容忍窗口从 `1 second` 扩展到 `3 seconds`，并与应用层/授权查询容忍逻辑保持一致，避免教师建班后紧邻请求误判 `DENY_NO_ROLE_BINDING`
+- V48：删除 `grade_appeals`、`grade_publish_snapshot_batches`、`grade_publish_snapshots`、`assignments.grade_weight` 和申诉相关权限，成绩册回到直接聚合提交/分题答案的简化模型
 - V42：补齐 `discussion.*`、`lab.*` 权限点及角色映射
 - V43：补齐 `auth.group.manage`、`auth.explain.read` 以及 judge / grade import 兼容角色映射
 - V44：为 `offering_teacher` 增补 `member.manage / member.import`
@@ -393,7 +392,6 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 | `open_at` | `timestamptz` | 必填，开放时间 |
 | `due_at` | `timestamptz` | 必填，截止时间，且不早于 `open_at` |
 | `max_submissions` | `integer` | 必填，`> 0` |
-| `grade_weight` | `integer` | 必填，默认 `100`，`> 0` |
 | `published_at` | `timestamptz` | 发布时间 |
 | `closed_at` | `timestamptz` | 关闭时间，若存在则不早于 `published_at` |
 | `grade_published_at` | `timestamptz` | assignment 级成绩发布时间 |
@@ -409,7 +407,6 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 - `ix_assignments_open_at_due_at`
 - `idx_assignments_grade_published_at`
 - `idx_assignments_visible_open_at_id`
-- `ck_assignments_grade_weight_positive`
 
 ### `labs`
 
@@ -772,88 +769,6 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 - `idx_submission_answers_graded_by_user_id`
 - `ck_submission_answers_score_consistency`
 
-### `grade_appeals`
-
-| 列名 | 类型 | 约束 / 说明 |
-| --- | --- | --- |
-| `id` | `bigint` | 主键，identity |
-| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id` |
-| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id` |
-| `assignment_id` | `bigint` | 必填，外键到 `assignments.id` |
-| `submission_id` | `bigint` | 必填，外键到 `submissions.id` |
-| `submission_answer_id` | `bigint` | 必填，外键到 `submission_answers.id` |
-| `student_user_id` | `bigint` | 必填，申诉发起学生，外键到 `users.id` |
-| `status` | `varchar(32)` | 必填，`PENDING / IN_REVIEW / ACCEPTED / REJECTED` |
-| `appeal_reason` | `text` | 必填，申诉原因 |
-| `response_text` | `text` | 可空，教师 / 助教复核回复 |
-| `resolved_score` | `integer` | 可空，申诉处理后的分数 |
-| `responded_by_user_id` | `bigint` | 可空，复核人，外键到 `users.id` |
-| `responded_at` | `timestamptz` | 可空，复核时间 |
-| `created_at` | `timestamptz` | 必填，默认 `now()` |
-| `updated_at` | `timestamptz` | 必填，默认 `now()` |
-
-索引与约束：
-
-- `idx_grade_appeals_assignment_created`
-- `idx_grade_appeals_student_created`
-- `idx_grade_appeals_submission_answer`
-- `uq_grade_appeals_active_answer`
-
-### `grade_publish_snapshot_batches`
-
-| 列名 | 类型 | 约束 / 说明 |
-| --- | --- | --- |
-| `id` | `bigint` | 主键，identity |
-| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
-| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
-| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
-| `publish_sequence` | `integer` | 必填，作业内发布序号，`>= 1` |
-| `snapshot_count` | `integer` | 必填，默认 `0`，`>= 0` |
-| `initial_publication` | `boolean` | 必填，是否首次发布 |
-| `published_at` | `timestamptz` | 必填，本批次快照采集时间 |
-| `published_by_user_id` | `bigint` | 可空，发布人，外键到 `users.id`，删除置空 |
-| `created_at` | `timestamptz` | 必填，默认 `now()` |
-
-索引与约束：
-
-- `ux_grade_publish_snapshot_batches_assignment_sequence`
-- `idx_grade_publish_snapshot_batches_assignment_published_at`
-- `idx_grade_publish_snapshot_batches_offering_published_at`
-- `ck_grade_publish_snapshot_batches_sequence`
-- `ck_grade_publish_snapshot_batches_count`
-
-### `grade_publish_snapshots`
-
-| 列名 | 类型 | 约束 / 说明 |
-| --- | --- | --- |
-| `id` | `bigint` | 主键，identity |
-| `publish_batch_id` | `bigint` | 必填，外键到 `grade_publish_snapshot_batches.id`，级联删除 |
-| `assignment_id` | `bigint` | 必填，外键到 `assignments.id`，级联删除 |
-| `offering_id` | `bigint` | 必填，外键到 `course_offerings.id`，级联删除 |
-| `teaching_class_id` | `bigint` | 可空，外键到 `teaching_classes.id`，删除置空 |
-| `student_user_id` | `bigint` | 必填，外键到 `users.id`，级联删除 |
-| `submission_id` | `bigint` | 可空，外键到 `submissions.id`，删除置空 |
-| `submission_no` | `text` | 可空，提交编号快照 |
-| `attempt_no` | `integer` | 可空，若存在则 `>= 1` |
-| `submitted_at` | `timestamptz` | 可空，提交时间快照 |
-| `total_final_score` | `integer` | 必填，默认 `0`，`>= 0` |
-| `total_max_score` | `integer` | 必填，默认 `0`，`>= 0` |
-| `auto_scored_score` | `integer` | 必填，默认 `0`，`>= 0` |
-| `manual_scored_score` | `integer` | 可空，人工部分总分 |
-| `fully_graded` | `boolean` | 必填，默认 `false` |
-| `snapshot_json` | `text` | 必填，保存发布时的学生 / 提交 / 成绩摘要 / 分题批改快照 |
-| `created_at` | `timestamptz` | 必填，默认 `now()` |
-
-索引与约束：
-
-- `ux_grade_publish_snapshots_batch_student`
-- `idx_grade_publish_snapshots_assignment_batch`
-- `idx_grade_publish_snapshots_student_batch`
-- `ck_grade_publish_snapshots_attempt_no`
-- `ck_grade_publish_snapshots_total_final_score`
-- `ck_grade_publish_snapshots_total_max_score`
-- `ck_grade_publish_snapshots_auto_scored_score`
-
 ### `programming_workspaces`
 
 | 列名 | 类型 | 约束 / 说明 |
@@ -1081,16 +996,6 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 - `assignments.teaching_class_id -> teaching_classes.id`
 - `assignments.grade_published_by_user_id -> users.id`
 - `assignments.created_by_user_id -> users.id`
-- `grade_publish_snapshot_batches.assignment_id -> assignments.id`
-- `grade_publish_snapshot_batches.offering_id -> course_offerings.id`
-- `grade_publish_snapshot_batches.teaching_class_id -> teaching_classes.id`
-- `grade_publish_snapshot_batches.published_by_user_id -> users.id`
-- `grade_publish_snapshots.publish_batch_id -> grade_publish_snapshot_batches.id`
-- `grade_publish_snapshots.assignment_id -> assignments.id`
-- `grade_publish_snapshots.offering_id -> course_offerings.id`
-- `grade_publish_snapshots.teaching_class_id -> teaching_classes.id`
-- `grade_publish_snapshots.student_user_id -> users.id`
-- `grade_publish_snapshots.submission_id -> submissions.id`
 - `question_bank_questions.offering_id -> course_offerings.id`
 - `question_bank_questions.category_id -> question_bank_categories.id`
 - `question_bank_questions.created_by_user_id -> users.id`
@@ -1124,13 +1029,6 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 - `submission_answers.submission_id -> submissions.id`
 - `submission_answers.assignment_question_id -> assignment_questions.id`
 - `submission_answers.graded_by_user_id -> users.id`
-- `grade_appeals.offering_id -> course_offerings.id`
-- `grade_appeals.teaching_class_id -> teaching_classes.id`
-- `grade_appeals.assignment_id -> assignments.id`
-- `grade_appeals.submission_id -> submissions.id`
-- `grade_appeals.submission_answer_id -> submission_answers.id`
-- `grade_appeals.student_user_id -> users.id`
-- `grade_appeals.responded_by_user_id -> users.id`
 - `programming_workspaces.assignment_id -> assignments.id`
 - `programming_workspaces.assignment_question_id -> assignment_questions.id`
 - `programming_workspaces.user_id -> users.id`
@@ -1165,9 +1063,7 @@ V38-V46 在不新增核心业务表的前提下，继续把权限与成员链路
 - `assignment_sections / assignment_questions / assignment_question_options` 用于表达结构化试卷的快照，不再把题目结构塞进 assignment 单列字段。
 - `submissions` 当前表达正式提交受理，并允许文本内容为空以支持附件型提交。
 - `submission_artifacts` 采用“先上传元数据，再在正式提交时绑定 submission”的两阶段模型。
-- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕；编程题自动评测失败时会把 `grading_status` 标记为 `PROGRAMMING_JUDGE_FAILED`，便于与“仍在等待评测”的 `PENDING_PROGRAMMING_JUDGE` 区分。成绩册排名、通过率和 batch-adjust 第一阶段都继续复用该表，不新增独立成绩明细表。
-- `grade_appeals` 当前保存学生围绕非客观题答案发起的成绩申诉和复核结果，约束“同一答案同一时间最多一个活动申诉”。
-- `grade_publish_snapshot_batches / grade_publish_snapshots` 当前作为成绩发布快照 v1 的最小追踪模型存在；每次 assignment 级成绩发布都会生成一个新批次，快照按“每个学生最新正式提交”写入，不直接替代现有成绩读取链路。
+- `submission_answers` 当前承载分题答案、客观题自动得分、人工批改结果、批改反馈与批改人留痕；编程题自动评测失败时会把 `grading_status` 标记为 `PROGRAMMING_JUDGE_FAILED`，便于与“仍在等待评测”的 `PENDING_PROGRAMMING_JUDGE` 区分。V48 后成绩册排名、通过率和 batch-adjust 第一阶段都继续复用该表，不新增独立成绩明细表，也不再保留成绩申诉或发布快照表。
 - `programming_workspaces` 用于保存学生在单道编程题上的目录树工作区快照，不改变正式提交版本号和成绩语义，并兼容 legacy `codeText`；当前还会记录目录列表与最近一次标准输入，便于断线恢复。
 - `programming_workspace_revisions` 以追加写方式保存工作区历史版本，用于模板重置、历史恢复和试运行复用，不单独引入复杂的增量补丁协议。
 - `assignment_judge_profiles` 当前只表达 `PYTHON3 + TEXT_BODY` 的脚本型自动评测配置。

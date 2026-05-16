@@ -62,8 +62,7 @@ public class CourseResourceTeacherController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("isAuthenticated()")
     public void deleteResource(
-            @PathVariable Long resourceId,
-            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+            @PathVariable Long resourceId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         courseResourceApplicationService.deleteResource(resourceId, principal);
     }
 

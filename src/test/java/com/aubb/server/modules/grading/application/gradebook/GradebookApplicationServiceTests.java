@@ -104,7 +104,7 @@ class GradebookApplicationServiceTests {
                 .thenReturn(new GradebookQueryRepository.GradebookReportAggregate(
                         new GradebookPageView.ScopeView(100L, null, null, null),
                         new GradebookReportView.OverviewView(
-                                1, 1, 1, 1, 1, 1, 1, 1.0, 1.0, 1.0, 1.0, 10.0, 1.0, 10.0, 1.0, List.of()),
+                                1, 1, 1, 1, 1, 1, 1, 1.0, 1.0, 1.0, 1.0, 10.0, 1.0, List.of()),
                         List.of(),
                         List.of()));
 

@@ -81,6 +81,8 @@
 - `GET /api/v1/me/announcements/{announcementId}`
 - `POST /api/v1/teacher/course-offerings/{offeringId}/resources`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/resources`
+- `PUT /api/v1/teacher/course-resources/{resourceId}`
+- `DELETE /api/v1/teacher/course-resources/{resourceId}`
 - `GET /api/v1/teacher/course-resources/{resourceId}/download`
 - `GET /api/v1/me/course-classes/{teachingClassId}/resources`
 - `GET /api/v1/me/course-resources/{resourceId}/download`
@@ -155,15 +157,13 @@
 - `saveKind=AUTO` 且工作区无变更时不会新增新修订，返回体会继续回放当前 `latestRevisionId / latestRevisionNo / latestRevisionKind`
 - `GET /sample-runs/{sampleRunId}` 在详细报告对象缺失时不再返回 500，而是返回摘要字段，并附带 `detailReportUnavailableReasonCode`
 
-### 批改、成绩册与申诉
+### 批改与成绩册
 
 - `POST /api/v1/teacher/submissions/{submissionId}/answers/{answerId}/grade`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/batch-adjust`
 - `GET /api/v1/teacher/assignments/{assignmentId}/grades/import-template`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/import`
 - `POST /api/v1/teacher/assignments/{assignmentId}/grades/publish`
-- `GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches`
-- `GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches/{batchId}`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/export`
 - `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/report`
@@ -173,10 +173,6 @@
 - `GET /api/v1/teacher/course-offerings/{offeringId}/students/{studentUserId}/gradebook`
 - `GET /api/v1/me/course-offerings/{offeringId}/gradebook`
 - `GET /api/v1/me/course-offerings/{offeringId}/gradebook/export`
-- `POST /api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals`
-- `GET /api/v1/me/course-offerings/{offeringId}/grade-appeals`
-- `GET /api/v1/teacher/assignments/{assignmentId}/grade-appeals`
-- `POST /api/v1/teacher/grade-appeals/{appealId}/review`
 
 ### 实验与实验报告
 

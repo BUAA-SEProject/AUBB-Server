@@ -9,6 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,7 @@ import org.springframework.test.web.servlet.MvcResult;
 class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
+    private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     @Autowired
     private MockMvc mockMvc;
@@ -381,8 +385,8 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                   "title":"引用已归档题目的作业",
                                   "description":"不应成功",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":1,
                                   "paper":{
                                     "sections":[
@@ -395,7 +399,7 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                     ]
                                   }
                                 }
-                                """.formatted(classId, bankQuestionId)))
+                                """.formatted(classId, openAt(), dueAt(), bankQuestionId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("QUESTION_BANK_QUESTION_ARCHIVED"));
     }
@@ -433,10 +437,9 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                 {
                                   "title":"结构化作业一（修订）",
                                   "description":"改成课程公共作业",
-                                  "openAt":"2026-04-02T08:00:00+08:00",
-                                  "dueAt":"2026-05-05T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":5,
-                                  "gradeWeight":40,
                                   "paper":{
                                     "sections":[
                                       {
@@ -464,13 +467,12 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                     ]
                                   }
                                 }
-                                """.formatted(bankQuestionId)))
+                                """.formatted(openAt(), dueAt(), bankQuestionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("结构化作业一（修订）"))
                 .andExpect(jsonPath("$.description").value("改成课程公共作业"))
                 .andExpect(jsonPath("$.teachingClass").doesNotExist())
                 .andExpect(jsonPath("$.maxSubmissions").value(5))
-                .andExpect(jsonPath("$.gradeWeight").value(40))
                 .andExpect(jsonPath("$.paper.sectionCount").value(2))
                 .andExpect(jsonPath("$.paper.questionCount").value(2))
                 .andExpect(jsonPath("$.paper.totalScore").value(30))
@@ -494,11 +496,11 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                 {
                                   "title":"发布后不允许编辑",
                                   "description":"应被拒绝",
-                                  "openAt":"2026-04-02T08:00:00+08:00",
-                                  "dueAt":"2026-05-05T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":5
                                 }
-                                """))
+                                """.formatted(openAt(), dueAt())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ASSIGNMENT_STATUS_INVALID"));
     }
@@ -1238,8 +1240,8 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                   "title":"结构化作业一",
                                   "description":"含题库和多题型",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":3,
                                   "paper":{
                                     "sections":[
@@ -1315,7 +1317,7 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                     ]
                                   }
                                 }
-                                """.formatted(classId, bankQuestionId)))
+                                """.formatted(classId, openAt(), dueAt(), bankQuestionId)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
@@ -1331,8 +1333,8 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                   "title":"环境模板快照作业",
                                   "description":"验证题目快照固化模板",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":2,
                                   "paper":{
                                     "sections":[
@@ -1345,7 +1347,7 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                     ]
                                   }
                                 }
-                                """.formatted(classId, bankQuestionId)))
+                                """.formatted(classId, openAt(), dueAt(), bankQuestionId)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
@@ -1361,8 +1363,8 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                   "title":"自动评分作业",
                                   "description":"结构化客观题作业",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":3,
                                   "paper":{
                                     "sections":[
@@ -1398,7 +1400,7 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                     ]
                                   }
                                 }
-                                """.formatted(classId, bankQuestionId)))
+                                """.formatted(classId, openAt(), dueAt(), bankQuestionId)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
@@ -1409,6 +1411,14 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                         .header("Authorization", "Bearer " + resolveTeacherToken(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
+    }
+
+    private String openAt() {
+        return OffsetDateTime.now(ZoneOffset.ofHours(8)).minusDays(1).format(OFFSET_DATE_TIME);
+    }
+
+    private String dueAt() {
+        return OffsetDateTime.now(ZoneOffset.ofHours(8)).plusDays(30).format(OFFSET_DATE_TIME);
     }
 
     private String login(String username, String password) throws Exception {

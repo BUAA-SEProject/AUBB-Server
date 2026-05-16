@@ -12,5 +12,15 @@ ALTER TABLE assignments DROP CONSTRAINT IF EXISTS chk_assignments_grade_weight_p
 ALTER TABLE assignments DROP COLUMN IF EXISTS grade_weight;
 
 -- 4. Clean up appeal permissions
-DELETE FROM builtin_role_permissions WHERE permission_code IN ('appeal.read.own', 'appeal.read.class', 'appeal.review');
-DELETE FROM permissions WHERE code IN ('appeal.read.own', 'appeal.read.class', 'appeal.review', 'appeal.create', 'appeal.read');
+DELETE FROM auth_group_template_permissions
+WHERE permission_code IN ('appeal.read.own', 'appeal.read.class', 'appeal.review');
+DELETE FROM auth_permission_defs
+WHERE code IN ('appeal.read.own', 'appeal.read.class', 'appeal.review');
+
+DELETE FROM role_permissions
+WHERE permission_id IN (
+    SELECT id
+    FROM permissions
+    WHERE code IN ('appeal.create', 'appeal.read', 'appeal.review')
+);
+DELETE FROM permissions WHERE code IN ('appeal.create', 'appeal.read', 'appeal.review');

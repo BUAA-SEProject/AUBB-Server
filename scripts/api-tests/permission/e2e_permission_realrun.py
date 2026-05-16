@@ -23,6 +23,18 @@ from verify_authz_matrix import ApiClient, HttpFailure  # pylint: disable=wrong-
 UTC_PLUS_8 = timezone(timedelta(hours=8))
 DEFAULT_PASSWORD = "Password123"
 AUTHZ_DENIED_ACTION = "AUTHZ_DENIED"
+FIXTURE_PERMISSION_GRANT_AFFECTED_USERS = [
+    "U-TA1",
+    "U-TA3",
+    "U-TA2",
+    "U-TAO1",
+    "U-TAC1",
+    "U-ST1",
+    "U-ST2",
+    "U-ST3",
+    "U-M1",
+    "U-STX1",
+]
 
 
 @dataclass
@@ -485,6 +497,12 @@ def refresh_login(context: FixtureContext, login_key: str, username: str) -> str
     context.login_results[login_key] = login_result
     context.tokens[login_key] = get_access_token(login_result)
     return context.tokens[login_key]
+
+
+def refresh_fixture_logins_after_permission_grants(context: FixtureContext, login_fn=refresh_login) -> None:
+    for username in FIXTURE_PERMISSION_GRANT_AFFECTED_USERS:
+        login_fn(context, username, username)
+    record_fixture(context, "reset", "fixture-logins-refreshed-after-permission-grants")
 
 
 def record_fixture(context: FixtureContext, channel: str, label: str) -> None:
@@ -1257,6 +1275,7 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
         % context.ids["Offer-A-Archived"]
     )
     record_fixture(context, "sql", "Offer-A-Archived.status=ARCHIVED")
+    refresh_fixture_logins_after_permission_grants(context)
 
     return context
 

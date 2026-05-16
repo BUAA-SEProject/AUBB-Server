@@ -55,8 +55,7 @@ public class CourseAnnouncementTeacherController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("isAuthenticated()")
     public void deleteAnnouncement(
-            @PathVariable Long announcementId,
-            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+            @PathVariable Long announcementId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         courseAnnouncementApplicationService.deleteAnnouncement(announcementId, principal);
     }
 
@@ -78,6 +77,5 @@ public class CourseAnnouncementTeacherController {
             @NotBlank String body) {}
 
     public record UpdateAnnouncementRequest(
-            @NotBlank String title,
-            @NotBlank String body) {}
+            @NotBlank String title, @NotBlank String body) {}
 }

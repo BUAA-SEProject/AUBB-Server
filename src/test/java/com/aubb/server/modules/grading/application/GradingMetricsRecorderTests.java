@@ -28,5 +28,4 @@ class GradingMetricsRecorderTests {
                         .count())
                 .isEqualTo(1.0d);
     }
-
 }

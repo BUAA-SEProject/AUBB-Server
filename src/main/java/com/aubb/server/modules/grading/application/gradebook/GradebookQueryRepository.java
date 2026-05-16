@@ -147,29 +147,12 @@ class GradebookQueryRepository {
                                 0.0,
                                 0.0,
                                 0.0,
-                                0.0,
-                                0.0,
                                 zeroScoreBands(rs.getInt("student_count"))))
                 : List.of();
         return new GradebookReportAggregate(
                 scope,
                 new GradebookReportView.OverviewView(
-                        0,
-                        studentCount,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        zeroScoreBands(studentCount)),
+                        0, studentCount, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, zeroScoreBands(studentCount)),
                 List.of(),
                 teachingClasses);
     }

@@ -15,11 +15,8 @@ import org.springframework.stereotype.Component;
 @Order(30)
 public class SelfActionGuard implements PolicyGuard {
 
-    private static final Set<PermissionCode> SELF_FORBIDDEN_PERMISSIONS = Set.of(
-            PermissionCode.SUBMISSION_GRADE,
-            PermissionCode.GRADE_OVERRIDE,
-            PermissionCode.APPEAL_REVIEW,
-            PermissionCode.LAB_REPORT_REVIEW);
+    private static final Set<PermissionCode> SELF_FORBIDDEN_PERMISSIONS =
+            Set.of(PermissionCode.SUBMISSION_GRADE, PermissionCode.GRADE_OVERRIDE, PermissionCode.LAB_REPORT_REVIEW);
 
     @Override
     public Optional<AuthorizationDecision> evaluate(AuthorizationRequest request, List<PermissionGrantView> grants) {

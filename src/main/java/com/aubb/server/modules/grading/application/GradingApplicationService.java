@@ -34,11 +34,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -301,9 +299,7 @@ public class GradingApplicationService {
                 "ASSIGNMENT",
                 String.valueOf(assignmentId),
                 AuditResult.SUCCESS,
-                Map.of(
-                        "offeringId", assignment.getOfferingId(),
-                        "initialPublication", initialPublication));
+                Map.of("offeringId", assignment.getOfferingId(), "initialPublication", initialPublication));
         sensitiveOperationAuditService.recordAllowed(
                 principal,
                 AuditAction.GRADE_PUBLISH,

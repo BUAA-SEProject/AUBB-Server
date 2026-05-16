@@ -10,7 +10,7 @@
 - 作业 / 题库 / 结构化试卷
 - 提交 / 附件 / 编程工作区 / 样例试运行
 - 自动评测 / 评测环境 / 评测报告
-- 批改 / 成绩发布 / 成绩册 / 申诉
+- 批改 / 成绩发布 / 成绩册
 - 实验 / 实验报告 / 实验附件
 - 站内通知 / 未读数 / SSE 订阅
 
@@ -273,27 +273,24 @@
 - 学生视图默认不要展示隐藏测试明文
 - 失败状态要区分“评测失败”和“仍在排队”
 
-### 5.8 批改、成绩发布、成绩册、申诉
+### 5.8 批改、成绩发布、成绩册
 
 | 页面 | 接口 |
 | --- | --- |
 | 教师人工批改 | `POST /api/v1/teacher/submissions/{submissionId}/answers/{answerId}/grade` |
 | 批量调分 | `POST /api/v1/teacher/assignments/{assignmentId}/grades/batch-adjust` |
 | 成绩导入模板/导入 | `GET /api/v1/teacher/assignments/{assignmentId}/grades/import-template`、`POST /api/v1/teacher/assignments/{assignmentId}/grades/import` |
-| 成绩发布与发布批次 | `POST /api/v1/teacher/assignments/{assignmentId}/grades/publish`、`GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches`、`GET /api/v1/teacher/assignments/{assignmentId}/grade-publish-batches/{batchId}` |
+| 成绩发布 | `POST /api/v1/teacher/assignments/{assignmentId}/grades/publish` |
 | 教师成绩册 | `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook`、`GET /api/v1/teacher/teaching-classes/{teachingClassId}/gradebook` |
 | 教师成绩导出/统计 | `GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/export`、`GET /api/v1/teacher/course-offerings/{offeringId}/gradebook/report`、`GET /api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/export`、`GET /api/v1/teacher/teaching-classes/{teachingClassId}/gradebook/report` |
 | 单学生成绩册 | `GET /api/v1/teacher/course-offerings/{offeringId}/students/{studentUserId}/gradebook` |
 | 学生成绩册/导出 | `GET /api/v1/me/course-offerings/{offeringId}/gradebook`、`GET /api/v1/me/course-offerings/{offeringId}/gradebook/export` |
-| 学生申诉 | `POST /api/v1/me/submissions/{submissionId}/answers/{answerId}/appeals` |
-| 学生申诉列表 | `GET /api/v1/me/course-offerings/{offeringId}/grade-appeals` |
-| 教师申诉处理 | `GET /api/v1/teacher/assignments/{assignmentId}/grade-appeals`、`POST /api/v1/teacher/grade-appeals/{appealId}/review` |
 
 前端要求：
 
 - 成绩册导出是文件下载，不要按 JSON 处理
 - 学生成绩册只在成绩发布后展示最终可见结果
-- 申诉页需要把状态流转明确显示为时间线
+- V48 后当前不再提供成绩申诉和成绩发布批次 API，前端不要保留可点击的申诉入口或发布批次入口
 
 ### 5.9 实验与实验报告
 
@@ -339,7 +336,7 @@
 6. 作业列表与作业详情
 7. 提交与 IDE
 8. 评测结果与报告
-9. 成绩册与申诉
+9. 成绩册
 10. 实验与实验报告
 11. 通知中心
 
@@ -387,7 +384,7 @@
 6. 编程题保存工作区并发起样例试运行
 7. 发起正式提交并轮询评测结果
 8. 教师进入提交详情并批改 / 发布成绩
-9. 学生查看成绩册并发起申诉
+9. 学生查看成绩册
 10. 学生查看实验并提交实验报告
 11. 打开通知中心，确认未读数和列表回放正常
 

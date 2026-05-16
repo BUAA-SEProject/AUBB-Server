@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,7 @@ import org.springframework.test.web.servlet.MvcResult;
 class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
 
     private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
+    private static final DateTimeFormatter OFFSET_DATE_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     @Autowired
     private MockMvc mockMvc;
@@ -529,7 +532,9 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
         String csv = exportResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(csv).contains("6,student-a,Student A,CLS-A,A班,2,2,2,10,40");
         assertThat(csv).contains("结构化批改作业,CLS-A,A班,30,false,true,true,1,");
-        assertThat(csv).doesNotContain(",10,true");
+        assertThat(csv.lines().filter(line -> line.contains("结构化批改作业")).toList())
+                .singleElement()
+                .satisfies(line -> assertThat(line).endsWith(",,true"));
     }
 
     private GradebookScenario seedGradebookScenario() throws Exception {
@@ -730,9 +735,10 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                 """, userId, scopeType, scopeId, roleCode);
     }
 
-    private Long createObjectiveAssignment(String token, Long offeringId, Long classId, String title)
-            throws Exception {
+    private Long createObjectiveAssignment(String token, Long offeringId, Long classId, String title) throws Exception {
         String teachingClassValue = classId == null ? "null" : String.valueOf(classId);
+        String openAt = OFFSET_DATE_TIME.format(OffsetDateTime.now().minusDays(1));
+        String dueAt = OFFSET_DATE_TIME.format(OffsetDateTime.now().plusDays(30));
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
                         .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
@@ -741,8 +747,8 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                                   "title":"%s",
                                   "description":"单选题自动评分",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":2,
                                   "paper":{
                                     "sections":[
@@ -765,14 +771,15 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                                     ]
                                   }
                                 }
-                                """.formatted(title, teachingClassValue)))
+                                """.formatted(title, teachingClassValue, openAt, dueAt)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");
     }
 
-    private Long createGradableStructuredAssignment(String token, Long offeringId, Long classId)
-            throws Exception {
+    private Long createGradableStructuredAssignment(String token, Long offeringId, Long classId) throws Exception {
+        String openAt = OFFSET_DATE_TIME.format(OffsetDateTime.now().minusDays(1));
+        String dueAt = OFFSET_DATE_TIME.format(OffsetDateTime.now().plusDays(30));
         MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
                         .header("Authorization", "Bearer " + resolveTeacherToken(token))
                         .contentType("application/json")
@@ -781,8 +788,8 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                                   "title":"结构化批改作业",
                                   "description":"客观题 + 简答题",
                                   "teachingClassId":%s,
-                                  "openAt":"2026-04-01T08:00:00+08:00",
-                                  "dueAt":"2026-04-30T23:59:59+08:00",
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
                                   "maxSubmissions":2,
                                   "paper":{
                                     "sections":[
@@ -817,7 +824,7 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
                                     ]
                                   }
                                 }
-                                """.formatted(classId)))
+                                """.formatted(classId, openAt, dueAt)))
                 .andExpect(status().isCreated())
                 .andReturn();
         return readLong(result, "$.id");

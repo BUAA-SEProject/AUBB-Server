@@ -84,18 +84,18 @@ class NotificationCenterIntegrationTests extends AbstractNonRateLimitedIntegrati
                 "ASSIGNMENT",
                 "11",
                 "2026-04-17T10:05:00+08:00");
-        Long appealNotificationId = insertNotification(
-                "GRADE_APPEAL_RESOLVED",
-                "成绩申诉已处理：链表实验",
-                "你的成绩申诉已通过，最新成绩已更新。",
+        Long labReportNotificationId = insertNotification(
+                "LAB_REPORT_PUBLISHED",
+                "实验报告评语已发布：链表实验",
+                "你的实验报告评语已发布，现在可以查看。",
                 2L,
-                "GRADE_APPEAL",
+                "LAB_REPORT",
                 "7",
                 "2026-04-17T10:10:00+08:00");
 
         insertReceipt(assignmentNotificationId, 1L, null, "2026-04-17T10:00:00+08:00");
         insertReceipt(gradeNotificationId, 1L, null, "2026-04-17T10:05:00+08:00");
-        insertReceipt(appealNotificationId, 1L, "2026-04-17T10:15:00+08:00", "2026-04-17T10:10:00+08:00");
+        insertReceipt(labReportNotificationId, 1L, "2026-04-17T10:15:00+08:00", "2026-04-17T10:10:00+08:00");
 
         Long teacherOnlyNotificationId = insertNotification(
                 "LAB_REPORT_SUBMITTED",
@@ -118,7 +118,7 @@ class NotificationCenterIntegrationTests extends AbstractNonRateLimitedIntegrati
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(3))
                 .andExpect(jsonPath("$.items", hasSize(3)))
-                .andExpect(jsonPath("$.items[0].id").value(appealNotificationId))
+                .andExpect(jsonPath("$.items[0].id").value(labReportNotificationId))
                 .andExpect(jsonPath("$.items[0].read").value(true))
                 .andExpect(jsonPath("$.items[1].id").value(gradeNotificationId))
                 .andExpect(jsonPath("$.items[1].read").value(false))

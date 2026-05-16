@@ -498,7 +498,6 @@ public class AssignmentApplicationService {
                 entity.getOpenAt(),
                 entity.getDueAt(),
                 entity.getMaxSubmissions(),
-                entity.getGradeWeight(),
                 paper,
                 judgeConfigView == null
                         ? new AssignmentJudgeConfigView(false, null, null, null, null, 0)

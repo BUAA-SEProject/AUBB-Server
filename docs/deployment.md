@@ -122,8 +122,6 @@ docker compose --profile app up --build
   - `aubb_judge_job_executions_total{result=...}`
   - `aubb_judge_job_execution_seconds_*{result=...}`
   - `aubb_grading_grade_publications_total{publish_type=...}`
-  - `aubb_grading_appeal_creations_total`
-  - `aubb_grading_appeal_reviews_total{result=...}`
 - 最小验证方式：
 
 ```bash

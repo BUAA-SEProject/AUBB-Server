@@ -269,11 +269,7 @@ public class GradebookApplicationService {
                         studentRank.offeringRank(),
                         studentRank.teachingClassRank()),
                 new StudentGradebookView.SummaryView(
-                        assignmentViews.size(),
-                        submittedCount,
-                        gradedCount,
-                        totalFinalScore,
-                        totalMaxScore),
+                        assignmentViews.size(), submittedCount, gradedCount, totalFinalScore, totalMaxScore),
                 List.copyOf(assignmentViews));
     }
 
