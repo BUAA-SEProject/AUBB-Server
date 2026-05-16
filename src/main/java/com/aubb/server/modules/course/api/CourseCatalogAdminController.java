@@ -18,7 +18,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -50,6 +52,24 @@ public class CourseCatalogAdminController {
                 principal);
     }
 
+    @PutMapping("/{catalogId}")
+    @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN')")
+    public CourseCatalogView update(
+            @PathVariable Long catalogId,
+            @Valid @RequestBody UpdateCourseCatalogRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return courseAdministrationApplicationService.updateCatalog(
+                catalogId,
+                request.courseName(),
+                request.courseType(),
+                request.credit(),
+                request.totalHours(),
+                request.departmentUnitId(),
+                request.description(),
+                request.status(),
+                principal);
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyAuthority('SCHOOL_ADMIN', 'COLLEGE_ADMIN')")
     public PageResponse<CourseCatalogView> list(
@@ -72,4 +92,13 @@ public class CourseCatalogAdminController {
             @NotNull @PositiveOrZero Integer totalHours,
             @NotNull Long departmentUnitId,
             String description) {}
+
+    public record UpdateCourseCatalogRequest(
+            @NotBlank String courseName,
+            @NotNull CourseType courseType,
+            @NotNull @DecimalMin("0.0") BigDecimal credit,
+            @NotNull @PositiveOrZero Integer totalHours,
+            @NotNull Long departmentUnitId,
+            String description,
+            CourseCatalogStatus status) {}
 }

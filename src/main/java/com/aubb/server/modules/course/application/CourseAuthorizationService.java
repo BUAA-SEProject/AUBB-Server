@@ -429,18 +429,6 @@ public class CourseAuthorizationService {
     }
 
     @Transactional(readOnly = true)
-    public void assertCanReadAppeals(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithoutFallback(
-                principal, "appeal.read", teachingResource(offeringId, teachingClassId), "当前用户无权查看成绩申诉", null);
-    }
-
-    @Transactional(readOnly = true)
-    public void assertCanReviewAppeal(AuthenticatedUserPrincipal principal, Long offeringId, Long teachingClassId) {
-        assertPermissionWithoutFallback(
-                principal, "appeal.review", teachingResource(offeringId, teachingClassId), "当前用户无权处理成绩申诉", null);
-    }
-
-    @Transactional(readOnly = true)
     public boolean canManageOfferingAsAdmin(AuthenticatedUserPrincipal principal, Long offeringId) {
         CourseOfferingEntity offering = courseOfferingMapper.selectById(offeringId);
         if (offering == null) {

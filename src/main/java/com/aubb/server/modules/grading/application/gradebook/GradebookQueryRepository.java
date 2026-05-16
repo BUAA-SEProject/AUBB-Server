@@ -102,9 +102,6 @@ class GradebookQueryRepository {
                         rs.getString("class_name"),
                         0,
                         0,
-                        0.0,
-                        0,
-                        0.0,
                         rs.getInt("offering_rank"),
                         rs.getInt("teaching_class_rank"),
                         0,
@@ -205,7 +202,6 @@ class GradebookQueryRepository {
                                     assignment_defs.open_at,
                                     assignment_defs.due_at,
                                     assignment_defs.max_score,
-                                    assignment_defs.grade_weight,
                                     assignment_defs.grade_published
                                 FROM assignment_defs
                                 ORDER BY assignment_defs.open_at, assignment_defs.assignment_id
@@ -220,7 +216,6 @@ class GradebookQueryRepository {
                         rs.getObject("open_at", OffsetDateTime.class),
                         rs.getObject("due_at", OffsetDateTime.class),
                         rs.getInt("max_score"),
-                        rs.getInt("grade_weight"),
                         rs.getBoolean("grade_published")));
     }
 
@@ -280,9 +275,6 @@ class GradebookQueryRepository {
                                 rs.getString("class_name"),
                                 rs.getInt("total_final_score"),
                                 rs.getInt("total_max_score"),
-                                rs.getBigDecimal("total_weighted_score").doubleValue(),
-                                rs.getInt("total_weight"),
-                                ratio(rs.getBigDecimal("total_weighted_score"), rs.getInt("total_weight")),
                                 rs.getInt("offering_rank"),
                                 rs.getInt("teaching_class_rank"),
                                 rs.getInt("submitted_assignment_count"),
@@ -313,21 +305,7 @@ class GradebookQueryRepository {
                                     submission_scores.pending_manual_count,
                                     submission_scores.pending_programming_count,
                                     assignment_defs.max_score,
-                                    assignment_defs.grade_weight,
                                     assignment_defs.grade_published,
-                                    CASE
-                                        WHEN (assignment_defs.teaching_class_id IS NULL
-                                                OR assignment_defs.teaching_class_id = page_rows.teaching_class_id)
-                                                AND latest_submissions.submission_id IS NOT NULL
-                                                AND assignment_defs.max_score > 0
-                                            THEN ROUND(
-                                                submission_scores.final_score::numeric
-                                                    * assignment_defs.grade_weight::numeric
-                                                    / assignment_defs.max_score::numeric,
-                                                2
-                                            )
-                                        ELSE NULL
-                                    END AS weighted_score,
                                     CASE
                                         WHEN (assignment_defs.teaching_class_id IS NULL
                                                 OR assignment_defs.teaching_class_id = page_rows.teaching_class_id)
@@ -366,9 +344,6 @@ class GradebookQueryRepository {
                         row.teachingClassName(),
                         row.totalFinalScore(),
                         row.totalMaxScore(),
-                        row.totalWeightedScore(),
-                        row.totalWeight(),
-                        row.weightedScoreRate(),
                         row.offeringRank(),
                         row.teachingClassRank(),
                         row.submittedAssignmentCount(),
@@ -390,8 +365,6 @@ class GradebookQueryRepository {
                                     COUNT(*) FILTER (WHERE ranked_rows.overall_score_rate >= 0.6) AS passed_student_count,
                                     COALESCE(SUM(ranked_rows.total_final_score), 0) AS total_final_score,
                                     COALESCE(SUM(ranked_rows.total_max_score), 0) AS total_max_score,
-                                    COALESCE(SUM(ranked_rows.total_weighted_score), 0) AS total_weighted_score,
-                                    COALESCE(SUM(ranked_rows.total_weight), 0) AS total_weight,
                                     COUNT(*) FILTER (WHERE ranked_rows.overall_score_rate >= 0.9) AS excellent_count,
                                     COUNT(*) FILTER (
                                         WHERE ranked_rows.overall_score_rate >= 0.8
@@ -429,8 +402,6 @@ class GradebookQueryRepository {
                             ratio(rs.getInt("passed_student_count"), studentCount),
                             average(rs.getBigDecimal("total_final_score"), studentCount, 2),
                             ratio(rs.getBigDecimal("total_final_score"), rs.getInt("total_max_score")),
-                            average(rs.getBigDecimal("total_weighted_score"), studentCount, 2),
-                            ratio(rs.getBigDecimal("total_weighted_score"), rs.getInt("total_weight")),
                             toScoreBands(
                                     rs.getInt("excellent_count"),
                                     rs.getInt("good_count"),
@@ -464,7 +435,6 @@ class GradebookQueryRepository {
                                     assignment_defs.teaching_class_name,
                                     assignment_defs.title,
                                     assignment_defs.max_score,
-                                    assignment_defs.grade_weight,
                                     COUNT(*) FILTER (WHERE assignment_scores.applicable) AS applicable_student_count,
                                     COUNT(*) FILTER (
                                         WHERE assignment_scores.applicable
@@ -500,14 +470,6 @@ class GradebookQueryRepository {
                                             ELSE 0
                                         END
                                     ), 0) AS total_max_score,
-                                    COALESCE(SUM(
-                                        CASE
-                                            WHEN assignment_scores.applicable
-                                              AND assignment_scores.submission_id IS NOT NULL
-                                                THEN assignment_scores.weighted_score
-                                            ELSE 0
-                                        END
-                                    ), 0) AS total_weighted_score,
                                     COUNT(*) FILTER (
                                         WHERE assignment_scores.applicable
                                           AND assignment_scores.submission_id IS NOT NULL
@@ -544,7 +506,6 @@ class GradebookQueryRepository {
                                     assignment_defs.teaching_class_name,
                                     assignment_defs.title,
                                     assignment_defs.max_score,
-                                    assignment_defs.grade_weight,
                                     assignment_defs.open_at
                                 ORDER BY assignment_defs.open_at, assignment_defs.assignment_id
                                 """,
@@ -558,7 +519,6 @@ class GradebookQueryRepository {
                             rs.getString("teaching_class_name"),
                             rs.getString("title"),
                             rs.getInt("max_score"),
-                            rs.getInt("grade_weight"),
                             applicableCount,
                             submittedCount,
                             rs.getInt("graded_student_count"),
@@ -570,7 +530,6 @@ class GradebookQueryRepository {
                             ratio(rs.getInt("passed_student_count"), submittedCount),
                             average(rs.getBigDecimal("total_final_score"), submittedCount, 2),
                             ratio(rs.getBigDecimal("total_final_score"), rs.getInt("total_max_score")),
-                            average(rs.getBigDecimal("total_weighted_score"), submittedCount, 2),
                             toScoreBands(
                                     rs.getInt("excellent_count"),
                                     rs.getInt("good_count"),
@@ -597,8 +556,6 @@ class GradebookQueryRepository {
                                     COUNT(*) FILTER (WHERE ranked_rows.overall_score_rate >= 0.6) AS passed_student_count,
                                     COALESCE(SUM(ranked_rows.total_final_score), 0) AS total_final_score,
                                     COALESCE(SUM(ranked_rows.total_max_score), 0) AS total_max_score,
-                                    COALESCE(SUM(ranked_rows.total_weighted_score), 0) AS total_weighted_score,
-                                    COALESCE(SUM(ranked_rows.total_weight), 0) AS total_weight,
                                     COUNT(*) FILTER (WHERE ranked_rows.overall_score_rate >= 0.9) AS excellent_count,
                                     COUNT(*) FILTER (
                                         WHERE ranked_rows.overall_score_rate >= 0.8
@@ -637,8 +594,6 @@ class GradebookQueryRepository {
                             ratio(rs.getInt("passed_student_count"), studentCount),
                             average(rs.getBigDecimal("total_final_score"), studentCount, 2),
                             ratio(rs.getBigDecimal("total_final_score"), rs.getInt("total_max_score")),
-                            average(rs.getBigDecimal("total_weighted_score"), studentCount, 2),
-                            ratio(rs.getBigDecimal("total_weighted_score"), rs.getInt("total_weight")),
                             toScoreBands(
                                     rs.getInt("excellent_count"),
                                     rs.getInt("good_count"),
@@ -683,7 +638,6 @@ class GradebookQueryRepository {
                 scoreSummary,
                 getNullableInteger(rs, "final_score"),
                 rs.getInt("max_score"),
-                getNullableDouble(rs, "weighted_score"),
                 fullyGraded,
                 gradePublished);
     }

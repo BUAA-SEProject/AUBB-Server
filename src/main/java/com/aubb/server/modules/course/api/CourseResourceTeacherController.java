@@ -5,6 +5,8 @@ import com.aubb.server.modules.course.application.resource.CourseResourceApplica
 import com.aubb.server.modules.course.application.resource.CourseResourceDownload;
 import com.aubb.server.modules.course.application.view.CourseResourceView;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
@@ -14,9 +16,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -42,6 +47,24 @@ public class CourseResourceTeacherController {
             @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return courseResourceApplicationService.uploadResource(offeringId, teachingClassId, title, file, principal);
+    }
+
+    @PutMapping("/course-resources/{resourceId}")
+    @PreAuthorize("isAuthenticated()")
+    public CourseResourceView updateResourceTitle(
+            @PathVariable Long resourceId,
+            @Valid @RequestBody UpdateResourceTitleRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return courseResourceApplicationService.updateResourceTitle(resourceId, request.title(), principal);
+    }
+
+    @DeleteMapping("/course-resources/{resourceId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("isAuthenticated()")
+    public void deleteResource(
+            @PathVariable Long resourceId,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        courseResourceApplicationService.deleteResource(resourceId, principal);
     }
 
     @GetMapping("/course-offerings/{offeringId}/resources")
@@ -74,4 +97,6 @@ public class CourseResourceTeacherController {
                 .contentLength(resourceDownload.content().length)
                 .body(resourceDownload.content());
     }
+
+    public record UpdateResourceTitleRequest(@NotBlank String title) {}
 }

@@ -13,17 +13,6 @@ import com.aubb.server.modules.audit.domain.AuditAction;
 import com.aubb.server.modules.audit.domain.AuditDecision;
 import com.aubb.server.modules.audit.domain.AuditResult;
 import com.aubb.server.modules.course.application.CourseAuthorizationService;
-import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
-import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishBatchDetailView;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishBatchSummaryView;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishSnapshotAnswerView;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishSnapshotPayloadView;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishSnapshotView;
-import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnapshotBatchEntity;
-import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnapshotBatchMapper;
-import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnapshotEntity;
-import com.aubb.server.modules.grading.infrastructure.snapshot.GradePublishSnapshotMapper;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceRef;
 import com.aubb.server.modules.identityaccess.application.authz.core.AuthorizationResourceType;
@@ -66,8 +55,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -81,14 +68,10 @@ public class GradingApplicationService {
     private final CourseAuthorizationService courseAuthorizationService;
     private final AuditLogApplicationService auditLogApplicationService;
     private final SensitiveOperationAuditService sensitiveOperationAuditService;
-    private final GradePublishSnapshotBatchMapper gradePublishSnapshotBatchMapper;
-    private final GradePublishSnapshotMapper gradePublishSnapshotMapper;
     private final UserMapper userMapper;
-    private final TeachingClassMapper teachingClassMapper;
     private final PlatformTransactionManager transactionManager;
     private final NotificationDispatchService notificationDispatchService;
     private final GradingMetricsRecorder gradingMetricsRecorder;
-    private final ObjectMapper objectMapper;
 
     @Transactional
     public ManualGradeResultView gradeAnswer(
@@ -306,15 +289,12 @@ public class GradingApplicationService {
                 principal, assignment.getOfferingId(), assignment.getTeachingClassId());
         assertGradesReady(assignmentId);
         boolean initialPublication = assignment.getGradePublishedAt() == null;
-        OffsetDateTime snapshotCapturedAt = currentDatabaseTimestamp();
         if (initialPublication) {
-            assignment.setGradePublishedAt(snapshotCapturedAt);
+            assignment.setGradePublishedAt(OffsetDateTime.now());
             assignment.setGradePublishedByUserId(principal.getUserId());
             assignmentMapper.updateById(assignment);
             notificationDispatchService.notifyAssignmentGradesPublished(assignment, principal.getUserId());
         }
-        GradePublishSnapshotBatchEntity snapshotBatch = captureGradePublishSnapshotBatch(
-                assignment, principal.getUserId(), snapshotCapturedAt, initialPublication);
         auditLogApplicationService.record(
                 principal.getUserId(),
                 AuditAction.ASSIGNMENT_GRADES_PUBLISHED,
@@ -323,69 +303,19 @@ public class GradingApplicationService {
                 AuditResult.SUCCESS,
                 Map.of(
                         "offeringId", assignment.getOfferingId(),
-                        "snapshotBatchId", snapshotBatch.getId(),
-                        "publishSequence", snapshotBatch.getPublishSequence(),
-                        "snapshotCount", snapshotBatch.getSnapshotCount(),
                         "initialPublication", initialPublication));
         sensitiveOperationAuditService.recordAllowed(
                 principal,
                 AuditAction.GRADE_PUBLISH,
                 "grade.publish",
                 new AuthorizationResourceRef(AuthorizationResourceType.ASSIGNMENT, assignmentId),
-                Map.of(
-                        "snapshotBatchId",
-                        snapshotBatch.getId(),
-                        "publishSequence",
-                        snapshotBatch.getPublishSequence(),
-                        "initialPublication",
-                        initialPublication));
+                Map.of("initialPublication", initialPublication));
         gradingMetricsRecorder.recordGradePublication(initialPublication);
         return new AssignmentGradePublicationView(
                 assignment.getId(),
                 assignment.getGradePublishedByUserId(),
                 assignment.getGradePublishedAt(),
-                snapshotBatch.getId(),
-                snapshotBatch.getPublishSequence(),
-                snapshotBatch.getPublishedByUserId(),
-                snapshotBatch.getPublishedAt(),
-                snapshotBatch.getSnapshotCount(),
                 initialPublication);
-    }
-
-    @Transactional(readOnly = true)
-    public List<GradePublishBatchSummaryView> listGradePublishBatches(
-            Long assignmentId, AuthenticatedUserPrincipal principal) {
-        AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanPublishGrades(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        return gradePublishSnapshotBatchMapper
-                .selectList(Wrappers.<GradePublishSnapshotBatchEntity>lambdaQuery()
-                        .eq(GradePublishSnapshotBatchEntity::getAssignmentId, assignmentId)
-                        .orderByDesc(GradePublishSnapshotBatchEntity::getPublishSequence)
-                        .orderByDesc(GradePublishSnapshotBatchEntity::getId))
-                .stream()
-                .map(this::toBatchSummaryView)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public GradePublishBatchDetailView getGradePublishBatch(
-            Long assignmentId, Long batchId, AuthenticatedUserPrincipal principal) {
-        AssignmentEntity assignment = requireAssignment(assignmentId);
-        courseAuthorizationService.assertCanPublishGrades(
-                principal, assignment.getOfferingId(), assignment.getTeachingClassId());
-        GradePublishSnapshotBatchEntity batch = requireSnapshotBatch(batchId);
-        if (!Objects.equals(batch.getAssignmentId(), assignmentId)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "GRADE_PUBLISH_BATCH_SCOPE_INVALID", "快照批次不属于当前作业");
-        }
-        List<GradePublishSnapshotView> snapshots = gradePublishSnapshotMapper
-                .selectList(Wrappers.<GradePublishSnapshotEntity>lambdaQuery()
-                        .eq(GradePublishSnapshotEntity::getPublishBatchId, batchId)
-                        .orderByAsc(GradePublishSnapshotEntity::getId))
-                .stream()
-                .map(this::toSnapshotView)
-                .toList();
-        return new GradePublishBatchDetailView(toBatchSummaryView(batch), snapshots);
     }
 
     private ManualGradeResultView applyManualGrade(
@@ -489,225 +419,6 @@ public class GradingApplicationService {
         }
     }
 
-    private GradePublishSnapshotBatchEntity captureGradePublishSnapshotBatch(
-            AssignmentEntity assignment, Long actorUserId, OffsetDateTime capturedAt, boolean initialPublication) {
-        GradePublishSnapshotBatchEntity batch = new GradePublishSnapshotBatchEntity();
-        batch.setAssignmentId(assignment.getId());
-        batch.setOfferingId(assignment.getOfferingId());
-        batch.setTeachingClassId(assignment.getTeachingClassId());
-        batch.setPublishSequence(nextPublishSequence(assignment.getId()));
-        batch.setSnapshotCount(0);
-        batch.setInitialPublication(initialPublication);
-        batch.setPublishedAt(capturedAt);
-        batch.setPublishedByUserId(actorUserId);
-        gradePublishSnapshotBatchMapper.insert(batch);
-
-        List<SubmissionEntity> latestSubmissions = loadLatestSubmissionsForAssignment(assignment.getId());
-        if (latestSubmissions.isEmpty()) {
-            return batch;
-        }
-
-        Map<Long, UserEntity> userIndex = loadUsersByIds(latestSubmissions.stream()
-                .map(SubmissionEntity::getSubmitterUserId)
-                .collect(Collectors.toCollection(LinkedHashSet::new)));
-        Map<Long, TeachingClassEntity> teachingClassIndex = loadTeachingClassesByIds(latestSubmissions.stream()
-                .map(SubmissionEntity::getTeachingClassId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new)));
-
-        int snapshotCount = 0;
-        for (SubmissionEntity submission : latestSubmissions) {
-            SubmissionScoreSummaryView scoreSummary = submissionAnswerApplicationService.loadScoreSummary(
-                    submission.getId(), assignment.getId(), true, true);
-            List<SubmissionAnswerView> answers =
-                    submissionAnswerApplicationService.loadAnswerViews(submission.getId(), assignment.getId(), true);
-            UserEntity student = userIndex.get(submission.getSubmitterUserId());
-            if (student == null) {
-                continue;
-            }
-            TeachingClassEntity teachingClass = submission.getTeachingClassId() == null
-                    ? null
-                    : teachingClassIndex.get(submission.getTeachingClassId());
-            GradePublishSnapshotPayloadView payload =
-                    buildSnapshotPayload(assignment, submission, student, teachingClass, scoreSummary, answers);
-            GradePublishSnapshotEntity snapshot = new GradePublishSnapshotEntity();
-            snapshot.setPublishBatchId(batch.getId());
-            snapshot.setAssignmentId(assignment.getId());
-            snapshot.setOfferingId(assignment.getOfferingId());
-            snapshot.setTeachingClassId(submission.getTeachingClassId());
-            snapshot.setStudentUserId(student.getId());
-            snapshot.setSubmissionId(submission.getId());
-            snapshot.setSubmissionNo(submission.getSubmissionNo());
-            snapshot.setAttemptNo(submission.getAttemptNo());
-            snapshot.setSubmittedAt(submission.getSubmittedAt());
-            snapshot.setTotalFinalScore(
-                    scoreSummary == null || scoreSummary.finalScore() == null ? 0 : scoreSummary.finalScore());
-            snapshot.setTotalMaxScore(
-                    scoreSummary == null || scoreSummary.maxScore() == null ? 0 : scoreSummary.maxScore());
-            snapshot.setAutoScoredScore(
-                    scoreSummary == null || scoreSummary.autoScoredScore() == null
-                            ? 0
-                            : scoreSummary.autoScoredScore());
-            snapshot.setManualScoredScore(scoreSummary == null ? null : scoreSummary.manualScoredScore());
-            snapshot.setFullyGraded(scoreSummary != null && Boolean.TRUE.equals(scoreSummary.fullyGraded()));
-            snapshot.setSnapshotJson(writeSnapshotPayload(payload));
-            gradePublishSnapshotMapper.insert(snapshot);
-            snapshotCount++;
-        }
-        batch.setSnapshotCount(snapshotCount);
-        gradePublishSnapshotBatchMapper.updateById(batch);
-        return batch;
-    }
-
-    private int nextPublishSequence(Long assignmentId) {
-        return gradePublishSnapshotBatchMapper
-                        .selectList(Wrappers.<GradePublishSnapshotBatchEntity>lambdaQuery()
-                                .eq(GradePublishSnapshotBatchEntity::getAssignmentId, assignmentId)
-                                .select(GradePublishSnapshotBatchEntity::getPublishSequence))
-                        .stream()
-                        .map(GradePublishSnapshotBatchEntity::getPublishSequence)
-                        .filter(Objects::nonNull)
-                        .max(Integer::compareTo)
-                        .orElse(0)
-                + 1;
-    }
-
-    private List<SubmissionEntity> loadLatestSubmissionsForAssignment(Long assignmentId) {
-        List<SubmissionEntity> submissions = submissionMapper.selectList(Wrappers.<SubmissionEntity>lambdaQuery()
-                .eq(SubmissionEntity::getAssignmentId, assignmentId)
-                .orderByDesc(SubmissionEntity::getSubmittedAt)
-                .orderByDesc(SubmissionEntity::getId));
-        if (submissions.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, SubmissionEntity> latestByStudent = new LinkedHashMap<>();
-        for (SubmissionEntity submission : submissions) {
-            latestByStudent.putIfAbsent(submission.getSubmitterUserId(), submission);
-        }
-        return List.copyOf(latestByStudent.values());
-    }
-
-    private Map<Long, UserEntity> loadUsersByIds(Collection<Long> userIds) {
-        if (userIds == null || userIds.isEmpty()) {
-            return Map.of();
-        }
-        return userMapper.selectByIds(userIds).stream()
-                .collect(Collectors.toMap(
-                        UserEntity::getId, Function.identity(), (left, right) -> left, LinkedHashMap::new));
-    }
-
-    private Map<Long, TeachingClassEntity> loadTeachingClassesByIds(Collection<Long> teachingClassIds) {
-        if (teachingClassIds == null || teachingClassIds.isEmpty()) {
-            return Map.of();
-        }
-        return teachingClassMapper.selectByIds(teachingClassIds).stream()
-                .collect(Collectors.toMap(
-                        TeachingClassEntity::getId, Function.identity(), (left, right) -> left, LinkedHashMap::new));
-    }
-
-    private GradePublishSnapshotPayloadView buildSnapshotPayload(
-            AssignmentEntity assignment,
-            SubmissionEntity submission,
-            UserEntity student,
-            TeachingClassEntity teachingClass,
-            SubmissionScoreSummaryView scoreSummary,
-            List<SubmissionAnswerView> answers) {
-        List<GradePublishSnapshotAnswerView> answerSnapshots = answers.stream()
-                .map(answer -> new GradePublishSnapshotAnswerView(
-                        answer.id(),
-                        answer.assignmentQuestionId(),
-                        answer.questionTitle(),
-                        answer.questionType(),
-                        answer.autoScore(),
-                        answer.manualScore(),
-                        answer.finalScore(),
-                        answer.gradingStatus(),
-                        answer.feedbackText(),
-                        answer.gradedByUserId(),
-                        answer.gradedAt()))
-                .toList();
-        return new GradePublishSnapshotPayloadView(
-                assignment.getId(),
-                assignment.getOfferingId(),
-                submission.getTeachingClassId(),
-                new GradePublishSnapshotPayloadView.StudentView(
-                        student.getId(),
-                        student.getUsername(),
-                        student.getDisplayName(),
-                        submission.getTeachingClassId(),
-                        teachingClass == null ? null : teachingClass.getClassCode(),
-                        teachingClass == null ? null : teachingClass.getClassName()),
-                new GradePublishSnapshotPayloadView.SubmissionView(
-                        submission.getId(),
-                        submission.getSubmissionNo(),
-                        submission.getAttemptNo(),
-                        submission.getSubmittedAt()),
-                scoreSummary,
-                answerSnapshots);
-    }
-
-    private String writeSnapshotPayload(GradePublishSnapshotPayloadView payload) {
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JacksonException exception) {
-            throw new BusinessException(
-                    HttpStatus.INTERNAL_SERVER_ERROR, "GRADE_PUBLISH_SNAPSHOT_SERIALIZE_FAILED", "成绩发布快照无法序列化");
-        }
-    }
-
-    private GradePublishSnapshotPayloadView readSnapshotPayload(String snapshotJson) {
-        try {
-            return objectMapper.readValue(snapshotJson, GradePublishSnapshotPayloadView.class);
-        } catch (JacksonException exception) {
-            throw new BusinessException(
-                    HttpStatus.INTERNAL_SERVER_ERROR, "GRADE_PUBLISH_SNAPSHOT_DESERIALIZE_FAILED", "成绩发布快照无法读取");
-        }
-    }
-
-    private GradePublishSnapshotBatchEntity requireSnapshotBatch(Long batchId) {
-        GradePublishSnapshotBatchEntity batch = gradePublishSnapshotBatchMapper.selectById(batchId);
-        if (batch == null) {
-            throw new BusinessException(HttpStatus.NOT_FOUND, "GRADE_PUBLISH_BATCH_NOT_FOUND", "成绩发布快照批次不存在");
-        }
-        return batch;
-    }
-
-    private GradePublishBatchSummaryView toBatchSummaryView(GradePublishSnapshotBatchEntity batch) {
-        return new GradePublishBatchSummaryView(
-                batch.getId(),
-                batch.getAssignmentId(),
-                batch.getOfferingId(),
-                batch.getTeachingClassId(),
-                batch.getPublishSequence(),
-                batch.getSnapshotCount(),
-                batch.getInitialPublication(),
-                batch.getPublishedByUserId(),
-                batch.getPublishedAt());
-    }
-
-    private GradePublishSnapshotView toSnapshotView(GradePublishSnapshotEntity entity) {
-        GradePublishSnapshotPayloadView payload = readSnapshotPayload(entity.getSnapshotJson());
-        GradePublishSnapshotPayloadView.StudentView student = payload.student();
-        return new GradePublishSnapshotView(
-                entity.getId(),
-                entity.getStudentUserId(),
-                student.username(),
-                student.displayName(),
-                student.teachingClassId(),
-                student.teachingClassCode(),
-                student.teachingClassName(),
-                entity.getSubmissionId(),
-                entity.getSubmissionNo(),
-                entity.getAttemptNo(),
-                entity.getSubmittedAt(),
-                entity.getTotalFinalScore(),
-                entity.getTotalMaxScore(),
-                entity.getAutoScoredScore(),
-                entity.getManualScoredScore(),
-                entity.getFullyGraded(),
-                payload);
-    }
-
     private void validateManualGrade(AssignmentQuestionSnapshot question, Integer score) {
         if (score == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_GRADE_SCORE_REQUIRED", "人工批改必须提供分数");
@@ -725,11 +436,6 @@ public class GradingApplicationService {
     private boolean supportsManualGrading(AssignmentQuestionSnapshot question) {
         return !AssignmentQuestionType.SINGLE_CHOICE.equals(question.questionType())
                 && !AssignmentQuestionType.MULTIPLE_CHOICE.equals(question.questionType());
-    }
-
-    private OffsetDateTime currentDatabaseTimestamp() {
-        OffsetDateTime now = OffsetDateTime.now();
-        return now.withNano((now.getNano() / 1_000) * 1_000);
     }
 
     private String renderBatchGradeTemplate(List<SubmissionAnswerExportRow> rows) {

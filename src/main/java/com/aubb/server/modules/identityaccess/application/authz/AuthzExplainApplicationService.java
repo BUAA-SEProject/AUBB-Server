@@ -185,8 +185,6 @@ public class AuthzExplainApplicationService {
                     case GRADE_EXPORT_CLASS, GRADE_EXPORT_OFFERING -> "grade.export";
                     case GRADE_OVERRIDE -> "grade.override";
                     case GRADE_PUBLISH -> "grade.publish";
-                    case APPEAL_READ_OWN, APPEAL_READ_CLASS -> "appeal.read";
-                    case APPEAL_REVIEW -> "appeal.review";
                     case LAB_READ -> "lab.read";
                     case LAB_MANAGE -> "lab.manage";
                     case LAB_REPORT_REVIEW -> "lab.report.review";

@@ -85,8 +85,6 @@ final class LegacyPermissionGrantMatrix {
             PermissionCode.GRADE_EXPORT_OFFERING,
             PermissionCode.GRADE_OVERRIDE,
             PermissionCode.GRADE_PUBLISH,
-            PermissionCode.APPEAL_READ_CLASS,
-            PermissionCode.APPEAL_REVIEW,
             PermissionCode.LAB_READ,
             PermissionCode.LAB_MANAGE,
             PermissionCode.LAB_REPORT_REVIEW);
@@ -104,8 +102,6 @@ final class LegacyPermissionGrantMatrix {
             PermissionCode.SUBMISSION_GRADE,
             PermissionCode.GRADE_EXPORT_CLASS,
             PermissionCode.GRADE_OVERRIDE,
-            PermissionCode.APPEAL_READ_CLASS,
-            PermissionCode.APPEAL_REVIEW,
             PermissionCode.LAB_READ,
             PermissionCode.LAB_MANAGE,
             PermissionCode.LAB_REPORT_REVIEW);
@@ -119,7 +115,6 @@ final class LegacyPermissionGrantMatrix {
             PermissionCode.SUBMISSION_CODE_READ_SENSITIVE,
             PermissionCode.SUBMISSION_GRADE,
             PermissionCode.GRADE_EXPORT_OFFERING,
-            PermissionCode.APPEAL_READ_CLASS,
             PermissionCode.LAB_READ,
             PermissionCode.LAB_REPORT_REVIEW);
 
@@ -131,7 +126,6 @@ final class LegacyPermissionGrantMatrix {
             PermissionCode.SUBMISSION_CODE_READ_SENSITIVE,
             PermissionCode.SUBMISSION_GRADE,
             PermissionCode.GRADE_EXPORT_CLASS,
-            PermissionCode.APPEAL_READ_CLASS,
             PermissionCode.LAB_READ,
             PermissionCode.LAB_REPORT_REVIEW);
 
@@ -140,7 +134,6 @@ final class LegacyPermissionGrantMatrix {
             PermissionCode.ASSIGNMENT_READ,
             PermissionCode.SUBMISSION_READ_OWN,
             PermissionCode.GRADE_READ_OWN,
-            PermissionCode.APPEAL_READ_OWN,
             PermissionCode.LAB_READ);
 
     private static final List<PermissionCode> OBSERVER_PERMISSIONS =

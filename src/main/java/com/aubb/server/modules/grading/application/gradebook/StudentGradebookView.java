@@ -23,10 +23,7 @@ public record StudentGradebookView(
             int submittedCount,
             int gradedCount,
             int totalFinalScore,
-            int totalMaxScore,
-            double totalWeightedScore,
-            int totalWeight,
-            double weightedScoreRate) {}
+            int totalMaxScore) {}
 
     public record AssignmentGradeView(
             GradebookPageView.AssignmentColumnView assignment, GradebookPageView.GradeCellView grade) {}

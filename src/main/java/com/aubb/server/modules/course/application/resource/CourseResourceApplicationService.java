@@ -99,6 +99,33 @@ public class CourseResourceApplicationService {
         return toView(entity);
     }
 
+    @Transactional
+    public CourseResourceView updateResourceTitle(
+            Long resourceId, String title, AuthenticatedUserPrincipal principal) {
+        CourseResourceEntity entity = requireResource(resourceId);
+        courseAuthorizationService.assertCanManageResources(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
+        entity.setTitle(normalizeTitle(title));
+        courseResourceMapper.updateById(entity);
+        return toView(entity);
+    }
+
+    @Transactional
+    public void deleteResource(Long resourceId, AuthenticatedUserPrincipal principal) {
+        CourseResourceEntity entity = requireResource(resourceId);
+        courseAuthorizationService.assertCanManageResources(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
+        courseResourceMapper.deleteById(resourceId);
+        safeDeleteObject(entity.getObjectKey());
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.COURSE_RESOURCE_DELETED,
+                "COURSE_RESOURCE",
+                String.valueOf(resourceId),
+                AuditResult.SUCCESS,
+                buildAuditDetails(entity.getOfferingId(), entity.getTeachingClassId()));
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<CourseResourceView> listTeacherResources(
             Long offeringId, Long teachingClassId, long page, long pageSize, AuthenticatedUserPrincipal principal) {

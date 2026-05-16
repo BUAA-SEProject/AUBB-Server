@@ -65,6 +65,40 @@ public class CourseAnnouncementApplicationService {
         return toView(entity);
     }
 
+    @Transactional
+    public CourseAnnouncementView updateAnnouncement(
+            Long announcementId, String title, String body, AuthenticatedUserPrincipal principal) {
+        CourseAnnouncementEntity entity = requireAnnouncement(announcementId);
+        courseAuthorizationService.assertCanManageAnnouncements(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
+        entity.setTitle(normalizeTitle(title));
+        entity.setBody(normalizeBody(body));
+        courseAnnouncementMapper.updateById(entity);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.COURSE_ANNOUNCEMENT_UPDATED,
+                "COURSE_ANNOUNCEMENT",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                buildAuditDetails(entity.getOfferingId(), entity.getTeachingClassId()));
+        return toView(entity);
+    }
+
+    @Transactional
+    public void deleteAnnouncement(Long announcementId, AuthenticatedUserPrincipal principal) {
+        CourseAnnouncementEntity entity = requireAnnouncement(announcementId);
+        courseAuthorizationService.assertCanManageAnnouncements(
+                principal, entity.getOfferingId(), entity.getTeachingClassId());
+        courseAnnouncementMapper.deleteById(announcementId);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.COURSE_ANNOUNCEMENT_DELETED,
+                "COURSE_ANNOUNCEMENT",
+                String.valueOf(announcementId),
+                AuditResult.SUCCESS,
+                buildAuditDetails(entity.getOfferingId(), entity.getTeachingClassId()));
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<CourseAnnouncementView> listTeacherAnnouncements(
             Long offeringId, Long teachingClassId, long page, long pageSize, AuthenticatedUserPrincipal principal) {

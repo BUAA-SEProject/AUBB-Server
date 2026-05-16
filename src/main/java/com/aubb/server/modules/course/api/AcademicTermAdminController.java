@@ -17,7 +17,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -48,6 +50,23 @@ public class AcademicTermAdminController {
                 principal);
     }
 
+    @PutMapping("/{termId}")
+    @PreAuthorize("hasAuthority('SCHOOL_ADMIN')")
+    public AcademicTermView update(
+            @PathVariable Long termId,
+            @Valid @RequestBody UpdateAcademicTermRequest request,
+            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
+        return courseAdministrationApplicationService.updateTerm(
+                termId,
+                request.termName(),
+                request.schoolYear(),
+                request.semester(),
+                request.startDate(),
+                request.endDate(),
+                request.status(),
+                principal);
+    }
+
     @GetMapping
     @PreAuthorize("hasAuthority('SCHOOL_ADMIN')")
     public PageResponse<AcademicTermView> list(
@@ -69,4 +88,17 @@ public class AcademicTermAdminController {
 
             @NotNull @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
             LocalDate endDate) {}
+
+    public record UpdateAcademicTermRequest(
+            @NotBlank String termName,
+            @NotBlank String schoolYear,
+            @NotNull AcademicTermSemester semester,
+
+            @NotNull @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate startDate,
+
+            @NotNull @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate endDate,
+
+            AcademicTermStatus status) {}
 }

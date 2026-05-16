@@ -242,13 +242,6 @@ public class ReadPathAuthorizationService {
     }
 
     @Transactional(readOnly = true)
-    public boolean canReadMyAppealHistory(AuthenticatedUserPrincipal principal, Long offeringId) {
-        return hasScopedAccess(principal, "appeal.read", offeringId, null)
-                || hasHistoricalReadableStudentMembership(
-                        principal == null ? null : principal.getUserId(), offeringId, null);
-    }
-
-    @Transactional(readOnly = true)
     public boolean canReadAssignment(
             AuthenticatedUserPrincipal principal, String permissionCode, AssignmentEntity assignment) {
         TeachingReadScope scope = resolveTeachingReadScope(principal, permissionCode, assignment.getOfferingId());

@@ -10,8 +10,6 @@ import com.aubb.server.modules.course.infrastructure.discussion.CourseDiscussion
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberEntity;
 import com.aubb.server.modules.course.infrastructure.member.CourseMemberMapper;
 import com.aubb.server.modules.course.infrastructure.resource.CourseResourceEntity;
-import com.aubb.server.modules.grading.domain.appeal.GradeAppealStatus;
-import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
 import com.aubb.server.modules.judge.domain.JudgeJobStatus;
 import com.aubb.server.modules.judge.infrastructure.JudgeJobEntity;
 import com.aubb.server.modules.lab.infrastructure.LabEntity;
@@ -145,38 +143,6 @@ public class NotificationDispatchService {
                 assignment.getTeachingClassId(),
                 Map.of("assignmentId", assignment.getId()),
                 loadSubmittedStudentRecipients(assignment.getId()));
-    }
-
-    @Transactional
-    public void notifyGradeAppealResolved(GradeAppealEntity appeal, AssignmentEntity assignment, Long actorUserId) {
-        if (appeal == null || assignment == null) {
-            return;
-        }
-        GradeAppealStatus status = GradeAppealStatus.valueOf(appeal.getStatus());
-        if (status != GradeAppealStatus.ACCEPTED && status != GradeAppealStatus.REJECTED) {
-            return;
-        }
-        String body = status == GradeAppealStatus.ACCEPTED ? "你的成绩申诉已通过，最新成绩已更新。" : "你的成绩申诉已处理，当前成绩维持不变。";
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("appealId", appeal.getId());
-        metadata.put("assignmentId", assignment.getId());
-        metadata.put("submissionId", appeal.getSubmissionId());
-        metadata.put("submissionAnswerId", appeal.getSubmissionAnswerId());
-        metadata.put("status", status.name());
-        if (appeal.getResolvedScore() != null) {
-            metadata.put("resolvedScore", appeal.getResolvedScore());
-        }
-        enqueueNotification(
-                NotificationType.GRADE_APPEAL_RESOLVED,
-                "成绩申诉已处理：" + assignment.getTitle(),
-                body,
-                actorUserId,
-                "GRADE_APPEAL",
-                String.valueOf(appeal.getId()),
-                appeal.getOfferingId(),
-                appeal.getTeachingClassId(),
-                metadata,
-                List.of(appeal.getStudentUserId()));
     }
 
     @Transactional

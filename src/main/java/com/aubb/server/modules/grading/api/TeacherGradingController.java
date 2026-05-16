@@ -6,8 +6,6 @@ import com.aubb.server.modules.grading.application.BatchManualGradeResultView;
 import com.aubb.server.modules.grading.application.GradeImportTemplateContent;
 import com.aubb.server.modules.grading.application.GradingApplicationService;
 import com.aubb.server.modules.grading.application.ManualGradeResultView;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishBatchDetailView;
-import com.aubb.server.modules.grading.application.snapshot.GradePublishBatchSummaryView;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -86,29 +84,11 @@ public class TeacherGradingController {
     }
 
     @PostMapping("/assignments/{assignmentId}/grades/publish")
-    @Operation(summary = "教师发布作业成绩并生成发布快照")
+    @Operation(summary = "教师发布作业成绩")
     @PreAuthorize("isAuthenticated()")
     public AssignmentGradePublicationView publishAssignmentGrades(
             @PathVariable Long assignmentId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
         return gradingApplicationService.publishAssignmentGrades(assignmentId, principal);
-    }
-
-    @GetMapping("/assignments/{assignmentId}/grade-publish-batches")
-    @Operation(summary = "教师查看作业成绩发布快照批次列表")
-    @PreAuthorize("isAuthenticated()")
-    public List<GradePublishBatchSummaryView> listGradePublishBatches(
-            @PathVariable Long assignmentId, @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
-        return gradingApplicationService.listGradePublishBatches(assignmentId, principal);
-    }
-
-    @GetMapping("/assignments/{assignmentId}/grade-publish-batches/{batchId}")
-    @Operation(summary = "教师查看作业成绩发布快照批次详情")
-    @PreAuthorize("isAuthenticated()")
-    public GradePublishBatchDetailView getGradePublishBatch(
-            @PathVariable Long assignmentId,
-            @PathVariable Long batchId,
-            @AuthenticationPrincipal AuthenticatedUserPrincipal principal) {
-        return gradingApplicationService.getGradePublishBatch(assignmentId, batchId, principal);
     }
 
     private ResponseEntity<byte[]> toDownloadResponse(GradeImportTemplateContent exportContent) {

@@ -7,8 +7,6 @@ import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingEnti
 import com.aubb.server.modules.course.infrastructure.offering.CourseOfferingMapper;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassEntity;
 import com.aubb.server.modules.course.infrastructure.teaching.TeachingClassMapper;
-import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealEntity;
-import com.aubb.server.modules.grading.infrastructure.appeal.GradeAppealMapper;
 import com.aubb.server.modules.identityaccess.domain.authz.AuthorizationScopeType;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitEntity;
 import com.aubb.server.modules.organization.infrastructure.OrgUnitMapper;
@@ -29,7 +27,6 @@ public class ResourceOwnershipResolutionService {
     private final TeachingClassMapper teachingClassMapper;
     private final AssignmentMapper assignmentMapper;
     private final SubmissionMapper submissionMapper;
-    private final GradeAppealMapper gradeAppealMapper;
 
     @Transactional(readOnly = true)
     public ResolvedAuthorizationResource resolve(AuthorizationResourceRef resourceRef) {
@@ -42,7 +39,6 @@ public class ResourceOwnershipResolutionService {
             case CLASS -> resolveClassResource(resourceRef);
             case ASSIGNMENT -> resolveAssignmentResource(resourceRef);
             case SUBMISSION -> resolveSubmissionResource(resourceRef);
-            case GRADE_APPEAL -> resolveGradeAppealResource(resourceRef);
         };
     }
 
@@ -137,26 +133,6 @@ public class ResourceOwnershipResolutionService {
                         : isArchived(offering.getStatus(), offering.getArchivedAt()),
                 assignment == null ? null : assignment.getOpenAt(),
                 assignment == null ? null : assignment.getDueAt(),
-                false);
-    }
-
-    private ResolvedAuthorizationResource resolveGradeAppealResource(AuthorizationResourceRef resourceRef) {
-        GradeAppealEntity appeal =
-                requireEntity(gradeAppealMapper.selectById(resourceRef.id()), "GRADE_APPEAL_NOT_FOUND", "成绩申诉不存在");
-        CourseOfferingEntity offering = requireEntity(
-                courseOfferingMapper.selectById(appeal.getOfferingId()), "COURSE_OFFERING_NOT_FOUND", "开课不存在");
-        AuthorizationScopePath scopePath =
-                resolveTeachingScopePath(appeal.getOfferingId(), appeal.getTeachingClassId(), offering);
-        AssignmentEntity assignment =
-                appeal.getAssignmentId() == null ? null : assignmentMapper.selectById(appeal.getAssignmentId());
-        return new ResolvedAuthorizationResource(
-                resourceRef,
-                scopePath,
-                appeal.getStudentUserId(),
-                assignment == null || assignment.getGradePublishedAt() != null,
-                isArchived(offering.getStatus(), offering.getArchivedAt()),
-                null,
-                null,
                 false);
     }
 

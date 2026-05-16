@@ -53,7 +53,6 @@ final class GradebookQuerySql {
                                 assignments.status,
                                 assignments.open_at,
                                 assignments.due_at,
-                                COALESCE(assignments.grade_weight, 100) AS grade_weight,
                                 section_scores.max_score,
                                 (assignments.grade_published_at IS NOT NULL) AS grade_published
                             FROM assignments
@@ -115,7 +114,6 @@ final class GradebookQuerySql {
                                 assignment_defs.status,
                                 assignment_defs.open_at,
                                 assignment_defs.due_at,
-                                assignment_defs.grade_weight,
                                 assignment_defs.max_score,
                                 assignment_defs.grade_published,
                                 (assignment_defs.teaching_class_id IS NULL
@@ -128,19 +126,6 @@ final class GradebookQuerySql {
                                 submission_scores.final_score,
                                 submission_scores.pending_manual_count,
                                 submission_scores.pending_programming_count,
-                                CASE
-                                    WHEN (assignment_defs.teaching_class_id IS NULL
-                                            OR assignment_defs.teaching_class_id = roster.teaching_class_id)
-                                            AND latest_submissions.submission_id IS NOT NULL
-                                            AND assignment_defs.max_score > 0
-                                        THEN ROUND(
-                                            submission_scores.final_score::numeric
-                                                * assignment_defs.grade_weight::numeric
-                                                / assignment_defs.max_score::numeric,
-                                            2
-                                        )
-                                    ELSE NULL
-                                END AS weighted_score,
                                 CASE
                                     WHEN (assignment_defs.teaching_class_id IS NULL
                                             OR assignment_defs.teaching_class_id = roster.teaching_class_id)
@@ -180,19 +165,6 @@ final class GradebookQuerySql {
                                         ELSE 0
                                     END
                                 ), 0) AS total_max_score,
-                                COALESCE(SUM(
-                                    CASE
-                                        WHEN grade_matrix.applicable THEN grade_matrix.grade_weight
-                                        ELSE 0
-                                    END
-                                ), 0) AS total_weight,
-                                COALESCE(SUM(
-                                    CASE
-                                        WHEN grade_matrix.applicable AND grade_matrix.weighted_score IS NOT NULL
-                                            THEN grade_matrix.weighted_score
-                                        ELSE 0
-                                    END
-                                ), 0) AS total_weighted_score,
                                 COUNT(*) FILTER (
                                     WHERE grade_matrix.applicable
                                       AND grade_matrix.submission_id IS NOT NULL
@@ -220,11 +192,6 @@ final class GradebookQuerySql {
                             SELECT
                                 row_metrics.*,
                                 CASE
-                                    WHEN row_metrics.total_weight > 0
-                                        THEN LEAST(GREATEST(
-                                            ROUND(row_metrics.total_weighted_score / row_metrics.total_weight::numeric, 4),
-                                            0
-                                        ), 1)
                                     WHEN row_metrics.total_max_score > 0
                                         THEN LEAST(GREATEST(
                                             ROUND(row_metrics.total_final_score::numeric / row_metrics.total_max_score::numeric, 4),
@@ -240,15 +207,13 @@ final class GradebookQuerySql {
                                 RANK() OVER (
                                     ORDER BY
                                         scored_rows.overall_score_rate DESC,
-                                        scored_rows.total_final_score DESC,
-                                        scored_rows.total_weighted_score DESC
+                                        scored_rows.total_final_score DESC
                                 ) AS offering_rank,
                                 RANK() OVER (
                                     PARTITION BY COALESCE(scored_rows.teaching_class_id, -1)
                                     ORDER BY
                                         scored_rows.overall_score_rate DESC,
-                                        scored_rows.total_final_score DESC,
-                                        scored_rows.total_weighted_score DESC
+                                        scored_rows.total_final_score DESC
                                 ) AS teaching_class_rank
                             FROM scored_rows
                         )

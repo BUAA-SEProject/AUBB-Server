@@ -22,8 +22,6 @@ public record GradebookReportView(
             double passRate,
             double averageTotalFinalScore,
             double averageTotalScoreRate,
-            double averageTotalWeightedScore,
-            double averageWeightedScoreRate,
             List<ScoreBandView> scoreBands) {}
 
     public record AssignmentStatView(
@@ -32,7 +30,6 @@ public record GradebookReportView(
             String teachingClassName,
             String title,
             int maxScore,
-            int gradeWeight,
             int applicableStudentCount,
             int submittedStudentCount,
             int fullyGradedStudentCount,
@@ -44,7 +41,6 @@ public record GradebookReportView(
             double passRate,
             double averageSubmittedFinalScore,
             double averageSubmittedScoreRate,
-            double averageSubmittedWeightedScore,
             List<ScoreBandView> scoreBands) {}
 
     public record TeachingClassStatView(
@@ -63,8 +59,6 @@ public record GradebookReportView(
             double passRate,
             double averageTotalFinalScore,
             double averageTotalScoreRate,
-            double averageTotalWeightedScore,
-            double averageWeightedScoreRate,
             List<ScoreBandView> scoreBands) {}
 
     public record ScoreBandView(

@@ -8,6 +8,5 @@ public enum AuthorizationResourceType {
     OFFERING,
     CLASS,
     ASSIGNMENT,
-    SUBMISSION,
-    GRADE_APPEAL
+    SUBMISSION
 }

@@ -45,9 +45,6 @@ public enum PermissionCode {
     GRADE_EXPORT_OFFERING("grade.export.offering"),
     GRADE_OVERRIDE("grade.override"),
     GRADE_PUBLISH("grade.publish"),
-    APPEAL_READ_OWN("appeal.read.own"),
-    APPEAL_READ_CLASS("appeal.read.class"),
-    APPEAL_REVIEW("appeal.review"),
     LAB_READ("lab.read"),
     LAB_MANAGE("lab.manage"),
     LAB_REPORT_REVIEW("lab.report.review"),
@@ -89,7 +86,6 @@ public enum PermissionCode {
                     SUBMISSION_REJUDGE,
                     GRADE_OVERRIDE,
                     GRADE_PUBLISH,
-                    APPEAL_REVIEW,
                     LAB_MANAGE,
                     LAB_REPORT_REVIEW,
                     AUTH_GROUP_MANAGE -> true;

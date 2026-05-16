@@ -123,6 +123,39 @@ public class CourseAdministrationApplicationService {
         return toTermView(entity);
     }
 
+    @Transactional
+    public AcademicTermView updateTerm(
+            Long termId,
+            String termName,
+            String schoolYear,
+            AcademicTermSemester semester,
+            LocalDate startDate,
+            LocalDate endDate,
+            AcademicTermStatus status,
+            AuthenticatedUserPrincipal principal) {
+        AcademicTermEntity entity = requireTerm(termId);
+        if (endDate.isBefore(startDate)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "TERM_DATE_RANGE_INVALID", "学期结束日期不能早于开始日期");
+        }
+        entity.setTermName(termName);
+        entity.setSchoolYear(schoolYear);
+        entity.setSemester(semester.name());
+        entity.setStartDate(startDate);
+        entity.setEndDate(endDate);
+        if (status != null) {
+            entity.setStatus(status.name());
+        }
+        academicTermMapper.updateById(entity);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.ACADEMIC_TERM_UPDATED,
+                "ACADEMIC_TERM",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                Map.of("termCode", entity.getTermCode()));
+        return toTermView(entity);
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<AcademicTermView> listTerms(
             String keyword, AcademicTermStatus status, long page, long pageSize) {
@@ -173,6 +206,43 @@ public class CourseAdministrationApplicationService {
                 String.valueOf(entity.getId()),
                 AuditResult.SUCCESS,
                 Map.of("courseCode", normalizedCourseCode, "departmentUnitId", departmentUnitId));
+        return toCatalogView(
+                entity,
+                organizationApplicationService
+                        .loadSummaryMap(List.of(departmentUnitId))
+                        .get(departmentUnitId));
+    }
+
+    @Transactional
+    public CourseCatalogView updateCatalog(
+            Long catalogId,
+            String courseName,
+            CourseType courseType,
+            BigDecimal credit,
+            Integer totalHours,
+            Long departmentUnitId,
+            String description,
+            CourseCatalogStatus status,
+            AuthenticatedUserPrincipal principal) {
+        CourseCatalogEntity entity = requireCatalog(catalogId);
+        courseAuthorizationService.assertCanCreateCatalog(principal, departmentUnitId);
+        entity.setCourseName(courseName);
+        entity.setCourseType(courseType.name());
+        entity.setCredit(credit);
+        entity.setTotalHours(totalHours);
+        entity.setDepartmentUnitId(departmentUnitId);
+        entity.setDescription(description);
+        if (status != null) {
+            entity.setStatus(status.name());
+        }
+        courseCatalogMapper.updateById(entity);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.COURSE_CATALOG_UPDATED,
+                "COURSE_CATALOG",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                Map.of("courseCode", entity.getCourseCode()));
         return toCatalogView(
                 entity,
                 organizationApplicationService
@@ -359,6 +429,39 @@ public class CourseAdministrationApplicationService {
             readPathAuthorizationService.assertCanReadOffering(principal, "offering.read", offeringId, "当前用户无权查看开课信息");
         }
         return toOfferingView(requireOffering(offeringId));
+    }
+
+    @Transactional
+    public CourseOfferingView updateOffering(
+            Long offeringId,
+            String offeringName,
+            CourseDeliveryMode deliveryMode,
+            CourseLanguage language,
+            Integer capacity,
+            OffsetDateTime startAt,
+            OffsetDateTime endAt,
+            CourseOfferingStatus status,
+            AuthenticatedUserPrincipal principal) {
+        CourseOfferingEntity entity = requireOffering(offeringId);
+        courseAuthorizationService.assertCanCreateOffering(principal, entity.getPrimaryCollegeUnitId());
+        entity.setOfferingName(offeringName);
+        entity.setDeliveryMode(deliveryMode.name());
+        entity.setLanguage(language.name());
+        entity.setCapacity(capacity);
+        entity.setStartAt(startAt);
+        entity.setEndAt(endAt);
+        if (status != null) {
+            entity.setStatus(status.name());
+        }
+        courseOfferingMapper.updateById(entity);
+        auditLogApplicationService.record(
+                principal.getUserId(),
+                AuditAction.COURSE_OFFERING_UPDATED,
+                "COURSE_OFFERING",
+                String.valueOf(entity.getId()),
+                AuditResult.SUCCESS,
+                Map.of("offeringCode", entity.getOfferingCode()));
+        return toOfferingView(entity);
     }
 
     private void persistOfferingCollegeLinks(
