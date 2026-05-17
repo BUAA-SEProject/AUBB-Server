@@ -38,6 +38,9 @@ build/
 .worktrees/
 prompt*
 todo.md
+progress.md
+task_plan.md
+findings.md
 __pycache__/
 *.py[cod]
 docs/superpowers/
