@@ -200,6 +200,7 @@ public class SubmissionAnswerApplicationService {
             Map<Long, SubmissionArtifactEntity> artifactsById) {
         return switch (question.questionType()) {
             case SINGLE_CHOICE, MULTIPLE_CHOICE -> evaluateObjective(question, input);
+            case FILL_BLANK -> evaluateFillBlank(question, input);
             case SHORT_ANSWER -> evaluateShortAnswer(input);
             case FILE_UPLOAD -> evaluateFileUpload(input, artifactsById);
             case PROGRAMMING -> evaluateProgramming(question.config(), input, artifactsById);
@@ -229,6 +230,25 @@ public class SubmissionAnswerApplicationService {
                 score,
                 SubmissionAnswerGradingStatus.AUTO_GRADED,
                 "客观题自动判分完成");
+    }
+
+    private EvaluatedAnswer evaluateFillBlank(AssignmentQuestionSnapshot question, SubmissionAnswerInput input) {
+        if (!StringUtils.hasText(input.answerText())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "SUBMISSION_FILL_BLANK_REQUIRED", "填空题答案不能为空");
+        }
+        String normalizedAnswer = input.answerText().trim();
+        String referenceAnswer =
+                question.config() == null ? "" : question.config().referenceAnswer();
+        int score =
+                normalizedAnswer.equals(referenceAnswer == null ? "" : referenceAnswer.trim()) ? question.score() : 0;
+        return new EvaluatedAnswer(
+                normalizedAnswer,
+                new AnswerPayload(List.of(), List.of(), null, null, List.of()),
+                score,
+                null,
+                score,
+                SubmissionAnswerGradingStatus.AUTO_GRADED,
+                "填空题自动判分完成");
     }
 
     private EvaluatedAnswer evaluateShortAnswer(SubmissionAnswerInput input) {
@@ -432,7 +452,8 @@ public class SubmissionAnswerApplicationService {
 
     private boolean isObjective(AssignmentQuestionType questionType) {
         return AssignmentQuestionType.SINGLE_CHOICE.equals(questionType)
-                || AssignmentQuestionType.MULTIPLE_CHOICE.equals(questionType);
+                || AssignmentQuestionType.MULTIPLE_CHOICE.equals(questionType)
+                || AssignmentQuestionType.FILL_BLANK.equals(questionType);
     }
 
     private String writePayload(AnswerPayload payload) {

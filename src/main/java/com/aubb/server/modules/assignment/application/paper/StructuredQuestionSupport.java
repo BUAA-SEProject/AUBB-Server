@@ -75,6 +75,7 @@ public class StructuredQuestionSupport {
         switch (questionType) {
             case SINGLE_CHOICE -> validateSingleChoice(safeOptions, validationCodePrefix);
             case MULTIPLE_CHOICE -> validateMultipleChoice(safeOptions, validationCodePrefix);
+            case FILL_BLANK -> validateFillBlank(config, safeOptions, validationCodePrefix);
             case SHORT_ANSWER -> requireNoOptions(safeOptions, validationCodePrefix, "简答题不能配置选项");
             case FILE_UPLOAD -> validateFileUpload(config, safeOptions, validationCodePrefix);
             case PROGRAMMING -> validateProgramming(score, config, safeOptions, validationCodePrefix);
@@ -243,6 +244,14 @@ public class StructuredQuestionSupport {
     private void requireNoOptions(List<AssignmentQuestionOptionInput> options, String prefix, String message) {
         if (!options.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_OPTIONS_UNEXPECTED", message);
+        }
+    }
+
+    private void validateFillBlank(
+            AssignmentQuestionConfigInput config, List<AssignmentQuestionOptionInput> options, String prefix) {
+        requireNoOptions(options, prefix, "填空题不能配置选项");
+        if (config == null || !StringUtils.hasText(config.referenceAnswer())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, prefix + "_REFERENCE_ANSWER_REQUIRED", "填空题必须配置参考答案");
         }
     }
 

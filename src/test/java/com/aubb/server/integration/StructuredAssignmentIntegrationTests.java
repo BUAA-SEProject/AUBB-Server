@@ -307,6 +307,103 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
     }
 
     @Test
+    void fillBlankQuestionUsesTrimmedExactMatchAutoScoring() throws Exception {
+        String schoolAdminToken = login("school-admin", "Password123");
+        String engAdminToken = login("eng-admin", "Password123");
+        String teacherToken = login("teacher-main", "Password123");
+        String studentToken = login("student-a", "Password123");
+
+        Long termId = createTerm(schoolAdminToken);
+        Long catalogId = createCatalog(engAdminToken);
+        Long offeringId = createOffering(engAdminToken, catalogId, termId);
+        Long classId = createTeachingClass(teacherToken, offeringId, "CLS-FILL", "填空题班", 2026);
+        addMember(teacherToken, offeringId, 4L, "STUDENT", classId);
+        studentToken = login("student-a", "Password123");
+
+        Long fillBlankQuestionId = createQuestionBankQuestion(teacherToken, offeringId, """
+                {
+                  "title":"栈顶指针填空",
+                  "prompt":"栈为空时 top 的值通常记为？",
+                  "questionType":"FILL_BLANK",
+                  "defaultScore":8,
+                  "config":{
+                    "referenceAnswer":"-1"
+                  }
+                }
+                """);
+
+        mockMvc.perform(get("/api/v1/teacher/question-bank/questions/{questionId}", fillBlankQuestionId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(teacherToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionType").value("FILL_BLANK"))
+                .andExpect(jsonPath("$.config.referenceAnswer").value("-1"));
+
+        Long assignmentId = createFillBlankAssignment(teacherToken, offeringId, classId, fillBlankQuestionId);
+        publishAssignment(teacherToken, assignmentId);
+
+        MvcResult detailResult = mockMvc.perform(get("/api/v1/me/assignments/{assignmentId}", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].questionType")
+                        .value("FILL_BLANK"))
+                .andExpect(jsonPath("$.paper.sections[0].questions[0].config.referenceAnswer")
+                        .doesNotExist())
+                .andReturn();
+
+        Long assignmentQuestionId = readLong(detailResult, "$.paper.sections[0].questions[0].id");
+
+        MvcResult correctSubmission = mockMvc.perform(
+                        post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                                .header("Authorization", "Bearer " + studentToken)
+                                .contentType("application/json")
+                                .content("""
+                                {
+                                  "answers":[
+                                    {"assignmentQuestionId":%s,"answerText":"  -1  "}
+                                  ]
+                                }
+                                """.formatted(assignmentQuestionId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.answers[0].gradingStatus").value("AUTO_GRADED"))
+                .andExpect(jsonPath("$.answers[0].autoScore").value(8))
+                .andExpect(jsonPath("$.answers[0].finalScore").value(8))
+                .andExpect(jsonPath("$.scoreSummary.autoScoredScore").value(8))
+                .andReturn();
+
+        mockMvc.perform(get("/api/v1/me/submissions/{submissionId}", readLong(correctSubmission, "$.id"))
+                        .header("Authorization", "Bearer " + studentToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answers[0].answerText").value("-1"))
+                .andExpect(jsonPath("$.answers[0].feedbackText").value("填空题自动判分完成"));
+
+        mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "answers":[
+                                    {"assignmentQuestionId":%s,"answerText":"-1 "}
+                                  ]
+                                }
+                                """.formatted(assignmentQuestionId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.answers[0].finalScore").value(8));
+
+        mockMvc.perform(post("/api/v1/me/assignments/{assignmentId}/submissions", assignmentId)
+                        .header("Authorization", "Bearer " + studentToken)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "answers":[
+                                    {"assignmentQuestionId":%s,"answerText":" -1.0 "}
+                                  ]
+                                }
+                                """.formatted(assignmentQuestionId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.answers[0].finalScore").value(0));
+    }
+
+    @Test
     void teacherUpdatesAndArchivesQuestionBankQuestionWithoutMutatingPublishedSnapshot() throws Exception {
         String schoolAdminToken = login("school-admin", "Password123");
         String engAdminToken = login("eng-admin", "Password123");
@@ -1342,6 +1439,36 @@ class StructuredAssignmentIntegrationTests extends AbstractNonRateLimitedIntegra
                                         "title":"编程题",
                                         "questions":[
                                           {"bankQuestionId":%s,"score":100}
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                                """.formatted(classId, openAt(), dueAt(), bankQuestionId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return readLong(result, "$.id");
+    }
+
+    private Long createFillBlankAssignment(String token, Long offeringId, Long classId, Long bankQuestionId)
+            throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/teacher/course-offerings/{offeringId}/assignments", offeringId)
+                        .header("Authorization", "Bearer " + resolveTeacherToken(token))
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "title":"填空题自动评分作业",
+                                  "description":"验证填空题 trim 后精确匹配",
+                                  "teachingClassId":%s,
+                                  "openAt":"%s",
+                                  "dueAt":"%s",
+                                  "maxSubmissions":3,
+                                  "paper":{
+                                    "sections":[
+                                      {
+                                        "title":"填空题",
+                                        "questions":[
+                                          {"bankQuestionId":%s}
                                         ]
                                       }
                                     ]
