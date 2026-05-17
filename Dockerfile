@@ -10,7 +10,10 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests package
 
 FROM eclipse-temurin:25-jre AS runtime
 
-RUN groupadd --system aubb \
+RUN apt-get update \
+        && apt-get install -y --no-install-recommends curl \
+        && rm -rf /var/lib/apt/lists/* \
+        && groupadd --system aubb \
         && useradd --system --gid aubb --create-home --home-dir /opt/aubb aubb
 
 WORKDIR /opt/aubb
