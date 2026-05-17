@@ -22,6 +22,6 @@ abstract class AbstractIntegrationTest {
 
     @BeforeEach
     void baseSetUp() {
-        IntegrationTestData.resetDatabase(jdbcTemplate);
+        IntegrationTestData.resetDatabaseWithBaseUsers(jdbcTemplate);
     }
 }

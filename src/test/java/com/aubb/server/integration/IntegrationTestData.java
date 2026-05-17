@@ -83,6 +83,15 @@ public final class IntegrationTestData {
                         JUDGE_TABLES,
                         NOTIFICATION_TABLES));
         insertBaseOrgHierarchy(jdbc);
+    }
+
+    /**
+     * 重置数据库并插入基础用户和角色绑定。
+     * <p>
+     * 用于需要完整基础数据集的测试（如 AssignmentIntegrationTests）。
+     */
+    public static void resetDatabaseWithBaseUsers(JdbcTemplate jdbc) {
+        resetDatabase(jdbc);
         insertBaseUsers(jdbc);
         insertBaseRoleBindings(jdbc);
     }
