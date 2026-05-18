@@ -511,6 +511,14 @@ def record_fixture(context: FixtureContext, channel: str, label: str) -> None:
         items.append(label)
 
 
+def assert_batch_success(result: dict[str, Any], label: str) -> None:
+    if int(result.get("failCount", 0)) != 0:
+        raise AssertionError(
+            "%s 批量成员准备失败: %s"
+            % (label, json.dumps(result.get("errors", result), ensure_ascii=False))
+        )
+
+
 def ensure_org_unit(
     context: FixtureContext,
     *,
@@ -777,6 +785,12 @@ def reset_fixture_member_baseline(context: FixtureContext) -> None:
     delete_offer_b_user_ids = ", ".join(str(context.ids[key]) for key in ["U-ST3", "U-M1"])
     sql_exec(
         f"""
+        UPDATE teaching_classes
+        SET capacity = GREATEST(capacity, 1000)
+        WHERE id IN ({context.ids["A1"]}, {context.ids["A2"]}, {context.ids["A3"]}, {context.ids["B1"]});
+        UPDATE course_offerings
+        SET capacity = GREATEST(capacity, selected_count + 200, 1000)
+        WHERE id IN ({offer_a}, {offer_b});
         DELETE FROM course_members
         WHERE offering_id = {offer_a}
           AND user_id IN ({delete_offer_a_user_ids})
@@ -1101,7 +1115,7 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
     )
 
     reset_fixture_member_baseline(context)
-    api.post_json(
+    offer_a_batch = api.post_json(
         f"/api/v1/teacher/course-offerings/{context.ids['Offer-A-2025F']}/members/batch",
         {
             "members": [
@@ -1117,7 +1131,8 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
         token=context.tokens["U-TA1"],
         expected_status=200,
     )
-    api.post_json(
+    assert_batch_success(offer_a_batch, "Offer-A-2025F")
+    offer_b_batch = api.post_json(
         f"/api/v1/teacher/course-offerings/{context.ids['Offer-B-2026S']}/members/batch",
         {
             "members": [
@@ -1128,6 +1143,7 @@ def setup_fixtures(api: ApiClient, admin_login: dict[str, Any]) -> FixtureContex
         token=context.tokens["U-TA3"],
         expected_status=200,
     )
+    assert_batch_success(offer_b_batch, "Offer-B-2026S")
     record_fixture(context, "api", "course-members")
 
     for username in ["U-TA2", "U-TAO1", "U-TAC1", "U-ST1", "U-ST2", "U-ST3", "U-M1", "U-STX1"]:
@@ -1705,12 +1721,19 @@ def run_cases(context: FixtureContext) -> list[CaseResult]:
 
 
 def list_assignments_case(context: FixtureContext) -> tuple[int, str, list[str], str, list[str]]:
-    payload = context.api.get_json(
-        f"/api/v1/me/assignments?offeringId={context.ids['Offer-A-2025F']}&page=1&pageSize=50",
-        token=context.tokens["U-ST1"],
-        expected_status=200,
-    )
-    titles = [item["title"] for item in payload["items"]]
+    titles: list[str] = []
+    total = 0
+    page_size = 200
+    for page in range(1, 20):
+        payload = context.api.get_json(
+            f"/api/v1/me/assignments?offeringId={context.ids['Offer-A-2025F']}&page={page}&pageSize={page_size}",
+            token=context.tokens["U-ST1"],
+            expected_status=200,
+        )
+        total = int(payload["total"])
+        titles.extend(item["title"] for item in payload["items"])
+        if len(titles) >= total:
+            break
     visible = set(titles)
     expected_present = {"Task-Offering-Published", "Task-A1-Published", "Task-A1-Closed", "Task-Programming-A1"}
     expected_absent = {"Task-A2-Draft", "Task-A2-Published", "Task-B1-Published"}
@@ -1719,9 +1742,9 @@ def list_assignments_case(context: FixtureContext) -> tuple[int, str, list[str],
         raise AssertionError("学生任务列表过滤失败: titles=%s" % titles)
     return (
         200,
-        "titles=%s total=%s passed=%s" % (titles, payload["total"], passed),
+        "titles=%s total=%s passed=%s" % (titles, total, passed),
         [],
-        "分页 total=%s" % payload["total"],
+        "分页 total=%s" % total,
         [],
     )
 
