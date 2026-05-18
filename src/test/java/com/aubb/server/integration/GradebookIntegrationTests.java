@@ -975,15 +975,14 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
         long deadline = System.nanoTime() + java.time.Duration.ofSeconds(3).toNanos();
         while (true) {
             String candidate = login("teacher-main", "Password123");
-            if (isRoleBindingSnapshotReady(candidate)
-                    && tokenContainsAllPermissions(candidate, expectedPermissionCodes)) {
+            if (isRoleBindingSnapshotReady(candidate) && teacherHasActivePermissions(expectedPermissionCodes)) {
                 latestTeacherToken = candidate;
                 return;
             }
             if (System.nanoTime() >= deadline) {
                 latestTeacherToken = candidate;
                 assertThat(isRoleBindingSnapshotReady(candidate)).isTrue();
-                assertThat(readPermissionCodes(candidate)).contains(expectedPermissionCodes);
+                assertThat(activeTeacherPermissionCodes()).contains(expectedPermissionCodes);
                 return;
             }
             try {
@@ -999,13 +998,25 @@ class GradebookIntegrationTests extends AbstractNonRateLimitedIntegrationTest {
         return Boolean.TRUE.equals(readTokenClaim(token, "$.roleBindingSnapshot"));
     }
 
-    private boolean tokenContainsAllPermissions(String token, String... expectedPermissionCodes) {
-        return readPermissionCodes(token).containsAll(java.util.List.of(expectedPermissionCodes));
+    private boolean teacherHasActivePermissions(String... expectedPermissionCodes) {
+        return activeTeacherPermissionCodes().containsAll(java.util.List.of(expectedPermissionCodes));
     }
 
-    private java.util.List<String> readPermissionCodes(String token) {
-        java.util.List<String> permissionCodes = readTokenClaim(token, "$.permissionCodes");
-        return permissionCodes == null ? java.util.List.of() : permissionCodes;
+    private java.util.List<String> activeTeacherPermissionCodes() {
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT p.code
+                FROM users u
+                JOIN role_bindings rb ON rb.user_id = u.id
+                JOIN roles r ON r.id = rb.role_id
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE u.username = 'teacher-main'
+                  AND rb.status = 'ACTIVE'
+                  AND r.status = 'ACTIVE'
+                  AND (rb.effective_from IS NULL OR rb.effective_from <= CURRENT_TIMESTAMP + interval '3 seconds')
+                  AND (rb.effective_to IS NULL OR rb.effective_to >= CURRENT_TIMESTAMP)
+                ORDER BY p.code
+                """, String.class);
     }
 
     private <T> T readTokenClaim(String token, String path) {

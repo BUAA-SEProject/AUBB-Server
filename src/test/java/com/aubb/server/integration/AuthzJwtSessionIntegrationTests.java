@@ -5,8 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -134,25 +132,20 @@ class AuthzJwtSessionIntegrationTests extends AbstractNonRateLimitedIntegrationT
     }
 
     @Test
-    void loginTokenShouldCarryGroupBindingsAndPermissionSnapshot() throws Exception {
+    void loginTokenShouldStayCompactAndAuthenticatedRequestsShouldReloadPermissionSnapshot() throws Exception {
         AuthTokens tokens = loginWithRefresh("teacher", "Password123");
 
         Jwt jwt = jwtDecoder.decode(tokens.accessToken());
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
-
-        assertThat(bindings).extracting(binding -> binding.get("templateCode")).contains("class-admin");
-        assertThat(bindings).extracting(binding -> binding.get("scopeType")).contains("CLASS");
-        assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.get("templateCode")).isEqualTo("class-admin");
-            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(1L);
-        });
-        assertThat(jwt.getClaimAsStringList("permissionCodes"))
-                .contains("class.manage", "member.manage", "role_binding.manage");
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
         Number permissionVersion = (Number) jwt.getClaim("permissionVersion");
         assertThat(permissionVersion).isNotNull();
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaimAsStringList("authorities")).contains("CLASS_ADMIN");
+        assertThat(tokens.accessToken()).hasSizeLessThan(4096);
+
+        mockMvc.perform(get("/api/v1/admin/org-units/tree").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -172,7 +165,11 @@ class AuthzJwtSessionIntegrationTests extends AbstractNonRateLimitedIntegrationT
         Jwt jwt = jwtDecoder.decode(tokens.accessToken());
 
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
-        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("class.manage", "role_binding.manage");
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
+        assertThat(jwt.getClaimAsStringList("authorities")).contains("CLASS_ADMIN");
+
+        mockMvc.perform(get("/api/v1/admin/org-units/tree").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -215,13 +212,11 @@ class AuthzJwtSessionIntegrationTests extends AbstractNonRateLimitedIntegrationT
         Jwt jwt = jwtDecoder.decode(tokens.accessToken());
 
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
-        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("class.manage", "role_binding.manage");
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
-        assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.get("templateCode")).isEqualTo("class-admin");
-            assertThat(binding.get("source")).isEqualTo("AUTHZ_GROUP");
-        });
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
+        assertThat(jwt.getClaimAsStringList("authorities")).contains("CLASS_ADMIN");
+
+        mockMvc.perform(get("/api/v1/admin/org-units/tree").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -247,18 +242,12 @@ class AuthzJwtSessionIntegrationTests extends AbstractNonRateLimitedIntegrationT
 
         Jwt jwt = jwtDecoder.decode(tokens.accessToken());
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
-
-        assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.get("templateCode")).isEqualTo("school-admin");
-            assertThat(binding.get("scopeType")).isEqualTo("SCHOOL");
-            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(1L);
-        });
-        assertThat(jwt.getClaimAsStringList("permissionCodes"))
-                .contains("school.manage", "role_binding.manage", "report.export");
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
         assertThat(jwt.getClaimAsStringList("authorities")).contains("SCHOOL_ADMIN");
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+
+        mockMvc.perform(get("/api/v1/admin/org-units/tree").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -288,7 +277,11 @@ class AuthzJwtSessionIntegrationTests extends AbstractNonRateLimitedIntegrationT
         Jwt jwt = jwtDecoder.decode(tokens.accessToken());
 
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
-        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("class.manage", "role_binding.manage");
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
+        assertThat(jwt.getClaimAsStringList("authorities")).contains("CLASS_ADMIN");
+
+        mockMvc.perform(get("/api/v1/admin/org-units/tree").header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isOk());
     }
 
     @Test

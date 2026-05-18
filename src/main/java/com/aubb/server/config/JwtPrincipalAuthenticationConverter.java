@@ -1,5 +1,6 @@
 package com.aubb.server.config;
 
+import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedPrincipalLoader;
 import com.aubb.server.modules.identityaccess.application.auth.AuthenticatedUserPrincipal;
 import com.aubb.server.modules.identityaccess.application.authz.GroupBindingView;
 import com.aubb.server.modules.identityaccess.application.iam.ScopeIdentityView;
@@ -12,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -20,24 +22,33 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, UsernamePasswordAuthenticationToken> {
+
+    private final AuthenticatedPrincipalLoader authenticatedPrincipalLoader;
 
     @Override
     public UsernamePasswordAuthenticationToken convert(Jwt jwt) {
-        List<String> authorityCodes = jwt.getClaimAsStringList("authorities");
-        Collection<GrantedAuthority> authorities;
-        if (authorityCodes == null) {
-            authorities = List.of();
-        } else {
-            authorities = authorityCodes.stream()
-                    .map(code -> (GrantedAuthority) new SimpleGrantedAuthority(code))
-                    .toList();
-        }
+        Long userId = readLong(jwt.getClaim("userId"));
+        AuthenticatedUserPrincipal reloadedPrincipal =
+                userId == null ? null : authenticatedPrincipalLoader.loadPrincipal(userId);
+        AuthenticatedUserPrincipal principal = reloadedPrincipal == null
+                ? readPrincipalFromJwt(jwt, userId)
+                : withTokenMetadata(reloadedPrincipal, jwt);
+        Collection<GrantedAuthority> authorities = reloadedPrincipal == null
+                ? readAuthorities(jwt)
+                : principal.authorities().stream()
+                        .map(authority -> (GrantedAuthority) authority)
+                        .toList();
+        return new UsernamePasswordAuthenticationToken(principal, jwt.getTokenValue(), authorities);
+    }
+
+    private AuthenticatedUserPrincipal readPrincipalFromJwt(Jwt jwt, Long userId) {
         List<ScopeIdentityView> identities = readIdentities(jwt);
         List<GroupBindingView> groupBindings = readGroupBindings(jwt);
         Set<String> permissionCodes = readPermissionCodes(jwt);
-        AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
-                readLong(jwt.getClaim("userId")),
+        return new AuthenticatedUserPrincipal(
+                userId,
                 jwt.getSubject(),
                 jwt.getClaimAsString("displayName"),
                 readLong(jwt.getClaim("primaryOrgUnitId")),
@@ -49,7 +60,33 @@ public class JwtPrincipalAuthenticationConverter implements Converter<Jwt, Usern
                 permissionCodes,
                 readLong(jwt.getClaim("permissionVersion")),
                 readBoolean(jwt.getClaim("roleBindingSnapshot")));
-        return new UsernamePasswordAuthenticationToken(principal, jwt.getTokenValue(), authorities);
+    }
+
+    private AuthenticatedUserPrincipal withTokenMetadata(AuthenticatedUserPrincipal principal, Jwt jwt) {
+        Long permissionVersion = readLong(jwt.getClaim("permissionVersion"));
+        return new AuthenticatedUserPrincipal(
+                principal.getUserId(),
+                principal.getUsername(),
+                principal.getDisplayName(),
+                principal.getPrimaryOrgUnitId(),
+                jwt.getClaimAsString("sid"),
+                principal.getAccountStatus(),
+                principal.getAcademicProfile(),
+                principal.getIdentities(),
+                principal.getGroupBindings(),
+                principal.getPermissionCodes(),
+                permissionVersion == null ? principal.getPermissionVersion() : permissionVersion,
+                principal.isRoleBindingSnapshot());
+    }
+
+    private Collection<GrantedAuthority> readAuthorities(Jwt jwt) {
+        List<String> authorityCodes = jwt.getClaimAsStringList("authorities");
+        if (authorityCodes == null) {
+            return List.of();
+        }
+        return authorityCodes.stream()
+                .map(code -> (GrantedAuthority) new SimpleGrantedAuthority(code))
+                .toList();
     }
 
     @SuppressWarnings("unchecked")

@@ -20,14 +20,12 @@ import com.aubb.server.modules.identityaccess.domain.account.AccountStatus;
 import com.jayway.jsonpath.JsonPath;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -313,17 +311,11 @@ class CourseSystemIntegrationTests extends AbstractNonRateLimitedIntegrationTest
         Long offeringId = createOffering(engAdminToken, catalogId, termId);
 
         String teacherToken = login("teacher-main", "Password123");
-        Jwt jwt = jwtDecoder.decode(teacherToken);
+        assertCompactRoleBindingSnapshotToken(teacherToken);
 
-        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
-        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("task.create", "member.manage");
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
-        assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.get("templateCode")).isEqualTo("offering-instructor");
-            assertThat(binding.get("scopeType")).isEqualTo("OFFERING");
-            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(offeringId);
-        });
+        mockMvc.perform(get("/api/v1/teacher/course-offerings/{offeringId}/question-bank/categories", offeringId)
+                        .header("Authorization", "Bearer " + teacherToken))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -340,9 +332,7 @@ class CourseSystemIntegrationTests extends AbstractNonRateLimitedIntegrationTest
                 .andExpect(status().isUnauthorized());
 
         String refreshedTeacherToken = login("teacher-main", "Password123");
-        Jwt jwt = jwtDecoder.decode(refreshedTeacherToken);
-
-        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertCompactRoleBindingSnapshotToken(refreshedTeacherToken);
         assertThat(
                         queryForCount(
                                 "SELECT COUNT(*) FROM auth_sessions WHERE user_id = 4 AND revoked_reason = 'COURSE_OFFERING_INITIAL_INSTRUCTOR_GRANTED'"))
@@ -362,17 +352,12 @@ class CourseSystemIntegrationTests extends AbstractNonRateLimitedIntegrationTest
         addCourseMember(teacherToken, offeringId, 6L, "STUDENT", classId, null);
 
         String studentToken = login("student-24", "Password123");
-        Jwt jwt = jwtDecoder.decode(studentToken);
+        assertCompactRoleBindingSnapshotToken(studentToken);
 
-        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
-        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("task.read", "submission.read");
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> bindings = (List<Map<String, Object>>) jwt.getClaim("groupBindings");
-        assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.get("templateCode")).isEqualTo("student");
-            assertThat(binding.get("scopeType")).isEqualTo("CLASS");
-            assertThat(((Number) binding.get("scopeRefId")).longValue()).isEqualTo(classId);
-        });
+        mockMvc.perform(get("/api/v1/me/assignments")
+                        .header("Authorization", "Bearer " + studentToken)
+                        .param("offeringId", String.valueOf(offeringId)))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -1310,6 +1295,12 @@ class CourseSystemIntegrationTests extends AbstractNonRateLimitedIntegrationTest
                 .andReturn();
 
         return JsonTestSupport.read(result.getResponse().getContentAsString(), "$.accessToken");
+    }
+
+    private void assertCompactRoleBindingSnapshotToken(String token) {
+        var jwt = jwtDecoder.decode(token);
+        assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
     }
 
     private Long findMemberId(Long offeringId, Long userId, String memberRole) {

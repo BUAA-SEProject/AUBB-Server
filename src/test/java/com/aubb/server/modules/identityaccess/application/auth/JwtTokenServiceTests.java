@@ -58,9 +58,9 @@ class JwtTokenServiceTests {
         assertThat(jwt.getClaimAsString("sid")).isEqualTo("session-123");
         assertThat(jwt.getClaimAsString("tokenType")).isEqualTo("access");
         assertThat(((Number) jwt.getClaim("userId")).longValue()).isEqualTo(1L);
-        assertThat(jwt.getClaimAsStringList("permissionCodes")).contains("org.unit.manage", "auth.group.manage");
-        assertThat(((List<?>) jwt.getClaim("groupBindings"))).hasSize(1);
+        assertThat(jwt.getClaims()).doesNotContainKeys("permissionCodes", "groupBindings");
         assertThat(((Number) jwt.getClaim("permissionVersion")).longValue()).isEqualTo(42L);
         assertThat(jwt.getClaimAsBoolean("roleBindingSnapshot")).isTrue();
+        assertThat(result.accessToken()).hasSizeLessThan(4096);
     }
 }

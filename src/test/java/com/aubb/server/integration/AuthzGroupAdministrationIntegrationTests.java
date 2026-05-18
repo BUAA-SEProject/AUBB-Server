@@ -6,8 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,7 +107,7 @@ class AuthzGroupAdministrationIntegrationTests extends AbstractNonRateLimitedInt
                 .andExpect(status().isUnauthorized());
 
         String teacherNewToken = login("teacher-main", "Password123");
-        assertTokenContainsPermissionSnapshot(teacherNewToken, "grade.override", "grade-corrector");
+        assertRoleBindingGrantPresent(2L, "grade.override", "grade-corrector");
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + teacherNewToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("teacher-main"));
@@ -467,24 +465,25 @@ class AuthzGroupAdministrationIntegrationTests extends AbstractNonRateLimitedInt
                 .isTrue();
     }
 
-    @SuppressWarnings("unchecked")
-    private void assertTokenContainsPermissionSnapshot(
-            String accessToken, String expectedPermissionCode, String expectedTemplateCode) {
-        String[] tokenParts = accessToken.split("\\.");
-        org.assertj.core.api.Assertions.assertThat(tokenParts).hasSize(3);
-        String payloadJson = new String(Base64.getUrlDecoder().decode(tokenParts[1]), StandardCharsets.UTF_8);
-
-        List<String> permissionCodes = JsonPath.read(payloadJson, "$.permissionCodes");
-        List<Map<String, Object>> groupBindings = JsonPath.read(payloadJson, "$.groupBindings");
-
-        boolean hasExpectedBinding = groupBindings.stream()
-                .anyMatch(binding -> "AUTHZ_GROUP".equals(String.valueOf(binding.get("source")))
-                        && expectedTemplateCode.equals(String.valueOf(binding.get("templateCode"))));
-
-        org.assertj.core.api.Assertions.assertThat(permissionCodes).contains(expectedPermissionCode);
-        org.assertj.core.api.Assertions.assertThat(hasExpectedBinding)
-                .as("expected AUTHZ_GROUP binding with templateCode=%s", expectedTemplateCode)
-                .isTrue();
+    private void assertRoleBindingGrantPresent(
+            Long userId, String expectedPermissionCode, String expectedTemplateCode) {
+        Integer grantCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM role_bindings rb
+                JOIN roles r ON r.id = rb.role_id
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE rb.user_id = ?
+                  AND rb.source_type = 'LEGACY_AUTHZ_GROUP'
+                  AND rb.status = 'ACTIVE'
+                  AND p.code = ?
+                  AND r.code = CASE ?
+                      WHEN 'grade-corrector' THEN 'grader'
+                      ELSE ?
+                  END
+                """, Integer.class, userId, expectedPermissionCode, expectedTemplateCode, expectedTemplateCode);
+        org.assertj.core.api.Assertions.assertThat(grantCount).isGreaterThan(0);
     }
 
     private void insertExpiredGroupMember(Long groupId, Long userId) {

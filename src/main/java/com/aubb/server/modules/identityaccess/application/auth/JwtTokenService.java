@@ -46,18 +46,6 @@ public class JwtTokenService {
                 .claim("accountStatus", principal.getAccountStatus().name())
                 .claim("authorities", principal.roleCodes())
                 .claim(
-                        "permissionCodes",
-                        principal.getPermissionCodes().stream().sorted().toList())
-                .claim(
-                        "groupBindings",
-                        principal.getGroupBindings().stream()
-                                .map(binding -> Map.<String, Object>of(
-                                        "source", binding.source(),
-                                        "templateCode", binding.templateCode(),
-                                        "scopeType", binding.scopeType(),
-                                        "scopeRefId", binding.scopeRefId()))
-                                .toList())
-                .claim(
                         "identities",
                         principal.getIdentities().stream()
                                 .map(identity -> Map.<String, Object>of(
